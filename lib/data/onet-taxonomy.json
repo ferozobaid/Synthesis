@@ -1,0 +1,2153 @@
+{
+  "version": "O*NET 30.3",
+  "generated_at": "2026-06-14",
+  "note": "Curated analytics/consulting/tech subset of O*NET. Live plane reads only this file; never Datasets/. Regenerate via scripts/onet/extract_taxonomy.py.",
+  "occupations": [
+    {
+      "soc": "13-1111.00",
+      "title": "Management Analysts",
+      "description": "Conduct organizational studies and evaluations, design systems and procedures, conduct work simplification and measurement studies, and prepare operations and procedures manuals to assist management in operating more efficiently and effectively. Includes program analysts and management consultants.",
+      "aliases": [
+        "Administrative Analyst",
+        "Business Analyst",
+        "Business Consultant",
+        "Employment Programs Analyst",
+        "Management Analyst",
+        "Management Consultant",
+        "Organizational Development Consultant",
+        "Performance Management Analyst",
+        "Program Management Analyst"
+      ],
+      "core_skills": [
+        "Active Listening",
+        "Critical Thinking",
+        "Reading Comprehension",
+        "Complex Problem Solving",
+        "Judgment and Decision Making",
+        "Speaking",
+        "Writing",
+        "Coordination",
+        "Monitoring",
+        "Social Perceptiveness",
+        "Systems Evaluation",
+        "Systems Analysis"
+      ],
+      "core_knowledge": [
+        "English Language",
+        "Administration and Management",
+        "Customer and Personal Service",
+        "Mathematics",
+        "Education and Training",
+        "Computers and Electronics",
+        "Economics and Accounting",
+        "Law and Government"
+      ],
+      "tools": [
+        "Jira",
+        "Excel",
+        "Power BI",
+        "Python",
+        "SQL",
+        "Tableau",
+        "Redshift",
+        "AWS",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Bash",
+        "C#",
+        "C++",
+        "Git",
+        "SPSS",
+        "JavaScript",
+        "Linux",
+        "Azure",
+        "VBA",
+        "MongoDB"
+      ],
+      "core_tasks": [
+        "Gather and organize information on problems or procedures.",
+        "Confer with personnel concerned to ensure successful functioning of newly implemented systems or procedures.",
+        "Analyze data gathered and develop solutions or alternative methods of proceeding.",
+        "Document findings of study and prepare recommendations for implementation of new systems, procedures, or organizational changes.",
+        "Plan study of work problems and procedures, such as organizational change, communications, information flow, integrated production methods, inventory control, or cost analysis.",
+        "Interview personnel and conduct on-site observation to ascertain unit functions, work performed, and methods, equipment, and personnel used.",
+        "Prepare manuals and train workers in use of new forms, reports, procedures or equipment, according to organizational policy."
+      ]
+    },
+    {
+      "soc": "13-1161.00",
+      "title": "Market Research Analysts and Marketing Specialists",
+      "description": "Research conditions in local, regional, national, or online markets. Gather information to determine potential sales of a product or service, or plan a marketing or advertising campaign. May gather information on competitors, prices, sales, and methods of marketing and distribution. May employ searc",
+      "aliases": [
+        "Business Development Specialist",
+        "Communications Specialist",
+        "Demographic Analyst",
+        "Market Analyst",
+        "Market Research Analyst",
+        "Market Research Consultant",
+        "Market Research Specialist",
+        "Market Researcher"
+      ],
+      "core_skills": [
+        "Critical Thinking",
+        "Reading Comprehension",
+        "Writing",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Speaking",
+        "Judgment and Decision Making",
+        "Active Learning",
+        "Mathematics",
+        "Monitoring",
+        "Persuasion",
+        "Social Perceptiveness"
+      ],
+      "core_knowledge": [
+        "English Language",
+        "Customer and Personal Service",
+        "Sales and Marketing",
+        "Mathematics",
+        "Administration and Management",
+        "Communications and Media",
+        "Administrative"
+      ],
+      "tools": [
+        "Excel",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Looker",
+        "SPSS",
+        "JavaScript",
+        "SQL",
+        "VBA",
+        "R",
+        "Linux",
+        "SAS",
+        "Tableau",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Prepare reports of findings, illustrating data graphically and translating complex findings into written text.",
+        "Collect and analyze data on customer demographics, preferences, needs, and buying habits to identify potential markets and factors affecting product demand.",
+        "Conduct research on consumer opinions and marketing strategies, collaborating with marketing professionals, statisticians, pollsters, and other professionals.",
+        "Measure and assess customer and employee satisfaction.",
+        "Devise and evaluate methods and procedures for collecting data, such as surveys, opinion polls, or questionnaires, or arrange to obtain existing data.",
+        "Measure the effectiveness of marketing, advertising, and communications programs and strategies.",
+        "Seek and provide information to help companies determine their position in the marketplace."
+      ]
+    },
+    {
+      "soc": "13-1081.00",
+      "title": "Logisticians",
+      "description": "Analyze and coordinate the ongoing logistical functions of a firm or organization. Responsible for the entire life cycle of a product, including acquisition, distribution, internal allocation, delivery, and final disposal of resources.",
+      "aliases": [
+        "Client Services Administrator",
+        "Logistician",
+        "Production Planner",
+        "Supply Management Specialist"
+      ],
+      "core_skills": [
+        "Critical Thinking",
+        "Active Listening",
+        "Coordination",
+        "Monitoring",
+        "Reading Comprehension",
+        "Speaking",
+        "Complex Problem Solving",
+        "Judgment and Decision Making",
+        "Social Perceptiveness",
+        "Active Learning",
+        "Systems Analysis",
+        "Time Management"
+      ],
+      "core_knowledge": [
+        "Transportation",
+        "English Language",
+        "Administration and Management",
+        "Customer and Personal Service",
+        "Mathematics",
+        "Computers and Electronics",
+        "Economics and Accounting",
+        "Geography"
+      ],
+      "tools": [
+        "Excel",
+        "SQL"
+      ],
+      "core_tasks": [
+        "Maintain and develop positive business relationships with a customer's key personnel involved in, or directly relevant to, a logistics activity.",
+        "Develop an understanding of customers' needs and take actions to ensure that such needs are met.",
+        "Manage subcontractor activities, reviewing proposals, developing performance specifications, and serving as liaisons between subcontractors and organizations.",
+        "Develop proposals that include documentation for estimates.",
+        "Review logistics performance with customers against targets, benchmarks, and service agreements.",
+        "Direct availability and allocation of materials, supplies, and finished products.",
+        "Redesign the movement of goods to maximize value and minimize costs."
+      ]
+    },
+    {
+      "soc": "13-1082.00",
+      "title": "Project Management Specialists",
+      "description": "Analyze and coordinate the schedule, timeline, procurement, staffing, and budget of a product or service on a per project basis. Lead and guide the work of technical staff. May serve as a point of contact for the client or customer.",
+      "aliases": [],
+      "core_skills": [],
+      "core_knowledge": [],
+      "tools": [
+        "Jira",
+        "Excel",
+        "Git",
+        "SPSS",
+        "Linux",
+        "Azure",
+        "VBA",
+        "SQL",
+        "SAS",
+        "Tableau"
+      ],
+      "core_tasks": [
+        "Assign duties or responsibilities to project personnel.",
+        "Communicate with key stakeholders to determine project requirements and objectives.",
+        "Confer with project personnel to identify and resolve problems.",
+        "Create project status presentations for delivery to customers or project personnel.",
+        "Develop or update project plans including information such as objectives, technologies, schedules, funding, and staffing.",
+        "Identify project needs such as resources, staff, or finances by reviewing project objectives and schedules.",
+        "Identify, review, or select vendors or consultants to meet project needs."
+      ]
+    },
+    {
+      "soc": "13-2051.00",
+      "title": "Financial and Investment Analysts",
+      "description": "Conduct quantitative analyses of information involving investment programs or financial data of public or private institutions, including valuation of businesses.",
+      "aliases": [
+        "Analyst",
+        "Credit Products Officer",
+        "Equity Research Analyst",
+        "Financial Analyst",
+        "Investment Analyst",
+        "Planning Analyst",
+        "Portfolio Manager",
+        "Real Estate Analyst",
+        "Securities Analyst",
+        "Trust Officer"
+      ],
+      "core_skills": [],
+      "core_knowledge": [],
+      "tools": [
+        "Excel",
+        "Power BI",
+        "SQL",
+        "Tableau",
+        "Hive",
+        "SPSS",
+        "VBA",
+        "R",
+        "SAS",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Advise clients on aspects of capitalization, such as amounts, sources, or timing.",
+        "Analyze financial or operational performance of companies facing financial difficulties to identify or recommend remedies.",
+        "Assess companies as investments for clients by examining company facilities.",
+        "Collaborate on projects with other professionals, such as lawyers, accountants, or public relations experts.",
+        "Collaborate with investment bankers to attract new corporate clients.",
+        "Conduct financial analyses related to investments in green construction or green retrofitting projects.",
+        "Confer with clients to restructure debt, refinance debt, or raise new debt."
+      ]
+    },
+    {
+      "soc": "11-2021.00",
+      "title": "Marketing Managers",
+      "description": "Plan, direct, or coordinate marketing policies and programs, such as determining the demand for products and services offered by a firm and its competitors, and identify potential customers. Develop pricing strategies with the goal of maximizing the firm's profits or share of the market while ensuri",
+      "aliases": [
+        "Account Supervisor",
+        "Brand Manager",
+        "Business Development Director",
+        "Business Development Manager",
+        "Commercial Lines Manager",
+        "Market Development Executive",
+        "Marketing Coordinator",
+        "Marketing Director",
+        "Marketing Manager",
+        "Product Manager"
+      ],
+      "core_skills": [
+        "Active Learning",
+        "Active Listening",
+        "Critical Thinking",
+        "Reading Comprehension",
+        "Social Perceptiveness",
+        "Speaking",
+        "Judgment and Decision Making",
+        "Monitoring",
+        "Persuasion",
+        "Complex Problem Solving",
+        "Negotiation",
+        "Coordination"
+      ],
+      "core_knowledge": [
+        "Sales and Marketing",
+        "English Language",
+        "Administration and Management",
+        "Customer and Personal Service",
+        "Communications and Media",
+        "Computers and Electronics",
+        "Mathematics"
+      ],
+      "tools": [
+        "Jira",
+        "Excel",
+        "SQL",
+        "Redshift",
+        "AWS",
+        "Hadoop",
+        "Hive",
+        "Git",
+        "Looker",
+        "SPSS",
+        "JavaScript",
+        "Azure",
+        "VBA",
+        "NoSQL",
+        "Python",
+        "R",
+        "SAS",
+        "Tableau",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Identify, develop, or evaluate marketing strategy, based on knowledge of establishment objectives, market characteristics, and cost and markup factors.",
+        "Formulate, direct, or coordinate marketing activities or policies to promote products or services, working with advertising or promotion managers.",
+        "Evaluate the financial aspects of product development, such as budgets, expenditures, research and development appropriations, or return-on-investment and profit-loss projections.",
+        "Develop pricing strategies, balancing firm objectives and customer satisfaction.",
+        "Compile lists describing product or service offerings.",
+        "Direct the hiring, training, or performance evaluations of marketing or sales staff and oversee their daily activities.",
+        "Consult with product development personnel on product specifications, such as design, color, or packaging."
+      ]
+    },
+    {
+      "soc": "11-3021.00",
+      "title": "Computer and Information Systems Managers",
+      "description": "Plan, direct, or coordinate activities in such fields as electronic data processing, information systems, systems analysis, and computer programming.",
+      "aliases": [
+        "Application Development Director",
+        "Computing Services Director",
+        "Data Processing Manager",
+        "Information Systems Director (IS Director)",
+        "Information Systems Manager (IS Manager)",
+        "Information Systems Supervisor (IS Supervisor)",
+        "Information Technology Director (IT Director)",
+        "Information Technology Manager (IT Manager)",
+        "MIS Director (Management Information Systems Director)",
+        "Technical Services Manager"
+      ],
+      "core_skills": [
+        "Critical Thinking",
+        "Active Listening",
+        "Reading Comprehension",
+        "Judgment and Decision Making",
+        "Monitoring",
+        "Speaking",
+        "Complex Problem Solving",
+        "Coordination",
+        "Writing",
+        "Management of Personnel Resources",
+        "Social Perceptiveness",
+        "Systems Analysis"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Customer and Personal Service",
+        "Administration and Management",
+        "Engineering and Technology",
+        "English Language",
+        "Personnel and Human Resources"
+      ],
+      "tools": [
+        "AWS",
+        "Azure",
+        "Hadoop",
+        "Jira",
+        "C#",
+        "C++",
+        "SPSS",
+        "JavaScript",
+        "Linux",
+        "Excel",
+        "SQL",
+        "MongoDB",
+        "NoSQL",
+        "Java",
+        "Python",
+        "R",
+        "SAS",
+        "Tableau",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Direct daily operations of department, analyzing workflow, establishing priorities, developing standards and setting deadlines.",
+        "Meet with department heads, managers, supervisors, vendors, and others, to solicit cooperation and resolve problems.",
+        "Review project plans to plan and coordinate project activity.",
+        "Assign and review the work of systems analysts, programmers, and other computer-related workers.",
+        "Provide users with technical support for computer problems.",
+        "Develop computer information resources, providing for data security and control, strategic computing, and disaster recovery.",
+        "Recruit, hire, train and supervise staff, or participate in staffing decisions."
+      ]
+    },
+    {
+      "soc": "15-1211.00",
+      "title": "Computer Systems Analysts",
+      "description": "Analyze science, engineering, business, and other data processing problems to develop and implement solutions to complex applications problems, system administration issues, or network concerns. Perform systems management and integration functions, improve existing computer systems, and review compu",
+      "aliases": [
+        "Applications Analyst",
+        "Business Systems Analyst",
+        "Computer Analyst",
+        "Computer Systems Analyst",
+        "Computer Systems Consultant",
+        "Information Systems Analyst (ISA)",
+        "IT Analyst (Information Technology Analyst)",
+        "IT Systems Analyst (Information Technology Systems Analyst)",
+        "Programmer Analyst",
+        "Systems Analyst"
+      ],
+      "core_skills": [
+        "Speaking",
+        "Reading Comprehension",
+        "Active Listening",
+        "Critical Thinking",
+        "Systems Analysis",
+        "Systems Evaluation",
+        "Active Learning",
+        "Judgment and Decision Making",
+        "Complex Problem Solving",
+        "Monitoring",
+        "Writing",
+        "Programming"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Customer and Personal Service",
+        "English Language",
+        "Mathematics"
+      ],
+      "tools": [
+        "Jira",
+        "Excel",
+        "Power BI",
+        "Python",
+        "SQL",
+        "Redshift",
+        "AWS",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Bash",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "SPSS",
+        "JavaScript",
+        "Linux",
+        "Azure",
+        "VBA",
+        "MongoDB"
+      ],
+      "core_tasks": [
+        "Troubleshoot program and system malfunctions to restore normal functioning.",
+        "Provide staff and users with assistance solving computer-related problems, such as malfunctions and program problems.",
+        "Test, maintain, and monitor computer programs and systems, including coordinating the installation of computer programs and systems.",
+        "Use the computer in the analysis and solution of business problems, such as development of integrated production and inventory control and cost analysis systems.",
+        "Coordinate and link the computer systems within an organization to increase compatibility so that information can be shared.",
+        "Use object-oriented programming languages, as well as client and server applications development processes and multimedia and Internet technology.",
+        "Analyze information processing or computation needs and plan and design computer systems, using techniques such as structured analysis, data modeling, and information engineering."
+      ]
+    },
+    {
+      "soc": "15-1212.00",
+      "title": "Information Security Analysts",
+      "description": "Plan, implement, upgrade, or monitor security measures for the protection of computer networks and information. Assess system vulnerabilities for security risks and propose and implement risk mitigation strategies. May ensure appropriate security controls are in place that will safeguard digital fil",
+      "aliases": [
+        "Information Security Officer",
+        "Information Security Specialist",
+        "Information Systems Security Analyst",
+        "Information Systems Security Officer (ISSO)",
+        "Information Technology Security Analyst (IT Security Analyst)",
+        "Network Security Analyst",
+        "Security Analyst",
+        "Systems Analyst"
+      ],
+      "core_skills": [
+        "Reading Comprehension",
+        "Critical Thinking",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Speaking",
+        "Writing",
+        "Judgment and Decision Making",
+        "Monitoring",
+        "Systems Analysis",
+        "Active Learning",
+        "Time Management",
+        "Coordination"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "English Language",
+        "Administration and Management",
+        "Engineering and Technology",
+        "Telecommunications",
+        "Customer and Personal Service",
+        "Public Safety and Security"
+      ],
+      "tools": [
+        "AWS",
+        "Linux",
+        "Azure",
+        "Excel",
+        "Python",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Jira",
+        "Bash",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "JavaScript",
+        "SQL",
+        "VBA",
+        "MongoDB",
+        "NoSQL",
+        "Java"
+      ],
+      "core_tasks": [
+        "Develop plans to safeguard computer files against accidental or unauthorized modification, destruction, or disclosure and to meet emergency data processing needs.",
+        "Monitor current reports of computer viruses to determine when to update virus protection systems.",
+        "Encrypt data transmissions and erect firewalls to conceal confidential information as it is being transmitted and to keep out tainted digital transfers.",
+        "Perform risk assessments and execute tests of data processing system to ensure functioning of data processing activities and security measures.",
+        "Modify computer security files to incorporate new software, correct errors, or change individual access status.",
+        "Review violations of computer security procedures and discuss procedures with violators to ensure violations are not repeated.",
+        "Document computer security and emergency measures policies, procedures, and tests."
+      ]
+    },
+    {
+      "soc": "15-1242.00",
+      "title": "Database Administrators",
+      "description": "Administer, test, and implement computer databases, applying knowledge of database management systems. Coordinate changes to computer databases. Identify, investigate, and resolve database performance issues, database capacity, and database scalability. May plan, coordinate, and implement security m",
+      "aliases": [
+        "Database Administration Manager",
+        "Database Administrator (DBA)",
+        "Database Analyst",
+        "Database Coordinator",
+        "Database Engineer",
+        "Database Manager",
+        "Development and Database Administration Manager",
+        "IS Admin (Information Systems Administrator)",
+        "Systems Administrator (Systems Admin)"
+      ],
+      "core_skills": [
+        "Complex Problem Solving",
+        "Critical Thinking",
+        "Active Listening",
+        "Judgment and Decision Making",
+        "Reading Comprehension",
+        "Active Learning",
+        "Programming",
+        "Speaking",
+        "Monitoring",
+        "Writing",
+        "Operations Analysis",
+        "Systems Analysis"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "English Language",
+        "Customer and Personal Service",
+        "Mathematics",
+        "Telecommunications",
+        "Engineering and Technology"
+      ],
+      "tools": [
+        "Redshift",
+        "AWS",
+        "Airflow",
+        "Hadoop",
+        "Kafka",
+        "Spark",
+        "Jira",
+        "Git",
+        "Kubernetes",
+        "Linux",
+        "Azure",
+        "Power BI",
+        "SQL",
+        "MongoDB",
+        "NoSQL",
+        "Java",
+        "Python",
+        "Scala",
+        "Snowflake",
+        "Tableau",
+        "Hive",
+        "Bash"
+      ],
+      "core_tasks": [
+        "Modify existing databases and database management systems or direct programmers and analysts to make changes.",
+        "Plan, coordinate, and implement security measures to safeguard information in computer files against accidental or unauthorized damage, modification or disclosure.",
+        "Plan and install upgrades of database management system software to enhance database performance.",
+        "Specify users and user access levels for each segment of database.",
+        "Test changes to database applications or systems.",
+        "Test programs or databases, correct errors, and make necessary modifications.",
+        "Train users and answer questions."
+      ]
+    },
+    {
+      "soc": "15-1243.00",
+      "title": "Database Architects",
+      "description": "Design strategies for enterprise databases, data warehouse systems, and multidimensional networks. Set standards for database operations, programming, query processes, and security. Model, design, and construct large relational databases or data warehouses. Create and optimize data models for wareho",
+      "aliases": [
+        "Data Architect",
+        "Data Engineer",
+        "Data Officer",
+        "Database Analyst",
+        "Database Architect",
+        "Database Consultant",
+        "Database Developer",
+        "Database Programmer",
+        "Enterprise Architect",
+        "Information Architect"
+      ],
+      "core_skills": [
+        "Complex Problem Solving",
+        "Critical Thinking",
+        "Judgment and Decision Making",
+        "Reading Comprehension",
+        "Systems Analysis",
+        "Active Listening",
+        "Speaking",
+        "Programming",
+        "Active Learning",
+        "Systems Evaluation",
+        "Monitoring",
+        "Operations Analysis"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Engineering and Technology",
+        "Design",
+        "Mathematics"
+      ],
+      "tools": [
+        "AWS",
+        "Kafka",
+        "Spark",
+        "Azure",
+        "Excel",
+        "Power BI",
+        "Java",
+        "Python",
+        "Snowflake",
+        "SQL",
+        "Tableau",
+        "Redshift",
+        "Airflow",
+        "Hadoop",
+        "Hive",
+        "Jira",
+        "Bash",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "SPSS"
+      ],
+      "core_tasks": [
+        "Develop and document database architectures.",
+        "Collaborate with system architects, software architects, design analysts, and others to understand business or industry requirements.",
+        "Develop database architectural strategies at the modeling, design and implementation stages to address business or industry requirements.",
+        "Design databases to support business applications, ensuring system scalability, security, performance, and reliability.",
+        "Develop data models for applications, metadata tables, views or related database structures.",
+        "Design database applications, such as interfaces, data transfer mechanisms, global temporary tables, data partitions, and function-based indexes to enable efficient access of the generic database structure.",
+        "Develop methods for integrating different products so they work properly together, such as customizing commercial databases to fit specific needs."
+      ]
+    },
+    {
+      "soc": "15-1244.00",
+      "title": "Network and Computer Systems Administrators",
+      "description": "Install, configure, and maintain an organization's local area network (LAN), wide area network (WAN), data communications network, operating systems, and physical and virtual servers. Perform system monitoring and verify the integrity and availability of hardware, network, and server resources and s",
+      "aliases": [
+        "Information Analyst",
+        "Information Technology Specialist (IT Specialist)",
+        "LAN Specialist (Local Area Network Specialist)",
+        "Local Area Network Administrator (LAN Administrator)",
+        "Network Administrator",
+        "Network Coordinator",
+        "Network Manager",
+        "Systems Administrator (Systems Admin)"
+      ],
+      "core_skills": [
+        "Critical Thinking",
+        "Judgment and Decision Making",
+        "Reading Comprehension",
+        "Systems Analysis",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Monitoring",
+        "Systems Evaluation",
+        "Troubleshooting",
+        "Programming",
+        "Operations Monitoring",
+        "Speaking"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "English Language",
+        "Customer and Personal Service",
+        "Engineering and Technology"
+      ],
+      "tools": [
+        "AWS",
+        "Bash",
+        "Linux",
+        "Azure",
+        "Excel",
+        "Python",
+        "SQL",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Jira",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "JavaScript",
+        "VBA",
+        "MongoDB",
+        "NoSQL",
+        "Java"
+      ],
+      "core_tasks": [
+        "Maintain and administer computer networks and related computing environments, including computer hardware, systems software, applications software, and all configurations.",
+        "Perform data backups and disaster recovery operations.",
+        "Diagnose, troubleshoot, and resolve hardware, software, or other network and system problems, and replace defective components when necessary.",
+        "Configure, monitor, and maintain email applications or virus protection software.",
+        "Operate master consoles to monitor the performance of computer systems and networks and to coordinate computer network access and use.",
+        "Monitor network performance to determine whether adjustments are needed and where changes will be needed in the future.",
+        "Plan, coordinate, and implement network security measures to protect data, software, and hardware."
+      ]
+    },
+    {
+      "soc": "15-1251.00",
+      "title": "Computer Programmers",
+      "description": "Create, modify, and test the code and scripts that allow computer applications to run. Work from specifications drawn up by software and web developers or other individuals. May develop and write computer programs to store, locate, and retrieve specific documents, data, and information.",
+      "aliases": [
+        "Analyst Programmer",
+        "Application Programmer Analyst",
+        "Computer Programmer",
+        "Computer Programmer Analyst",
+        "Internet Programmer",
+        "Java Developer",
+        "Programmer",
+        "Programmer Analyst",
+        "Web Applications Programmer",
+        "Web Programmer"
+      ],
+      "core_skills": [
+        "Programming",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Critical Thinking",
+        "Quality Control Analysis",
+        "Reading Comprehension",
+        "Systems Analysis",
+        "Judgment and Decision Making",
+        "Writing",
+        "Active Learning",
+        "Mathematics",
+        "Operations Analysis"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Mathematics",
+        "Engineering and Technology",
+        "English Language",
+        "Customer and Personal Service",
+        "Administration and Management"
+      ],
+      "tools": [
+        "C#",
+        "C++",
+        "Git",
+        "JavaScript",
+        "Linux",
+        "Azure",
+        "Excel",
+        "SQL",
+        "Java",
+        "Python",
+        "R",
+        "SAS",
+        "Redshift",
+        "AWS",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Jira",
+        "Bash",
+        "Docker",
+        "SPSS"
+      ],
+      "core_tasks": [
+        "Write, analyze, review, and rewrite programs, using workflow chart and diagram, and applying knowledge of computer capabilities, subject matter, and symbolic logic.",
+        "Correct errors by making appropriate changes and rechecking the program to ensure that the desired results are produced.",
+        "Perform or direct revision, repair, or expansion of existing programs to increase operating efficiency or adapt to new requirements.",
+        "Write, update, and maintain computer programs or software packages to handle specific jobs such as tracking inventory, storing or retrieving data, or controlling other equipment.",
+        "Consult with managerial, engineering, and technical personnel to clarify program intent, identify problems, and suggest changes.",
+        "Conduct trial runs of programs and software applications to be sure they will produce the desired information and that the instructions are correct.",
+        "Prepare detailed workflow charts and diagrams that describe input, output, and logical operation, and convert them into a series of instructions coded in a computer language."
+      ]
+    },
+    {
+      "soc": "15-1252.00",
+      "title": "Software Developers",
+      "description": "Research, design, and develop computer and network software or specialized utility programs. Analyze user needs and develop software solutions, applying principles and techniques of computer science, engineering, and mathematical analysis. Update software or enhance existing software capabilities. M",
+      "aliases": [
+        "Application Developer",
+        "Application Integration Engineer",
+        "Developer",
+        "DevOps Engineer (Development Operations Engineer)",
+        "Infrastructure Engineer",
+        "Software Architect",
+        "Software Developer",
+        "Software Development Engineer",
+        "Software Engineer",
+        "Systems Engineer"
+      ],
+      "core_skills": [
+        "Programming",
+        "Critical Thinking",
+        "Judgment and Decision Making",
+        "Active Learning",
+        "Reading Comprehension",
+        "Systems Analysis",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Systems Evaluation",
+        "Technology Design",
+        "Operations Analysis",
+        "Writing"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Mathematics",
+        "Customer and Personal Service",
+        "English Language"
+      ],
+      "tools": [
+        "AWS",
+        "Kafka",
+        "Jira",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "JavaScript",
+        "Kubernetes",
+        "Linux",
+        "Azure",
+        "NoSQL",
+        "Java",
+        "SQL",
+        "Python",
+        "TypeScript",
+        "Redshift",
+        "Airflow",
+        "Hadoop",
+        "Hive",
+        "Spark",
+        "Bash"
+      ],
+      "core_tasks": [
+        "Analyze user needs and software requirements to determine feasibility of design within time and cost constraints.",
+        "Develop or direct software system testing or validation procedures, programming, or documentation.",
+        "Confer with systems analysts, engineers, programmers and others to design systems and to obtain information on project limitations and capabilities, performance requirements and interfaces.",
+        "Modify existing software to correct errors, adapt it to new hardware, or upgrade interfaces and improve performance.",
+        "Prepare reports or correspondence concerning project specifications, activities, or status.",
+        "Analyze information to determine, recommend, and plan installation of a new system or modification of an existing system.",
+        "Store, retrieve, and manipulate data for analysis of system capabilities and requirements."
+      ]
+    },
+    {
+      "soc": "15-1254.00",
+      "title": "Web Developers",
+      "description": "Develop and implement websites, web applications, application databases, and interactive web interfaces. Evaluate code to ensure that it is properly structured, meets industry standards, and is compatible with browsers and devices. Optimize website performance, scalability, and server-side code and ",
+      "aliases": [
+        "Technology Applications Engineer",
+        "Web Architect",
+        "Web Design Specialist",
+        "Web Developer",
+        "Webmaster"
+      ],
+      "core_skills": [
+        "Programming",
+        "Critical Thinking",
+        "Complex Problem Solving",
+        "Operations Analysis",
+        "Reading Comprehension",
+        "Active Learning",
+        "Active Listening",
+        "Judgment and Decision Making",
+        "Speaking",
+        "Systems Analysis",
+        "Writing",
+        "Coordination"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "English Language",
+        "Mathematics"
+      ],
+      "tools": [
+        "AWS",
+        "Kafka",
+        "Jira",
+        "C#",
+        "Docker",
+        "Git",
+        "JavaScript",
+        "Kubernetes",
+        "Linux",
+        "Azure",
+        "MongoDB",
+        "SQL",
+        "NoSQL",
+        "Java",
+        "Python",
+        "TypeScript",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Spark",
+        "Bash",
+        "C++"
+      ],
+      "core_tasks": [
+        "Write supporting code for Web applications or Web sites.",
+        "Design, build, or maintain Web sites, using authoring or scripting languages, content creation tools, management tools, and digital media.",
+        "Back up files from Web sites to local directories for instant recovery in case of problems.",
+        "Select programming languages, design tools, or applications.",
+        "Evaluate code to ensure that it is valid, is properly structured, meets industry standards, and is compatible with browsers, devices, or operating systems.",
+        "Develop databases that support Web applications and Web sites.",
+        "Perform Web site tests according to planned schedules, or after any Web site or product revision."
+      ]
+    },
+    {
+      "soc": "15-1299.05",
+      "title": "Information Security Engineers",
+      "description": "Develop and oversee the implementation of information security procedures and policies. Build, maintain and upgrade security technology, such as firewalls, for the safe use of computer networks and the transmission and retrieval of information. Design and implement appropriate security controls to i",
+      "aliases": [
+        "BISO (Business Information Security Officer)",
+        "Cloud Engineer",
+        "Engineer",
+        "Information Security Auditor",
+        "Information Security System Engineer",
+        "Infrastructure Security Engineer",
+        "Security Analyst",
+        "Security Data Scientist",
+        "Security Engineer",
+        "Systems Engineer"
+      ],
+      "core_skills": [
+        "Reading Comprehension",
+        "Critical Thinking",
+        "Active Listening",
+        "Monitoring",
+        "Writing",
+        "Speaking",
+        "Quality Control Analysis",
+        "Systems Analysis",
+        "Systems Evaluation",
+        "Active Learning",
+        "Complex Problem Solving",
+        "Judgment and Decision Making"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Engineering and Technology",
+        "English Language",
+        "Telecommunications"
+      ],
+      "tools": [
+        "AWS",
+        "Bash",
+        "Kubernetes",
+        "Linux",
+        "Azure",
+        "Java",
+        "Python",
+        "Jira",
+        "C#",
+        "C++",
+        "Docker",
+        "Git",
+        "JavaScript",
+        "Excel",
+        "SQL",
+        "MongoDB",
+        "NoSQL",
+        "R"
+      ],
+      "core_tasks": [
+        "Identify security system weaknesses, using penetration tests.",
+        "Coordinate monitoring of networks or systems for security breaches or intrusions.",
+        "Assess the quality of security controls, using performance indicators.",
+        "Train staff on, and oversee the use of, information security standards, policies, and best practices.",
+        "Scan networks, using vulnerability assessment tools to identify vulnerabilities.",
+        "Develop response and recovery strategies for security breaches.",
+        "Conduct investigations of information security breaches to identify vulnerabilities and evaluate the damage."
+      ]
+    },
+    {
+      "soc": "15-2011.00",
+      "title": "Actuaries",
+      "description": "Analyze statistical data, such as mortality, accident, sickness, disability, and retirement rates and construct probability tables to forecast risk and liability for payment of future benefits. May ascertain insurance rates required and cash reserves necessary to ensure payment of future benefits.",
+      "aliases": [
+        "Actuarial Analyst",
+        "Actuarial Associate",
+        "Actuarial Consultant",
+        "Actuary",
+        "Consulting Actuary",
+        "Corporate Actuary",
+        "Health Actuary",
+        "Pricing Actuary",
+        "Product Development Actuary",
+        "Reserving Actuary"
+      ],
+      "core_skills": [
+        "Critical Thinking",
+        "Judgment and Decision Making",
+        "Mathematics",
+        "Reading Comprehension",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Systems Evaluation",
+        "Speaking",
+        "Systems Analysis",
+        "Writing",
+        "Active Learning",
+        "Monitoring"
+      ],
+      "core_knowledge": [
+        "Mathematics",
+        "Computers and Electronics",
+        "Economics and Accounting",
+        "English Language"
+      ],
+      "tools": [
+        "Excel",
+        "Power BI",
+        "VBA",
+        "Python",
+        "R",
+        "SAS",
+        "SQL",
+        "Tableau",
+        "C++",
+        "SPSS",
+        "Java"
+      ],
+      "core_tasks": [
+        "Ascertain premium rates required and cash reserves and liabilities necessary to ensure payment of future benefits.",
+        "Collaborate with programmers, underwriters, accounts, claims experts, and senior management to help companies develop plans for new lines of business or improvements to existing business.",
+        "Analyze statistical information to estimate mortality, accident, sickness, disability, and retirement rates.",
+        "Design, review, and help administer insurance, annuity and pension plans, determining financial soundness and calculating premiums.",
+        "Determine, or help determine, company policy, and explain complex technical matters to company executives, government officials, shareholders, policyholders, or the public.",
+        "Construct probability tables for events such as fires, natural disasters, and unemployment, based on analysis of statistical data and other pertinent information.",
+        "Provide advice to clients on a contract basis, working as a consultant."
+      ]
+    },
+    {
+      "soc": "15-2031.00",
+      "title": "Operations Research Analysts",
+      "description": "Formulate and apply mathematical modeling and other optimizing methods to develop and interpret information that assists management with decisionmaking, policy formulation, or other managerial functions. May collect and analyze data and develop decision support software, services, or products. May d",
+      "aliases": [
+        "Advanced Analytics Associate",
+        "Analytical Strategist",
+        "Decision Analyst",
+        "Operations Research Analyst (Ops Research Analyst)",
+        "Operations Research Scientist (Ops Research Scientist)",
+        "Optimization Analyst",
+        "Researcher"
+      ],
+      "core_skills": [
+        "Mathematics",
+        "Complex Problem Solving",
+        "Active Listening",
+        "Critical Thinking",
+        "Reading Comprehension",
+        "Speaking",
+        "Writing",
+        "Active Learning",
+        "Judgment and Decision Making",
+        "Systems Analysis",
+        "Systems Evaluation",
+        "Operations Analysis"
+      ],
+      "core_knowledge": [
+        "Mathematics",
+        "Computers and Electronics",
+        "Engineering and Technology",
+        "Production and Processing",
+        "English Language"
+      ],
+      "tools": [
+        "Excel",
+        "Power BI",
+        "Python",
+        "SQL",
+        "Tableau",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Bash",
+        "C++",
+        "Git",
+        "SPSS",
+        "Linux",
+        "VBA",
+        "R",
+        "SAS",
+        "Scala",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Present the results of mathematical modeling and data analysis to management or other end users.",
+        "Define data requirements, and gather and validate information, applying judgment and statistical tests.",
+        "Perform validation and testing of models to ensure adequacy, and reformulate models, as necessary.",
+        "Prepare management reports defining and evaluating problems and recommending solutions.",
+        "Collaborate with others in the organization to ensure successful implementation of chosen problem solutions.",
+        "Formulate mathematical or simulation models of problems, relating constants and variables, restrictions, alternatives, conflicting objectives, and their numerical parameters.",
+        "Observe the current system in operation, and gather and analyze information about each of the component problems, using a variety of sources."
+      ]
+    },
+    {
+      "soc": "15-2041.00",
+      "title": "Statisticians",
+      "description": "Develop or apply mathematical or statistical theory and methods to collect, organize, interpret, and summarize numerical data to provide usable information. May specialize in fields such as biostatistics, agricultural statistics, business statistics, or economic statistics. Includes mathematical and",
+      "aliases": [
+        "Database Analyst",
+        "Demographer",
+        "Education Research Analyst",
+        "Mathematical Statistician",
+        "Psychometric Consultant",
+        "Quantitative Methodologist",
+        "Statistical Analyst",
+        "Statistical Consultant",
+        "Statistical Reporting Analyst",
+        "Statistician"
+      ],
+      "core_skills": [
+        "Mathematics",
+        "Critical Thinking",
+        "Reading Comprehension",
+        "Active Listening",
+        "Complex Problem Solving",
+        "Speaking",
+        "Active Learning",
+        "Writing",
+        "Science",
+        "Judgment and Decision Making",
+        "Learning Strategies",
+        "Monitoring"
+      ],
+      "core_knowledge": [
+        "Mathematics",
+        "Computers and Electronics",
+        "English Language"
+      ],
+      "tools": [
+        "SPSS",
+        "Excel",
+        "Python",
+        "R",
+        "SAS",
+        "SQL",
+        "Tableau",
+        "Stata",
+        "Redshift",
+        "AWS",
+        "Hadoop",
+        "Spark",
+        "C++",
+        "Linux",
+        "VBA",
+        "MATLAB"
+      ],
+      "core_tasks": [
+        "Analyze and interpret statistical data to identify significant differences in relationships among sources of information.",
+        "Evaluate the statistical methods and procedures used to obtain data to ensure validity, applicability, efficiency, and accuracy.",
+        "Report results of statistical analyses, including information in the form of graphs, charts, and tables.",
+        "Determine whether statistical methods are appropriate, based on user needs or research questions of interest.",
+        "Prepare data for processing by organizing information, checking for inaccuracies, and adjusting and weighting the raw data.",
+        "Develop and test experimental designs, sampling techniques, and analytical methods.",
+        "Identify relationships and trends in data, as well as any factors that could affect the results of research."
+      ]
+    },
+    {
+      "soc": "15-2051.00",
+      "title": "Data Scientists",
+      "description": "Develop and implement a set of techniques or analytics applications to transform raw data into meaningful information using data-oriented programming languages and visualization software. Apply data mining, data modeling, natural language processing, and machine learning to extract and analyze infor",
+      "aliases": [],
+      "core_skills": [],
+      "core_knowledge": [],
+      "tools": [
+        "AWS",
+        "Hadoop",
+        "Spark",
+        "C++",
+        "Git",
+        "Azure",
+        "Excel",
+        "Power BI",
+        "Python",
+        "PyTorch",
+        "R",
+        "SAS",
+        "Snowflake",
+        "SQL",
+        "Tableau",
+        "TensorFlow",
+        "MATLAB",
+        "NumPy",
+        "Pandas",
+        "Scikit-learn",
+        "Redshift",
+        "Airflow"
+      ],
+      "core_tasks": [
+        "Analyze, manipulate, or process large sets of data using statistical software.",
+        "Apply feature selection algorithms to models predicting outcomes of interest, such as sales, attrition, and healthcare use.",
+        "Apply sampling techniques to determine groups to be surveyed or use complete enumeration methods.",
+        "Clean and manipulate raw data using statistical software.",
+        "Compare models using statistical performance metrics, such as loss functions or proportion of explained variance.",
+        "Create graphs, charts, or other visualizations to convey the results of data analysis using specialized software.",
+        "Deliver oral or written presentations of the results of mathematical modeling and data analysis to management or other end users."
+      ]
+    },
+    {
+      "soc": "15-2051.01",
+      "title": "Business Intelligence Analysts",
+      "description": "Produce financial and market intelligence by querying data repositories and generating periodic reports. Devise methods for identifying data patterns and trends in available information sources.",
+      "aliases": [
+        "Business Analyst",
+        "Business Intelligence Analyst (BI Analyst)",
+        "Business Intelligence Consultant (BI Consultant)",
+        "Business Intelligence Coordinator (BI Coordinator)",
+        "Business Intelligence Specialist (BI Specialist)",
+        "Competitive Intelligence Analyst",
+        "Intelligence Analyst",
+        "Market Intelligence Analyst",
+        "Market Intelligence Consultant",
+        "Strategic Business and Technology Intelligence Consultant"
+      ],
+      "core_skills": [
+        "Reading Comprehension",
+        "Active Learning",
+        "Active Listening",
+        "Critical Thinking",
+        "Speaking",
+        "Writing",
+        "Judgment and Decision Making",
+        "Mathematics",
+        "Complex Problem Solving",
+        "Monitoring",
+        "Systems Analysis",
+        "Systems Evaluation"
+      ],
+      "core_knowledge": [
+        "Computers and Electronics",
+        "Mathematics",
+        "English Language"
+      ],
+      "tools": [
+        "AWS",
+        "Azure",
+        "Excel",
+        "Power BI",
+        "Python",
+        "R",
+        "SAS",
+        "Snowflake",
+        "SQL",
+        "Tableau",
+        "Redshift",
+        "Hadoop",
+        "Hive",
+        "Kafka",
+        "Spark",
+        "Jira",
+        "Bash",
+        "C#",
+        "C++",
+        "Git",
+        "Looker",
+        "SPSS"
+      ],
+      "core_tasks": [
+        "Generate standard or custom reports summarizing business, financial, or economic data for review by executives, managers, clients, and other stakeholders.",
+        "Maintain or update business intelligence tools, databases, dashboards, systems, or methods.",
+        "Manage timely flow of business intelligence information to users.",
+        "Provide technical support for existing reports, dashboards, or other tools.",
+        "Identify and analyze industry or geographic trends with business strategy implications.",
+        "Document specifications for business intelligence or information technology reports, dashboards, or other outputs.",
+        "Create business intelligence tools or systems, including design of related databases, spreadsheets, or outputs."
+      ]
+    }
+  ],
+  "skills": {
+    "SQL": {
+      "category": "tool",
+      "aliases": [
+        "sql",
+        "structured query language",
+        "t-sql",
+        "tsql",
+        "pl/sql",
+        "mysql",
+        "postgresql",
+        "postgres",
+        "microsoft sql server",
+        "sql server",
+        "oracle database"
+      ],
+      "related": []
+    },
+    "Python": {
+      "category": "tool",
+      "aliases": [
+        "python",
+        "py"
+      ],
+      "related": []
+    },
+    "R": {
+      "category": "tool",
+      "aliases": [
+        "r"
+      ],
+      "related": []
+    },
+    "Java": {
+      "category": "tool",
+      "aliases": [
+        "java",
+        "oracle java"
+      ],
+      "related": []
+    },
+    "JavaScript": {
+      "category": "tool",
+      "aliases": [
+        "javascript",
+        "js"
+      ],
+      "related": []
+    },
+    "TypeScript": {
+      "category": "tool",
+      "aliases": [
+        "typescript",
+        "ts"
+      ],
+      "related": []
+    },
+    "C++": {
+      "category": "tool",
+      "aliases": [
+        "c++",
+        "cpp"
+      ],
+      "related": []
+    },
+    "C#": {
+      "category": "tool",
+      "aliases": [
+        "c#",
+        "c sharp"
+      ],
+      "related": []
+    },
+    "Scala": {
+      "category": "tool",
+      "aliases": [
+        "scala"
+      ],
+      "related": []
+    },
+    "Go": {
+      "category": "tool",
+      "aliases": [
+        "golang",
+        "go programming"
+      ],
+      "related": []
+    },
+    "MATLAB": {
+      "category": "tool",
+      "aliases": [
+        "matlab"
+      ],
+      "related": []
+    },
+    "SAS": {
+      "category": "tool",
+      "aliases": [
+        "sas"
+      ],
+      "related": [
+        "Statistics"
+      ]
+    },
+    "SPSS": {
+      "category": "tool",
+      "aliases": [
+        "spss",
+        "ibm spss"
+      ],
+      "related": [
+        "Statistics"
+      ]
+    },
+    "Stata": {
+      "category": "tool",
+      "aliases": [
+        "stata"
+      ],
+      "related": [
+        "Statistics"
+      ]
+    },
+    "VBA": {
+      "category": "tool",
+      "aliases": [
+        "vba",
+        "visual basic for applications"
+      ],
+      "related": [
+        "Excel"
+      ]
+    },
+    "Bash": {
+      "category": "tool",
+      "aliases": [
+        "bash",
+        "shell scripting"
+      ],
+      "related": [
+        "Linux"
+      ]
+    },
+    "Excel": {
+      "category": "tool",
+      "aliases": [
+        "excel",
+        "microsoft excel"
+      ],
+      "related": []
+    },
+    "Power BI": {
+      "category": "tool",
+      "aliases": [
+        "power bi",
+        "powerbi",
+        "microsoft power bi"
+      ],
+      "related": [
+        "Data Visualization"
+      ]
+    },
+    "Tableau": {
+      "category": "tool",
+      "aliases": [
+        "tableau"
+      ],
+      "related": [
+        "Data Visualization"
+      ]
+    },
+    "Looker": {
+      "category": "tool",
+      "aliases": [
+        "looker",
+        "google looker"
+      ],
+      "related": [
+        "Data Visualization"
+      ]
+    },
+    "QlikView": {
+      "category": "tool",
+      "aliases": [
+        "qlik",
+        "qlikview"
+      ],
+      "related": [
+        "Data Visualization"
+      ]
+    },
+    "Spark": {
+      "category": "tool",
+      "aliases": [
+        "spark",
+        "apache spark",
+        "pyspark"
+      ],
+      "related": [
+        "ETL"
+      ]
+    },
+    "Hadoop": {
+      "category": "tool",
+      "aliases": [
+        "hadoop",
+        "apache hadoop"
+      ],
+      "related": [
+        "ETL"
+      ]
+    },
+    "Hive": {
+      "category": "tool",
+      "aliases": [
+        "hive",
+        "apache hive"
+      ],
+      "related": [
+        "ETL"
+      ]
+    },
+    "Kafka": {
+      "category": "tool",
+      "aliases": [
+        "kafka",
+        "apache kafka"
+      ],
+      "related": [
+        "ETL"
+      ]
+    },
+    "Airflow": {
+      "category": "tool",
+      "aliases": [
+        "airflow",
+        "apache airflow"
+      ],
+      "related": [
+        "ETL"
+      ]
+    },
+    "Snowflake": {
+      "category": "tool",
+      "aliases": [
+        "snowflake"
+      ],
+      "related": [
+        "Data Warehousing"
+      ]
+    },
+    "Redshift": {
+      "category": "tool",
+      "aliases": [
+        "redshift",
+        "amazon redshift"
+      ],
+      "related": [
+        "Data Warehousing"
+      ]
+    },
+    "BigQuery": {
+      "category": "tool",
+      "aliases": [
+        "bigquery",
+        "big query"
+      ],
+      "related": [
+        "Data Warehousing"
+      ]
+    },
+    "Databricks": {
+      "category": "tool",
+      "aliases": [
+        "databricks"
+      ],
+      "related": []
+    },
+    "NoSQL": {
+      "category": "tool",
+      "aliases": [
+        "nosql"
+      ],
+      "related": []
+    },
+    "MongoDB": {
+      "category": "tool",
+      "aliases": [
+        "mongodb",
+        "mongo"
+      ],
+      "related": [
+        "NoSQL"
+      ]
+    },
+    "AWS": {
+      "category": "tool",
+      "aliases": [
+        "aws",
+        "amazon web services"
+      ],
+      "related": [
+        "Cloud Computing"
+      ]
+    },
+    "Azure": {
+      "category": "tool",
+      "aliases": [
+        "azure",
+        "microsoft azure"
+      ],
+      "related": [
+        "Cloud Computing"
+      ]
+    },
+    "GCP": {
+      "category": "tool",
+      "aliases": [
+        "gcp",
+        "google cloud"
+      ],
+      "related": [
+        "Cloud Computing"
+      ]
+    },
+    "Docker": {
+      "category": "tool",
+      "aliases": [
+        "docker"
+      ],
+      "related": [
+        "DevOps"
+      ]
+    },
+    "Kubernetes": {
+      "category": "tool",
+      "aliases": [
+        "kubernetes",
+        "k8s"
+      ],
+      "related": [
+        "DevOps"
+      ]
+    },
+    "Git": {
+      "category": "tool",
+      "aliases": [
+        "git",
+        "github",
+        "gitlab"
+      ],
+      "related": []
+    },
+    "Linux": {
+      "category": "tool",
+      "aliases": [
+        "linux",
+        "unix"
+      ],
+      "related": []
+    },
+    "Jira": {
+      "category": "tool",
+      "aliases": [
+        "jira",
+        "atlassian jira"
+      ],
+      "related": [
+        "Agile"
+      ]
+    },
+    "TensorFlow": {
+      "category": "tool",
+      "aliases": [
+        "tensorflow"
+      ],
+      "related": [
+        "Machine Learning"
+      ]
+    },
+    "PyTorch": {
+      "category": "tool",
+      "aliases": [
+        "pytorch"
+      ],
+      "related": [
+        "Machine Learning"
+      ]
+    },
+    "Scikit-learn": {
+      "category": "tool",
+      "aliases": [
+        "scikit-learn",
+        "sklearn",
+        "scikit learn"
+      ],
+      "related": [
+        "Machine Learning"
+      ]
+    },
+    "Pandas": {
+      "category": "tool",
+      "aliases": [
+        "pandas"
+      ],
+      "related": [
+        "Python"
+      ]
+    },
+    "NumPy": {
+      "category": "tool",
+      "aliases": [
+        "numpy"
+      ],
+      "related": [
+        "Python"
+      ]
+    },
+    "Machine Learning": {
+      "category": "skill",
+      "aliases": [
+        "machine learning",
+        "ml",
+        "predictive modeling",
+        "predictive modelling"
+      ],
+      "related": [
+        "TensorFlow",
+        "PyTorch",
+        "Scikit-learn",
+        "Deep Learning"
+      ]
+    },
+    "Deep Learning": {
+      "category": "skill",
+      "aliases": [
+        "deep learning",
+        "neural networks"
+      ],
+      "related": [
+        "TensorFlow",
+        "PyTorch"
+      ]
+    },
+    "NLP": {
+      "category": "skill",
+      "aliases": [
+        "nlp",
+        "natural language processing"
+      ],
+      "related": [
+        "Machine Learning"
+      ]
+    },
+    "Data Visualization": {
+      "category": "skill",
+      "aliases": [
+        "data visualization",
+        "data visualisation",
+        "data viz",
+        "dataviz",
+        "dashboards",
+        "dashboarding",
+        "reporting"
+      ],
+      "related": [
+        "Tableau",
+        "Power BI",
+        "Looker"
+      ]
+    },
+    "Data Modeling": {
+      "category": "skill",
+      "aliases": [
+        "data modeling",
+        "data modelling",
+        "dimensional modeling",
+        "schema design"
+      ],
+      "related": []
+    },
+    "Data Analysis": {
+      "category": "skill",
+      "aliases": [
+        "data analysis",
+        "data analytics",
+        "analytics",
+        "quantitative analysis"
+      ],
+      "related": []
+    },
+    "Statistics": {
+      "category": "skill",
+      "aliases": [
+        "statistics",
+        "statistical analysis",
+        "statistical modeling",
+        "biostatistics"
+      ],
+      "related": [
+        "Regression",
+        "A/B Testing",
+        "R",
+        "SAS"
+      ]
+    },
+    "Regression": {
+      "category": "skill",
+      "aliases": [
+        "regression"
+      ],
+      "related": [
+        "Statistics"
+      ]
+    },
+    "A/B Testing": {
+      "category": "skill",
+      "aliases": [
+        "a/b testing",
+        "ab testing",
+        "split testing"
+      ],
+      "related": [
+        "Experimentation"
+      ]
+    },
+    "Experimentation": {
+      "category": "skill",
+      "aliases": [
+        "experimentation",
+        "experimental design"
+      ],
+      "related": [
+        "A/B Testing"
+      ]
+    },
+    "ETL": {
+      "category": "skill",
+      "aliases": [
+        "etl",
+        "elt",
+        "data pipelines",
+        "data pipeline"
+      ],
+      "related": [
+        "Spark",
+        "Airflow"
+      ]
+    },
+    "Data Warehousing": {
+      "category": "skill",
+      "aliases": [
+        "data warehouse",
+        "data warehousing"
+      ],
+      "related": [
+        "Snowflake",
+        "Redshift",
+        "BigQuery"
+      ]
+    },
+    "Data Engineering": {
+      "category": "skill",
+      "aliases": [
+        "data engineering"
+      ],
+      "related": [
+        "ETL",
+        "Spark"
+      ]
+    },
+    "Forecasting": {
+      "category": "skill",
+      "aliases": [
+        "forecasting",
+        "demand planning",
+        "time series",
+        "time-series"
+      ],
+      "related": [
+        "Statistics"
+      ]
+    },
+    "Optimization": {
+      "category": "skill",
+      "aliases": [
+        "optimization",
+        "optimisation",
+        "linear programming",
+        "operations research"
+      ],
+      "related": []
+    },
+    "Financial Modeling": {
+      "category": "skill",
+      "aliases": [
+        "financial modeling",
+        "financial modelling",
+        "valuation",
+        "dcf"
+      ],
+      "related": [
+        "Excel"
+      ]
+    },
+    "Business Intelligence": {
+      "category": "skill",
+      "aliases": [
+        "business intelligence"
+      ],
+      "related": [
+        "Tableau",
+        "Power BI",
+        "SQL"
+      ]
+    },
+    "Segmentation": {
+      "category": "skill",
+      "aliases": [
+        "segmentation",
+        "clustering"
+      ],
+      "related": []
+    },
+    "Cloud Computing": {
+      "category": "skill",
+      "aliases": [
+        "cloud computing",
+        "cloud"
+      ],
+      "related": [
+        "AWS",
+        "Azure",
+        "GCP"
+      ]
+    },
+    "DevOps": {
+      "category": "skill",
+      "aliases": [
+        "devops",
+        "ci/cd",
+        "continuous integration"
+      ],
+      "related": [
+        "Docker",
+        "Kubernetes"
+      ]
+    },
+    "Cybersecurity": {
+      "category": "skill",
+      "aliases": [
+        "cybersecurity",
+        "cyber security",
+        "information security",
+        "infosec",
+        "network security",
+        "application security"
+      ],
+      "related": [
+        "Risk Management"
+      ]
+    },
+    "Risk Management": {
+      "category": "skill",
+      "aliases": [
+        "risk management",
+        "risk assessment"
+      ],
+      "related": []
+    },
+    "Project Management": {
+      "category": "skill",
+      "aliases": [
+        "project management",
+        "program management",
+        "pmp"
+      ],
+      "related": [
+        "Agile"
+      ]
+    },
+    "Agile": {
+      "category": "skill",
+      "aliases": [
+        "agile",
+        "scrum",
+        "kanban"
+      ],
+      "related": [
+        "Jira"
+      ]
+    },
+    "Product Management": {
+      "category": "skill",
+      "aliases": [
+        "product management",
+        "roadmap"
+      ],
+      "related": []
+    },
+    "Stakeholder Management": {
+      "category": "skill",
+      "aliases": [
+        "stakeholder management",
+        "stakeholder engagement"
+      ],
+      "related": [
+        "Communication"
+      ]
+    },
+    "Communication": {
+      "category": "skill",
+      "aliases": [
+        "communication",
+        "presentation",
+        "written communication",
+        "verbal communication"
+      ],
+      "related": []
+    },
+    "Problem Solving": {
+      "category": "skill",
+      "aliases": [
+        "problem solving",
+        "problem-solving",
+        "critical thinking",
+        "analytical thinking"
+      ],
+      "related": []
+    },
+    "Leadership": {
+      "category": "skill",
+      "aliases": [
+        "leadership",
+        "team leadership",
+        "people management"
+      ],
+      "related": []
+    },
+    "Process Improvement": {
+      "category": "skill",
+      "aliases": [
+        "process improvement",
+        "lean",
+        "six sigma",
+        "process optimization"
+      ],
+      "related": []
+    },
+    "Requirements Gathering": {
+      "category": "skill",
+      "aliases": [
+        "requirements gathering",
+        "requirements analysis",
+        "business requirements"
+      ],
+      "related": []
+    },
+    "Finance": {
+      "category": "domain",
+      "aliases": [
+        "finance",
+        "financial services",
+        "banking",
+        "investment",
+        "fintech"
+      ],
+      "related": []
+    },
+    "Healthcare": {
+      "category": "domain",
+      "aliases": [
+        "healthcare",
+        "health care",
+        "clinical",
+        "pharmaceutical",
+        "biotech"
+      ],
+      "related": []
+    },
+    "Retail": {
+      "category": "domain",
+      "aliases": [
+        "retail",
+        "e-commerce",
+        "ecommerce",
+        "consumer goods",
+        "cpg"
+      ],
+      "related": []
+    },
+    "Insurance": {
+      "category": "domain",
+      "aliases": [
+        "insurance",
+        "actuarial"
+      ],
+      "related": []
+    },
+    "Marketing": {
+      "category": "domain",
+      "aliases": [
+        "marketing",
+        "advertising",
+        "growth",
+        "crm"
+      ],
+      "related": []
+    },
+    "Manufacturing": {
+      "category": "domain",
+      "aliases": [
+        "manufacturing",
+        "supply chain",
+        "logistics"
+      ],
+      "related": []
+    },
+    "Telecommunications": {
+      "category": "domain",
+      "aliases": [
+        "telecommunications",
+        "telecom"
+      ],
+      "related": []
+    },
+    "Consulting": {
+      "category": "domain",
+      "aliases": [
+        "consulting",
+        "advisory",
+        "management consulting"
+      ],
+      "related": []
+    }
+  }
+}

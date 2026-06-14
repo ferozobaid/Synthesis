@@ -89,7 +89,7 @@ export default function FitPage() {
 
       {report && (
         <section className="mt-10">
-          {data?.mock && <p className="mb-3 text-xs text-amber-600">Mock mode — representative report (no credentials set).</p>}
+          {data?.mock && <p className="mb-3 text-xs text-amber-600">Running without credentials — analysis is computed locally and grounded in the O*NET taxonomy; results aren&apos;t saved.</p>}
           <div className="flex items-center gap-4">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-2xl font-bold text-accent">
               {report.overall_score}
@@ -102,6 +102,15 @@ export default function FitPage() {
             </div>
           </div>
 
+          {report.top_strengths.length > 0 && (
+            <div className="mt-6 rounded-lg border border-green-100 bg-green-50/60 p-4">
+              <h2 className="font-semibold text-green-900">Strengths</h2>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-green-800">
+                {report.top_strengths.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+
           <h2 className="mt-8 text-lg font-semibold">Per-requirement breakdown</h2>
           <div className="mt-2 overflow-hidden rounded-lg border border-slate-200">
             <table className="w-full text-sm">
@@ -111,7 +120,10 @@ export default function FitPage() {
               <tbody>
                 {report.per_requirement.map((r, i) => (
                   <tr key={i} className="border-t border-slate-100">
-                    <td className="p-3">{r.requirement}</td>
+                    <td className="p-3">
+                      {r.requirement}
+                      <span className="ml-2 align-middle text-xs text-slate-400">{r.weight >= 1 ? "must-have" : "nice-to-have"}</span>
+                    </td>
                     <td className="p-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}>{r.status}</span></td>
                     <td className="p-3 text-slate-500">{r.evidence ?? "—"}</td>
                   </tr>
