@@ -1,0 +1,12 @@
+Title: Software Engineer
+Company: GOYT
+Location: Denver, CO
+Experience level: 
+Work type: Part-time
+
+Job Description:GOYT is seeking a skilled and motivated Remote Software Developer specializing in PHP to join our dynamic team. As a key member of our development team, you will play a crucial role in iterating and enhancing our product to drive the growth of our company.
+This is an equity-based role. 
+Responsibilities:Develop and maintain high-quality PHP code for our web-based application.Collaborate with the development team to design and implement new features and enhancements.Troubleshoot and debug issues to ensure optimal performance and reliability.Contribute to the technical roadmap and decision-making process to support the company's growth objectives.Stay updated on industry trends and best practices to continuously improve our product.
+Requirements:Expertise in PHP development with a strong understanding of object-oriented programming principles.Experience with e-commerce platforms or projects is preferred.Proficiency in front-end technologies such as HTML, CSS, and JavaScript.Familiarity with MySQL or other relational databases.Ability to work independently and as part of a remote team.Excellent communication and collaboration skills.Passion for learning and staying updated on emerging technologies.
+Benefits:Opportunity to join a fast-growing startup and contribute to its success.Equity-based compensation package.Flexible remote work arrangement.Collaborative and supportive work environment.Potential for professional growth and advancement within the company.
+If you are a talented PHP developer with a passion for innovation and growth, we want to hear from you! Please submit your resume and portfolio showcasing your relevant experience to: business@goyt.com

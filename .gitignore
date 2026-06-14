@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+next-env.d.ts
+
+# Production
+dist/
+
+# Env — never commit real credentials. Keep only the template.
+.env
+.env.local
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Local embedding model cache (BGE/MiniLM via @xenova/transformers)
+.cache/
+.models/
+.xenova/
+
+# Datasets — dev/validation only, never committed (≈746MB raw resumes/postings/O*NET)
+Datasets/
+
+# Testing
+coverage/
+.vitest/
+
+# Python (offline plane: scripts/ingestion, scripts/validation)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Misc
+.DS_Store
+*.tsbuildinfo
+*.log
+.vercel
+.idea/
+.vscode/

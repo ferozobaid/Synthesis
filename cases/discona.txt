@@ -1,0 +1,111 @@
+Diconsa
+Client goal
+The Bill & Melinda Gates Foundation is a private organization with vast ambitions; one of its goals is to reduce extreme poverty worldwide. The foundation has asked McKinsey to design a basic financial-services offering for residents in remote communities in Mexico.
+
+Situation description
+The majority of Mexico’s rural population is relatively poor, relying in part on government benefits for their livelihood. Since they tend not to have bank accounts, they usually collect those benefits in cash from a limited number of state-owned bank branches. These branches are often a long way from where the recipients live, so it can take a lot of time and effort to collect benefits. In addition, while traveling to the branches, people can be at risk of falling victim to crime.
+
+The Mexican government also owns and operates a chain of 22,000 stores throughout Mexico, called Diconsa, which provide basic food, clothes, and other essential goods to rural populations. These stores are supplied through a network of central and regional warehouses and several thousand delivery trucks.
+
+McKinsey study
+McKinsey has been asked to investigate and assess the possibility of using the Diconsa network to provide a set of basic financial services to supplement the limited number of state-owned bank branches. This would start with dispensing benefit payments and would gradually grow to include savings accounts, bill payments, insurance, loans, and other financial products.
+
+Helpful hints
+Write down important information.
+Feel free to ask the interviewer to explain anything that is not clear to you.
+Practice Case Questions
+Question 1:
+What should the team investigate to determine whether the Diconsa network could and should be leveraged to provide a range of basic financial services to Mexico’s rural population?
+
+Helpful hints
+Take time to organize your thoughts before answering. This will help show your interviewer that you have a logical approach and can think in an organized way, regardless of the accuracy of the outcome.
+Develop an overall approach before diving into details.
+
+Reveal Answer
+Some of the factors you might discuss with your interviewer could include:
+
+Benefits to the Mexican rural population. How much time, effort, and expense would a benefit recipient save through the Diconsa network—for example, through shorter travel times? Beyond what was stated in the summary, what benefits would there be for rural populations being given greater access to a broader range of financial services? Would there be better security for their money?
+
+Benefits to the government, state bank, and Diconsa network. Would the government benefit in terms of increased compliance with, or the collection of benefits such as lower administration costs? Would these financial services result in better financial management among the rural population, like more business for Diconsa stores? Would this alternative model reduce pressure on and increase efficiency at the bank branches that currently distribute benefit payments?
+
+Potential risks due to this venture. Does the Diconsa network have the capacity or ability to deal with financial payments and products? Does the state bank have the capacity to operate financial services across a much larger network of outlets? Is there a greater risk of fraud or theft due to less centralized control of benefit payments?
+
+Question 2:
+The team has estimated that it currently costs a family 50 pesos per month in transportation and food to make the journey to collect benefit payments. The team also estimates that if benefits were available for collection at local Diconsa stores, the cost would be reduced by 30% for the 60% of the rural population that live furthest away from a bank branch. The cost would be reduced by 20% for the 40% of the rural population who already live relatively close to a bank branch.
+
+Twenty percent of Mexico’s population is rural, and of that number, half currently receive state benefits.
+
+You can assume that Mexico has a population of 140 million.
+
+You can also assume that families in Mexico have an average four members, and that this does not vary by region.
+
+If every family could collect state benefits at their local Diconsa stores, how much in total per year would be saved across all Mexican rural families receiving state benefits?
+
+Helpful hints
+Don’t feel rushed into performing calculations. Take your time.
+Remember that calculators are not allowed—you may want to write out your calculations on paper during the interview.
+Talk your interviewer through your steps so that you can demonstrate an organized approach; the more you talk the easier it will be for your interviewer to help you.
+
+Reveal Answer
+One possible approach to discuss with your interviewer could be:
+
+There are seven million families in rural Mexico: 20 percent times 140 million, divided by four people per family
+There are 3.5 million families receiving benefits: 50 percent times seven million families
+Each family currently spends 600 pesos per year to receive benefits: 50 pesos per month times 12 months
+In total, families currently spend 2.1 billion pesos per year to receive benefits: 600 pesos times 3.5 million families
+To calculate the potential savings from leveraging Diconsa stores:
+
+For the 60% who live furthest away from a bank branch: (2.1 billion x 0.6) x 0.3 = 378 million
+For the 40% who live closer to a bank branch: (2.1 billion x 0.4) x 0.2 = 168 million
+In total, 546 million pesos could be saved: 378 m + 168m
+Question 3:
+The team conducted a survey on a sample of the rural population in three different regions of Mexico. Participants were shown several statements about the concept of collecting benefits at their nearest Diconsa store and asked how much they agreed with each statement. The average response to some of the questions in each region is shown below:
+
+
+
+Diconsa exhibit
+
+The team have also gathered the following information about Diconsa stores in the three regions.
+
+Diconsa
+We strive to provide individuals with disabilities equal access to our website. If you would like information about this content we will be happy to work with you. Please email us at: McKinsey_Website_Accessibility@mckinsey.com
+What are your observations regarding this information, and how would you explain these trends?
+
+Helpful hints
+Take some time to look at the information and note down any observations you have.
+Challenge yourself to identify trends that are not immediately obvious from the data.
+
+Reveal Answer
+Some of the observations you might discuss with your interviewer could include:
+
+There are significant differences by region as to how interested people are in collecting benefits at their nearest Diconsa
+Everyone has security concerns about collecting benefits at a Diconsa store, but this is especially true in Region B. This aligns to the fact that Region B has the highest rates of reported crimes. The recent increases in police presence may help reverse this crime rate over time, though its possible that police corruption may hinder this
+People are not so concerned about whether they will receive their benefits, except in Region B. It may be that because of the increased crime rates, people in Region B may think their benefits may be stolen before they can access them. This concern could, at least in part, be from the greater possibilty of hijaking Diconsa trucks which have to travel further as there are fewer warehouses in Region B.
+The markedly fewer Diconsa warehouses in Region B may also be reducing interest in the concept of using Diconsa for benefit payments for other reasons e.g. It may be that because of the distance, some stock simply never reaches the Diconsa stores in Region B, making them less reliable for customers and already less popular as a place to buy essentials
+Not everyone is completely convinced it will cost them less to collect benefits from their nearest Diconsa, despite the fact that they all agree it will save time
+Overall, Region A is most interested in using Diconsa stores and this may be linked to the fact that their density is greatest, meaning overall people have to travel least far in Region B
+Question 4:
+In a subsequent meeting, representatives from the state-owned bank express concern about how challenging it will be to offer basic financial products to the rural population.
+
+One of the representatives mentions that these are regions where people have minimal education and are unfamiliar with banking products. There is also significant crime and fraud. He asks for the team’s thoughts about how the bank could sell these services effectively to the population given these challenges.
+
+Helpful hint
+Consider the issues raised in the question and group your thoughts around them. This will ensure that you are giving the most relevant answers.
+
+
+Reveal Answer
+Some of the thoughts you might discuss with your interviewer could include:
+
+Examples suggestions on how to overcome lower levels of education and familiarity with banking products:
+
+Pilot some products in certain regions where the population might be more receptive, so that less receptive people can see that they are already being used by others in similar situations
+Arrange in-store talks and demonstrations, focusing on educating people about what the products are and how they can be used to dispel common causes of distrust
+Collaborate with brands or organizations that are already well-known and trusted by the rural population living in these areas
+Advertise using individuals who have benefited from similar products, for example, people who have made successful insurance claims, or who managed to save money for a specific need
+Motivate Diconsa employees to encourage product take-up
+Offer promotions to encourage initial take-up, for example, pay 50 pesos when people make their first deposit into a savings account
+Example suggestions to overcome crime and fraud:
+
+Increase security at Diconsa stores
+Impose daily or weekly transaction limits
+Introduce technology, such as chip cards, to reduce fraudulent activity and discourage crime by reducing the use of cash

@@ -1,0 +1,37 @@
+{
+  "name": "synthesis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Synthesis — voice-enabled, retrieval-grounded interview-prep platform (live plane only).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@supabase/supabase-js": "^2.108.1",
+    "mammoth": "^1.12.0",
+    "next": "^14.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "unpdf": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}

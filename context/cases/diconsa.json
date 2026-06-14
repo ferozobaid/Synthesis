@@ -1,0 +1,210 @@
+{
+  "id": "diconsa",
+  "title": "Diconsa — Financial Services for Rural Mexico",
+  "firm": "McKinsey & Company",
+  "type": "public-sector / operations / market entry",
+  "industry": "Government retail & financial inclusion",
+  "source": "McKinsey public case library (Diconsa). Transcript in /cases/discona.txt.",
+  "difficulty": "medium",
+  "prompt": "The Bill & Melinda Gates Foundation has asked McKinsey to help design a basic financial-services offering for residents of remote communities in Mexico, as part of its goal to reduce extreme poverty. Most of Mexico's rural population is relatively poor and partly reliant on government benefits, which they collect as cash from a limited number of distant state-owned bank branches — costly, time-consuming, and exposing them to crime. The Mexican government also owns Diconsa, a chain of ~22,000 stores supplying food and essentials to rural areas through central/regional warehouses and thousands of delivery trucks. McKinsey is asked to assess using the Diconsa network to provide basic financial services — starting with dispensing benefit payments and growing to savings, bill payments, insurance, and loans.",
+  "content": "The Gates Foundation engaged McKinsey to design basic financial services for remote rural Mexico, where benefit recipients travel far to scarce state-bank branches to collect cash. The government-owned Diconsa retail network (~22,000 stores plus warehouses and delivery trucks) could become the delivery channel, beginning with benefit disbursement and expanding to savings, bill pay, insurance, and loans.",
+  "stages": [
+    {
+      "id": "intro",
+      "objective": "Candidate restates the objective and what's being decided.",
+      "interviewer_prompt": "Tell me how you understand this situation and what we're being asked to figure out.",
+      "advance_criteria": "Frames the question: should/could the Diconsa network deliver basic financial services to rural Mexico, starting with benefit payments?",
+      "probe_bank": [
+        "Who benefits if this works, and how?",
+        "What does 'basic financial services' include here?"
+      ],
+      "hint_ladder": [
+        "What problem are rural recipients facing today?",
+        "We're assessing whether an existing retail network can become a financial-services channel.",
+        "The decision: can/should Diconsa's 22,000 stores deliver basic financial services — starting with benefit disbursement — to rural Mexico?"
+      ]
+    },
+    {
+      "id": "clarification",
+      "objective": "Candidate asks targeted clarifying questions.",
+      "interviewer_prompt": "Anything you'd like to clarify before building an approach?",
+      "advance_criteria": "Asks about scope (which services first), success definition (cost saving, inclusion, security), and constraints (Diconsa/bank capacity).",
+      "probe_bank": [
+        "Which single clarifier most changes your approach?",
+        "Why does sequencing of services matter?"
+      ],
+      "hint_ladder": [
+        "What would you need to know to judge feasibility and value?",
+        "Consider scope of services, the success metric, and operational capacity.",
+        "Good clarifiers: which services launch first, what 'success' means (savings/inclusion/security), and whether Diconsa/the bank have the operational capacity."
+      ]
+    },
+    {
+      "id": "framework",
+      "objective": "Candidate structures what to investigate to decide whether to leverage Diconsa (Question 1).",
+      "interviewer_prompt": "What should the team investigate to determine whether the Diconsa network could and should be leveraged to provide basic financial services?",
+      "advance_criteria": "MECE structure across benefits to the rural population, benefits to government/bank/Diconsa, and risks/feasibility.",
+      "target_elements": [
+        "Benefits to rural population — time/effort/expense saved (shorter travel), better security for money, broader access to financial products",
+        "Benefits to government / state bank / Diconsa — higher compliance, lower admin cost, more store traffic, relieved pressure on bank branches",
+        "Risks & feasibility — Diconsa capacity/capability to handle payments, bank capacity to operate across many outlets, fraud/theft risk from decentralized control"
+      ],
+      "probe_bank": [
+        "You've covered benefits — what could make this fail operationally?",
+        "Whose risk is greatest: recipients, the bank, or Diconsa?"
+      ],
+      "hint_ladder": [
+        "Think about who is affected: recipients, the state/bank, Diconsa — plus what could go wrong.",
+        "Structure: benefits to the population, benefits to government/bank/Diconsa, and risks/feasibility.",
+        "Strong answers cover population benefits (time/cost/security), institutional benefits (compliance, admin cost, traffic), and risks (capacity, fraud, decentralized control)."
+      ]
+    },
+    {
+      "id": "analysis",
+      "objective": "Candidate computes the total annual savings to rural families (Question 2).",
+      "interviewer_prompt": "If every benefit-receiving rural family could collect at their local Diconsa store, how much in total per year would be saved across all such families?",
+      "advance_criteria": "Structured, correct calculation arriving at ~546 million pesos with clear narration.",
+      "data_drops": ["exhibit_savings_assumptions"],
+      "probe_bank": [
+        "How will you structure the calculation before computing?",
+        "What's the population of benefit-receiving families?"
+      ],
+      "hint_ladder": [
+        "Work from population → rural families → benefit-receiving families → current annual cost → savings by group.",
+        "7M rural families (20% × 140M ÷ 4); 3.5M receive benefits; €600/yr each → 2.1B pesos baseline.",
+        "Savings = (2.1B × 0.6 × 0.3) + (2.1B × 0.4 × 0.2) = 378M + 168M = 546M pesos."
+      ]
+    },
+    {
+      "id": "data_reveal",
+      "objective": "Candidate interprets the regional survey + warehouse exhibit (Question 3).",
+      "interviewer_prompt": "Here's survey and operational data across three regions. What do you observe, and how would you explain the trends?",
+      "advance_criteria": "Reads regional differences, links low interest in Region B to high crime / few warehouses / security and reliability concerns, and notes Region A's density advantage.",
+      "data_drops": ["exhibit_regional_survey"],
+      "probe_bank": [
+        "Which non-obvious trend stands out?",
+        "Why might interest be lowest where you'd expect savings to be highest?"
+      ],
+      "hint_ladder": [
+        "Compare interest against security concern and warehouse density across regions.",
+        "Region B: high crime, few warehouses → security and reliability fears suppress interest despite time savings.",
+        "Region A is most interested (highest density, least travel); Region B least (highest crime, fewest warehouses, lowest confidence benefits arrive)."
+      ]
+    },
+    {
+      "id": "pressure_test",
+      "objective": "Candidate addresses the state bank's concerns about selling to this population (Question 4).",
+      "interviewer_prompt": "The state bank worries the population has minimal education, is unfamiliar with banking products, and faces significant crime and fraud. How could the bank sell these services effectively?",
+      "advance_criteria": "Groups responses around (a) education/familiarity and (b) crime/fraud, with concrete, grounded tactics.",
+      "target_elements": [
+        "Education/adoption — pilot in receptive regions; in-store talks/demos; partner with already-trusted brands/orgs; advertise via real beneficiaries; motivate Diconsa staff; first-deposit promotions",
+        "Crime/fraud — increase store security; daily/weekly transaction limits; technology such as chip cards to reduce cash use and fraud"
+      ],
+      "probe_bank": [
+        "Which tactic would you pilot first and why?",
+        "How do you build trust fastest in a low-familiarity market?"
+      ],
+      "hint_ladder": [
+        "Group your ideas around the two concerns the bank raised.",
+        "For adoption: pilots, demos, trusted partners, peer advocates, incentives. For fraud: security, limits, technology.",
+        "Strong answers tackle education (pilots, in-store demos, trusted partners, beneficiary advocates, staff incentives, promotions) and crime/fraud (security, transaction limits, chip-card technology)."
+      ]
+    },
+    {
+      "id": "recommendation",
+      "objective": "Candidate synthesizes into a clear recommendation.",
+      "interviewer_prompt": "Pull it together — what do you recommend to the Foundation and the government?",
+      "advance_criteria": "Clear recommendation to proceed (phased), anchored on the ~546M-peso annual saving, regional prioritization, and an adoption + security plan.",
+      "probe_bank": [
+        "Where would you start, and why?",
+        "What's the biggest risk to your recommendation?"
+      ],
+      "hint_ladder": [
+        "Lead with the answer, then the savings, the rollout sequence, and the risks.",
+        "Anchor on the 546M-peso saving and start where conditions are best.",
+        "Recommend a phased rollout beginning with benefit disbursement in high-readiness regions (e.g. Region A), pairing adoption tactics with security/fraud controls, then expanding services and regions."
+      ]
+    },
+    {
+      "id": "scoring",
+      "objective": "Terminal stage — produce the rubric-based evaluation.",
+      "interviewer_prompt": "Thanks — that concludes the case.",
+      "advance_criteria": "n/a (scoring is generated from the transcript against the rubric).",
+      "probe_bank": [],
+      "hint_ladder": []
+    }
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_savings_assumptions",
+      "title": "Cost-to-collect assumptions",
+      "stage": "analysis",
+      "synthesized": false,
+      "note": "Numbers from the McKinsey transcript (Question 2).",
+      "data": {
+        "current_cost_per_family_pesos_per_month": 50,
+        "reduction_far_segment": { "share_of_rural": 0.60, "cost_reduction": 0.30 },
+        "reduction_near_segment": { "share_of_rural": 0.40, "cost_reduction": 0.20 },
+        "rural_share_of_population": 0.20,
+        "benefit_receiving_share_of_rural": 0.50,
+        "national_population": 140000000,
+        "avg_family_size": 4
+      }
+    },
+    {
+      "id": "exhibit_regional_survey",
+      "title": "Regional survey (avg agreement, 1-5) and Diconsa operations, by region",
+      "stage": "data_reveal",
+      "synthesized": true,
+      "note": "SYNTHESIZED for the simulator — the original exhibit is an image in the case PDF and is not in the transcript. Numbers are internally consistent with the transcript's reveal (everyone agrees it saves time; not all convinced it costs less; Region B has the most security concern, lowest confidence, highest crime, and fewest warehouses; Region A is most interested and densest). Replace with the official exhibit if obtained. FLAG FOR HUMAN REVIEW.",
+      "regions": ["Region A", "Region B", "Region C"],
+      "survey": {
+        "interested_in_collecting_at_diconsa": { "Region A": 4.3, "Region B": 2.4, "Region C": 3.5 },
+        "concerned_about_security": { "Region A": 3.1, "Region B": 4.6, "Region C": 3.7 },
+        "confident_benefits_will_arrive": { "Region A": 4.0, "Region B": 2.3, "Region C": 3.6 },
+        "believe_it_saves_time": { "Region A": 4.5, "Region B": 4.4, "Region C": 4.5 },
+        "believe_it_costs_less": { "Region A": 3.6, "Region B": 3.2, "Region C": 3.4 }
+      },
+      "operations": {
+        "diconsa_warehouses": { "Region A": 9, "Region B": 2, "Region C": 5 },
+        "store_density_index": { "Region A": 88, "Region B": 31, "Region C": 57 },
+        "reported_crime_index": { "Region A": 22, "Region B": 71, "Region C": 44 },
+        "recent_police_presence_change_pct": { "Region A": 0, "Region B": 18, "Region C": 3 }
+      },
+      "insights": [
+        "Interest in collecting at Diconsa differs sharply by region (A high, B low, C middling).",
+        "Everyone has security concerns, but Region B is by far the most worried — aligning with its highest reported crime.",
+        "Region B is least confident benefits will arrive: few warehouses mean trucks travel further (hijack/stock-out risk), reducing reliability.",
+        "All regions agree it saves time, but not everyone is convinced it costs less.",
+        "Region A is most interested, consistent with the highest store density (least travel)."
+      ]
+    }
+  ],
+  "quant": {
+    "stage": "analysis",
+    "question": "Total annual savings across all benefit-receiving rural families if collection moves to Diconsa.",
+    "solution_steps": [
+      "Rural families = 7,000,000 (20% × 140M ÷ 4 per family).",
+      "Benefit-receiving families = 3,500,000 (50% × 7M).",
+      "Current annual cost per family = 600 pesos (50/month × 12).",
+      "Total current annual cost = 2.1 billion pesos (600 × 3.5M).",
+      "Far segment saving = (2.1B × 0.60) × 0.30 = 378M pesos.",
+      "Near segment saving = (2.1B × 0.40) × 0.20 = 168M pesos.",
+      "Total saving = 378M + 168M = 546 million pesos per year."
+    ],
+    "answer": "≈ 546 million pesos saved per year.",
+    "answer_value": 546000000,
+    "tolerance": 1000000
+  },
+  "scoring_rubric": {
+    "scale": "1-5 per dimension",
+    "dimensions": [
+      { "name": "structure", "weight": 0.2, "description": "MECE investigation framework tailored to Diconsa (population / institutions / risk).", "anchors": { "1": "No structure.", "3": "Reasonable but partly generic or overlapping buckets.", "5": "Tailored MECE structure across population benefits, institutional benefits, and risks." } },
+      { "name": "hypothesis", "weight": 0.2, "description": "Clear, tested point of view on feasibility and value.", "anchors": { "1": "No hypothesis.", "3": "Weakly tested hypothesis.", "5": "Explicit hypothesis refined with the quant and regional data." } },
+      { "name": "quant", "weight": 0.2, "description": "Correct, well-narrated savings calculation.", "anchors": { "1": "Wrong or not attempted.", "3": "Right approach with arithmetic slips or thin narration.", "5": "Correct ~546M-peso result with clear, talked-through steps." } },
+      { "name": "synthesis", "weight": 0.2, "description": "Connects savings + regional data into a recommendation.", "anchors": { "1": "No synthesis.", "3": "Partial; recommendation under-supported.", "5": "Crisp recommendation anchored on savings, regional readiness, and adoption/security plan." } },
+      { "name": "communication", "weight": 0.2, "description": "Structured, concise, top-down delivery.", "anchors": { "1": "Hard to follow.", "3": "Clear but buries the answer.", "5": "Answer-first, signposted, executive-ready." } }
+    ]
+  },
+  "target_solution_notes": "A strong candidate recommends proceeding with a phased rollout: leverage Diconsa to disburse benefits first, capturing ~546M pesos/year in saved travel/food cost for 3.5M families, then expand into savings, bill pay, insurance, and loans. They prioritize high-readiness regions (e.g. Region A: dense network, low crime, high trust) and sequence the harder regions (e.g. Region B) only after addressing security (store security, transaction limits, chip-card technology) and adoption barriers (pilots, in-store demos, trusted partners, beneficiary advocates, staff incentives, promotions). They flag operational capacity (Diconsa and the bank) and fraud control as the key risks to manage."
+}

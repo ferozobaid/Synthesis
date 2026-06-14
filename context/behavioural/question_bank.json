@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "note": "Behavioural question bank. 'why_this_company' is dynamic — {{company}} is filled from the parsed JD; falls back to 'this company'. Competencies align with the tags used in seed_answer_bank.json so RAG retrieval matches the user's own prepared answers.",
+  "competencies": [
+    "motivation & fit",
+    "leadership & influence",
+    "conflict resolution",
+    "dealing with ambiguity",
+    "data-driven decision making",
+    "failure & lessons learned",
+    "working under pressure",
+    "persuading stakeholders",
+    "cross-functional collaboration",
+    "initiative"
+  ],
+  "questions": [
+    { "id": "tell_me_about_yourself", "question": "Tell me about yourself.", "competency": "motivation & fit", "type": "intro", "dynamic": false },
+    { "id": "why_this_role", "question": "Why are you interested in this role?", "competency": "motivation & fit", "type": "motivation", "dynamic": false },
+    { "id": "why_this_company", "question": "Why do you want to work at {{company}}?", "competency": "motivation & fit", "type": "motivation", "dynamic": true, "source": "parsed JD company name", "fallback_company": "this company" },
+    { "id": "why_consulting", "question": "Why are you interested in consulting?", "competency": "motivation & fit", "type": "motivation", "dynamic": false },
+    { "id": "greatest_strength", "question": "What are your greatest strengths, and how have you applied them?", "competency": "motivation & fit", "type": "self-assessment", "dynamic": false },
+    { "id": "time_you_failed", "question": "Tell me about a time you failed and what you learned.", "competency": "failure & lessons learned", "type": "star", "dynamic": false },
+    { "id": "leadership", "question": "Tell me about a time you led a team through a difficult situation.", "competency": "leadership & influence", "type": "star", "dynamic": false },
+    { "id": "conflict", "question": "Tell me about a time you had a conflict with a teammate and how you resolved it.", "competency": "conflict resolution", "type": "star", "dynamic": false },
+    { "id": "ambiguity", "question": "Tell me about a time you dealt with significant ambiguity.", "competency": "dealing with ambiguity", "type": "star", "dynamic": false },
+    { "id": "influence_without_authority", "question": "Tell me about a time you influenced others without formal authority.", "competency": "persuading stakeholders", "type": "star", "dynamic": false },
+    { "id": "data_driven_decision", "question": "Tell me about a time you used data to make a decision.", "competency": "data-driven decision making", "type": "star", "dynamic": false },
+    { "id": "tight_deadline", "question": "Tell me about a time you delivered high-quality work under a tight deadline.", "competency": "working under pressure", "type": "star", "dynamic": false },
+    { "id": "cross_functional", "question": "Tell me about a time you worked cross-functionally.", "competency": "cross-functional collaboration", "type": "star", "dynamic": false },
+    { "id": "initiative", "question": "Tell me about a time you went beyond what was asked.", "competency": "initiative", "type": "star", "dynamic": false }
+  ]
+}

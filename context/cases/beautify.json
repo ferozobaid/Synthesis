@@ -1,0 +1,218 @@
+{
+  "id": "beautify",
+  "title": "Beautify — Virtual Beauty Advisors",
+  "firm": "McKinsey & Company",
+  "type": "profitability / strategy",
+  "industry": "Prestige cosmetics",
+  "source": "McKinsey public case library (Beautify). Transcript in /cases/beautify.text.",
+  "difficulty": "medium",
+  "prompt": "Our client is Beautify, a global prestige cosmetics company that sells mainly through high-end department stores (e.g. Harrods, Shanghai No. 1) and online via specialty retailers like Sephora, under several makeup, fragrance, and skin-care brands. In stores, beauty consultants approach customers, demonstrate products, sell, and maintain a loyal repeat base; they are managed independently by each brand in each country. As shoppers move online, too many consultants sit in empty stores. Beautify's president and COO have asked McKinsey to evaluate whether training the majority of beauty consultants to use virtual / social-media channels to connect with customers could be profitable.",
+  "content": "Beautify is a global prestige cosmetics company selling through high-end department stores and online specialty retailers, across multiple brands. Beauty consultants are central to the in-store model but are increasingly underused as shopping moves online. The engagement question: can Beautify profitably retrain consultants into virtual social-media beauty advisors who sell through their own pages on beautify.com, appear at retail outlets, and stay active across social platforms?",
+  "stages": [
+    {
+      "id": "intro",
+      "objective": "Candidate restates the objective and the decision to be made in their own words.",
+      "interviewer_prompt": "Walk me through how you understand Beautify's situation and what we're actually being asked to decide.",
+      "advance_criteria": "Correctly frames the core question (is retraining consultants into virtual advisors profitable / value-creating?) and notes the online-shift driver.",
+      "probe_bank": [
+        "What exactly would 'success' look like for Beautify here?",
+        "Who are the key stakeholders affected by this shift?"
+      ],
+      "hint_ladder": [
+        "Think about what's driving the question — what changed in how customers shop?",
+        "The core decision is whether a specific transformation pays off; can you name it precisely?",
+        "We're deciding whether to retrain most beauty consultants into virtual social-media advisors, and whether that is profitable for Beautify."
+      ]
+    },
+    {
+      "id": "clarification",
+      "objective": "Candidate asks 2-3 sharp clarifying questions before diving in.",
+      "interviewer_prompt": "Before you build an approach, is there anything you'd like to clarify?",
+      "advance_criteria": "Asks targeted questions (profitability threshold/time horizon, scope of 'virtual', which brands/markets, who bears retraining cost) rather than open-ended fishing.",
+      "probe_bank": [
+        "If you could only ask one clarifying question, which would it be and why?",
+        "Why does the time horizon matter for this decision?"
+      ],
+      "hint_ladder": [
+        "What would you need to know to size whether this is 'profitable'?",
+        "Consider scope (which markets/brands), the definition of profitable, and the time horizon.",
+        "Good clarifiers: over what horizon must it be profitable, what does 'virtual advisor' include, and which brands/markets are in scope."
+      ]
+    },
+    {
+      "id": "framework",
+      "objective": "Candidate structures the factors Beautify should weigh in shifting consultants to virtual advisors (Question 1).",
+      "interviewer_prompt": "What factors should Beautify consider when shifting this group of employees toward a new set of responsibilities?",
+      "advance_criteria": "MECE structure covering retailer response, competitor response, current consultant capabilities, brand image, and the underlying economics.",
+      "target_elements": [
+        "Retailer response — how partners react to direct beautify.com sales; financial arrangements with retail partners",
+        "Competitor response — do rivals offer virtual assistants; how successful; do they plan to digitize",
+        "Current capabilities — consultants' existing social-media skill; who already has a presence; hire vs retrain",
+        "Brand image — implications of hundreds of advisors posting; employer-brand leverage",
+        "Economics — cost of retraining/IT/remodel vs incremental revenue (sets up the math)"
+      ],
+      "probe_bank": [
+        "You've listed external factors — what internal capability questions matter?",
+        "How would retailers feel about customers buying directly from beautify.com?"
+      ],
+      "hint_ladder": [
+        "Split it into external (market) and internal (capability/brand) buckets.",
+        "Think retailer, competitor, consultant capability, brand image — plus the economics.",
+        "Strong answers cover retailer response, competitor response, current capabilities, brand image, and the cost/revenue economics."
+      ]
+    },
+    {
+      "id": "analysis",
+      "objective": "Candidate reasons about customer adoption — what would make a high-touch customer switch to a virtual experience (Question 2).",
+      "interviewer_prompt": "Imagine a current customer who shops in-store for the high-touch service. What features would make them consider switching to a mostly virtual sales experience?",
+      "advance_criteria": "Generates customer-centric features grounded in the value of in-store service (personalization, trust, community, responsiveness).",
+      "target_elements": [
+        "Real-time tailored feedback (e.g. a 'selfie mirror' app with recommendations and virtual try-on)",
+        "An online social community led by the advisor",
+        "Learning trends from a trusted, active advisor (tutorials, reviews)",
+        "Private, responsive handling of specific concerns"
+      ],
+      "probe_bank": [
+        "What does the in-store consultant provide that's hardest to replicate virtually?",
+        "Which of these features best preserves the personal relationship?"
+      ],
+      "hint_ladder": [
+        "Start from what the customer values in-store, then ask how virtual could match or beat it.",
+        "Think personalization, community, trusted trend guidance, and private support.",
+        "Strong features: real-time selfie-mirror feedback, an online community, trend learning from a trusted advisor, and private concern handling."
+      ]
+    },
+    {
+      "id": "data_reveal",
+      "objective": "Candidate interprets dripped exhibits: the investment economics, then the competitor-chatbot metrics.",
+      "interviewer_prompt": "Let's ground this in data. I'll share some information one piece at a time — tell me what you take from each.",
+      "advance_criteria": "Reads each exhibit correctly, computes the payback, and draws non-obvious insights from the competitor chatbot data.",
+      "data_drops": ["exhibit_investment", "exhibit_competitor_bots"],
+      "probe_bank": [
+        "Before calculating — what's your approach to finding the payback period?",
+        "Which competitor bot would you study first, and why?"
+      ],
+      "hint_ladder": [
+        "For payback, compare the upfront investment to the steady annual profit it generates.",
+        "Adjusted annual profit = incremental revenue − annual costs − depreciation; then divide investment by it.",
+        "Payback ≈ €150M ÷ €117.5M ≈ 1.28 years. On the bots, look for which metric each bot moves most."
+      ]
+    },
+    {
+      "id": "pressure_test",
+      "objective": "Candidate defends the move against real risks raised by the interviewer.",
+      "interviewer_prompt": "Suppose retail partners push back hard and worry this cannibalizes their counters, and the brand team fears dilution from hundreds of advisors posting. How do you respond?",
+      "advance_criteria": "Acknowledges the risk, weighs it against the upside, and proposes concrete mitigations (phasing, retailer revenue-share, brand guidelines, pilot).",
+      "probe_bank": [
+        "What would make you pause the rollout?",
+        "How would you protect the brand while scaling advisor content?"
+      ],
+      "hint_ladder": [
+        "Don't dismiss the risk — size it and mitigate it.",
+        "Consider retailer revenue-sharing, brand content guidelines, and a phased pilot.",
+        "Strong answers: pilot in select markets, share economics with retail partners, set brand-content standards, and monitor cannibalization before scaling."
+      ]
+    },
+    {
+      "id": "recommendation",
+      "objective": "Candidate delivers a crisp, evidence-backed recommendation.",
+      "interviewer_prompt": "The COO just walked in. In about 60 seconds, what's your recommendation?",
+      "advance_criteria": "Leads with a clear yes/no, supports it with the ~1.28-year payback and the chatbot insight (prioritize a virtual-try-on / 'Lena'-like capability), names risks and next steps.",
+      "probe_bank": [
+        "What's the single strongest argument for your recommendation?",
+        "What would you do in the first 90 days?"
+      ],
+      "hint_ladder": [
+        "Lead with the answer, then the two or three reasons, then risks and next steps.",
+        "Anchor on the fast payback and the evidence that virtual try-on drives the most value.",
+        "Recommend proceeding with a phased rollout, prioritizing a virtual-try-on capability, given the ~1.28-year payback; mitigate retailer and brand risks via pilots and revenue-sharing."
+      ]
+    },
+    {
+      "id": "scoring",
+      "objective": "Terminal stage — produce the rubric-based evaluation.",
+      "interviewer_prompt": "Thanks — that concludes the case.",
+      "advance_criteria": "n/a (scoring is generated from the transcript against the rubric).",
+      "probe_bank": [],
+      "hint_ladder": []
+    }
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_investment",
+      "title": "First-year economics of the virtual-advisor shift",
+      "stage": "data_reveal",
+      "synthesized": false,
+      "note": "Numbers taken directly from the McKinsey transcript (Question 3).",
+      "data": {
+        "current_revenue_eur": 1300000000,
+        "incremental_revenue_pct": 0.10,
+        "annual_all_in_costs_eur": 10000000,
+        "upfront_investment_eur": {
+          "it": 50000000,
+          "training": 25000000,
+          "counter_remodeling": 50000000,
+          "inventory": 25000000
+        },
+        "it_depreciation_pct": 0.05
+      }
+    },
+    {
+      "id": "exhibit_competitor_bots",
+      "title": "Effect of top-4 competitors' AI chatbots (% change in each metric since introduction)",
+      "stage": "data_reveal",
+      "synthesized": true,
+      "note": "SYNTHESIZED for the simulator — the original exhibit is an image in the case PDF and is not in the transcript. Numbers are internally consistent with the transcript's reveal (Lena strongest overall via virtual try-on; all bots lift visits; Clarice/Lena lead awareness-to-site conversion; Jaki/Lola build trust). Replace with the official exhibit if obtained. FLAG FOR HUMAN REVIEW.",
+      "columns": ["Clarice", "Lena", "Jaki", "Lola"],
+      "capabilities": {
+        "Clarice": "personalized product recommendations",
+        "Lena": "virtual try-on",
+        "Jaki": "real-time live consultation",
+        "Lola": "educational content"
+      },
+      "data": {
+        "website_visits_pct": { "Clarice": 35, "Lena": 33, "Jaki": 30, "Lola": 28 },
+        "conversion_awareness_to_site_pct": { "Clarice": 22, "Lena": 21, "Jaki": 12, "Lola": 14 },
+        "conversion_site_to_purchase_pct": { "Clarice": 12, "Lena": 19, "Jaki": 11, "Lola": 13 },
+        "avg_purchase_size_pct": { "Clarice": 6, "Lena": 14, "Jaki": 8, "Lola": 15 },
+        "satisfaction_product_fit_pct": { "Clarice": 9, "Lena": 24, "Jaki": 12, "Lola": 7 },
+        "overall_experience_pct": { "Clarice": 10, "Lena": 18, "Jaki": 17, "Lola": 12 },
+        "return_rate_pct": { "Clarice": -8, "Lena": -15, "Jaki": -11, "Lola": -4 }
+      },
+      "insights": [
+        "All four bots increase website visits — bots drive traffic regardless of capability.",
+        "Clarice and Lena drive the biggest awareness-to-site conversion (recommendations and try-ons capture interest).",
+        "Lena leads site-to-purchase conversion and product-fit satisfaction, and cuts returns most — virtual try-on builds confidence in fit.",
+        "Lena and Lola lift average purchase size most (cross-sell / bundling).",
+        "Jaki and Lola most improve overall experience and trust (live consults, education).",
+        "Net: Lena has the greatest overall impact — prioritize developing a Lena-like virtual-try-on agent first."
+      ]
+    }
+  ],
+  "quant": {
+    "stage": "data_reveal",
+    "question": "How many years until the investment turns profitable?",
+    "solution_steps": [
+      "Incremental revenue = €130M (10% of €1.3B).",
+      "Annual profit = €120M (€130M − €10M all-in annual costs).",
+      "Upfront investment = €150M (50 IT + 25 training + 50 remodel + 25 inventory).",
+      "Annual IT depreciation = €2.5M (5% × €50M IT).",
+      "Adjusted annual profit = €117.5M (€120M − €2.5M).",
+      "Payback = €150M ÷ €117.5M ≈ 1.28 years (~1 year 3 months)."
+    ],
+    "answer": "≈ 1.28 years (about 1 year and 3 months).",
+    "answer_value": 1.28,
+    "tolerance": 0.1
+  },
+  "scoring_rubric": {
+    "scale": "1-5 per dimension",
+    "dimensions": [
+      { "name": "structure", "weight": 0.2, "description": "MECE, logical framework tailored to Beautify (not a generic template).", "anchors": { "1": "No structure; lists random ideas.", "3": "Reasonable buckets but partly generic or overlapping.", "5": "Tailored, MECE structure covering retailer/competitor/capability/brand/economics." } },
+      { "name": "hypothesis", "weight": 0.2, "description": "Forms and tests a clear point of view; drives toward an answer.", "anchors": { "1": "No hypothesis; purely reactive.", "3": "Implicit hypothesis, weakly tested.", "5": "Explicit, evidence-driven hypothesis refined as data arrives." } },
+      { "name": "quant", "weight": 0.2, "description": "Correct, well-explained payback math.", "anchors": { "1": "Math wrong or not attempted.", "3": "Right approach, arithmetic slips, or thin narration.", "5": "Correct ≈1.28-year payback with clear, talked-through steps." } },
+      { "name": "synthesis", "weight": 0.2, "description": "Pulls exhibits + math into an insight and a clear recommendation.", "anchors": { "1": "No synthesis; data left unconnected.", "3": "Partial synthesis; recommendation under-supported.", "5": "Crisp recommendation backed by payback + the Lena/try-on insight, with risks and next steps." } },
+      { "name": "communication", "weight": 0.2, "description": "Structured, concise, top-down delivery.", "anchors": { "1": "Rambling or hard to follow.", "3": "Mostly clear but buries the answer.", "5": "Answer-first, signposted, executive-ready." } }
+    ]
+  },
+  "target_solution_notes": "A strong candidate proceeds (conditionally) with the virtual-advisor shift: the first-year economics give a ~1.28-year payback, well within a reasonable horizon, and competitor evidence shows AI/virtual capabilities — especially virtual try-on (Lena) — materially lift conversion, basket size, and satisfaction while cutting returns. They recommend a phased rollout that pilots in select brands/markets, prioritizes a virtual-try-on capability, shares economics with retail partners to manage cannibalization, and sets brand-content guidelines — monitoring adoption and retailer response before scaling."
+}
