@@ -8,9 +8,11 @@ import {
   pendingExhibits,
 } from "@/lib/fsm/case-fsm";
 import beautify from "@/context/cases/beautify.json";
+import diconsa from "@/context/cases/diconsa.json";
 import type { CaseRecord } from "@/lib/types";
 
 const c = beautify as unknown as CaseRecord;
+const dc = diconsa as unknown as CaseRecord;
 
 describe("case FSM", () => {
   it("advances on a strong response", () => {
@@ -67,5 +69,19 @@ describe("case FSM", () => {
     const r3 = step(c, r2.session, true);
     expect(r3.decision.action).toBe("advance");
     expect(r3.session.fsm_state).toBe("pressure_test");
+  });
+
+  it("drips a non-data_reveal exhibit too (Diconsa drops its assumptions at analysis)", () => {
+    expect(pendingExhibits(dc, "analysis", []).length).toBe(1);
+    const s = { ...initSession("u", "diconsa"), fsm_state: "analysis" as const };
+    // Even on a strong response the exhibit must drip first.
+    const r1 = step(dc, s, true);
+    expect(r1.decision.action).toBe("reveal");
+    expect(r1.decision.exhibitToReveal).toBe("exhibit_savings_assumptions");
+    expect(r1.session.exhibits_revealed).toContain("exhibit_savings_assumptions");
+    // Then a strong response advances out of analysis.
+    const r2 = step(dc, r1.session, true);
+    expect(r2.decision.action).toBe("advance");
+    expect(r2.session.fsm_state).toBe("data_reveal");
   });
 });

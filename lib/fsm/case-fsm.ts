@@ -8,7 +8,7 @@
  *  - Advance on a strong response.
  *  - Probe then redirect on weak responses (max 2 per state).
  *  - Graduated hint after 2 failed attempts at the same state (3-rung ladder).
- *  - Drip one exhibit per data_reveal entry.
+ *  - Drip one exhibit per entry for any stage that declares data_drops.
  *  - Never skip scoring.
  */
 import {
@@ -67,11 +67,14 @@ export function decide(state: CaseState, ctx: DecideCtx): TurnDecision {
     return { action: "advance", nextState: "scoring" };
   }
 
-  // Drip one exhibit per entry into data_reveal before evaluating advancement.
-  if (state === "data_reveal" && ctx.pendingExhibits.length > 0) {
+  // Drip one exhibit per entry, for ANY stage that still has pending exhibits,
+  // before evaluating advancement. Beautify drops both exhibits at data_reveal;
+  // Diconsa also drops its cost-assumptions exhibit at the analysis stage, so the
+  // drip cannot be gated to data_reveal alone.
+  if (ctx.pendingExhibits.length > 0) {
     return {
       action: "reveal",
-      nextState: "data_reveal",
+      nextState: state,
       exhibitToReveal: ctx.pendingExhibits[0],
     };
   }

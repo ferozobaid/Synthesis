@@ -46,3 +46,4 @@ venv/
 .vercel
 .idea/
 .vscode/
+.claude/
