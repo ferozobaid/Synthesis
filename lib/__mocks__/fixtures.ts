@@ -9,7 +9,6 @@ import seedAnswers from "@/context/behavioural/seed_answer_bank.json";
 import type {
   AnswerBankEntry,
   BehaviouralQuestion,
-  BehaviouralScore,
   CaseRecord,
   FitReport,
   Star,
@@ -26,6 +25,28 @@ export function mockCase(id: string): CaseRecord | undefined {
 }
 
 export const MOCK_QUESTIONS = (questionBank as { questions: BehaviouralQuestion[] }).questions;
+
+/**
+ * A sample JD (mirrors context/jd_samples/consultant.txt) used as the mock-mode
+ * default so the behavioural "why this company / why this role" questions are
+ * grounded in a real parsed company + role without the user pasting a JD.
+ */
+export const MOCK_JD_TEXT = `Title: Entry Level Oracle Financial Technology Consultant
+Company: Revature
+Location: East Chicago, IN
+Experience level: Entry level
+Work type: Full-time
+
+About Revature
+Revature is one of the largest and fastest-growing employers of emerging technology talent across the U.S. As a Revature Oracle Financial Technology Associate you will gain valuable experience and learn tailored skills to become an effective engineer for a Fortune 500 company.
+
+What We Are Looking For:
+Bachelor's degree in a business or quantitative concentration
+Strong communication and interpersonal skills
+A natural problem solver with an analytical mindset
+Experience with SQL and data analysis is a plus
+Legally authorized to work in the United States
+Open to nationwide relocation`;
 
 type SeedAnswer = Star & { id: string; question: string; tags: string[] };
 export const MOCK_SEED_ANSWERS = seedAnswers as unknown as SeedAnswer[];
@@ -64,19 +85,4 @@ export const mockFitReport: FitReport = {
     "Surface any finance- or security-adjacent project",
     "Mirror the JD's 'data modeling' language where it is genuinely true",
   ],
-};
-
-export const mockBehaviouralScore: BehaviouralScore = {
-  dimension_scores: [
-    { dimension: "STAR structure", score: 4, justification: "All four STAR elements present; the task could be sharper." },
-    { dimension: "Specificity / evidence", score: 4, justification: "Concrete actions and a named method." },
-    { dimension: "Ownership", score: 5, justification: "Clear first-person contribution." },
-    { dimension: "Impact / result", score: 4, justification: "Quantified outcome." },
-    { dimension: "Key-point coverage", score: 3, justification: "Covered the reset and rebuild; omitted the daily check-in cadence you'd planned." },
-  ],
-  overall: 4,
-  covered_key_points: ["Reorganized the team", "Rebuilt a simpler model first"],
-  missed_key_points: ["The 15-minute daily check-in cadence"],
-  strengths: ["Clear ownership", "Quantified result"],
-  improvements: ["State the task more crisply up front", "Mention the cadence change you used to de-risk"],
 };

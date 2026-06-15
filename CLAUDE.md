@@ -195,3 +195,34 @@ Built this pass (Steps 0–4); paused here for review before module code.
 **Not yet built (post-checkpoint):** real fit scoring (embeddings + rules), behavioural/case scoring via Claude, voice, offline ingestion + n8n, validation harness. `supabase db push` not run (no CLI/project yet).
 
 See the build plan: `~/.claude/plans/you-are-building-synthesis-async-dusk.md`.
+
+---
+
+## Build Status — Module 3: Behavioural Simulator (complete · 2026-06-15)
+
+Modules 1 (fit) and 2 (case) are merged on `main`; Module 3 turns the Behavioural
+Simulator from mocked Q&A into a real pipeline.
+
+**Done & verified (no real credentials):** `npm run build` ✓ · `tsc --noEmit` ✓ ·
+`npm test` ✓ (81 tests). Full mock session runs via `/api/behavioural` and `/behavioural`.
+
+- **Question generation** (`lib/behavioural/question-gen.ts`): fills "why this company"
+  (`{{company}}`) and "why this role" from the parsed JD; generic fallback when no JD.
+- **Evaluator** (`lib/behavioural/evaluator.ts`): mirrors `case-evaluator` — deterministic
+  STAR heuristic (mock) + Haiku-with-fallback (real), returning the shared `BehaviouralScore`.
+- **Runner** (`lib/behavioural/runner.ts`): `startBehavioural` / `respondToBehavioural` /
+  `summarizeBehavioural` (per-question feedback + aggregate session summary).
+- **Wiring**: `/api/behavioural` (`start`/`respond`/`summary`) + `/behavioural` session-flow UI.
+- **RAG**: extended `retrieveAnswer` with a mock-mode lexical blend (non-semantic mock
+  embeddings), gated on `!embeddingsEnabled()` so the real-mode cosine path is unchanged;
+  shared lexical helpers in `lib/text.ts`.
+
+**Scoring rubric (decision):** used the existing **5-dimension** rubric already shipped in
+`context/scoring_criteria.md` (STAR structure, Specificity, Ownership, Impact, Key-point
+coverage; 1–5) rather than the 3-dimension variant in the Module 3 brief — it matches the
+established types and the case module. Key-point coverage is the RAG-grounded dimension and
+is marked "not applicable" (dropped, never scored 0) when no prepared answer is retrieved.
+
+**No bootstrapping:** all three `/context/behavioural/` inputs were already real
+(`question_bank.json`, `seed_answer_bank.json`, and the behavioural rubric inside the shared
+`context/scoring_criteria.md`). No schema/migration changes; voice still deferred (text only).
