@@ -22,4 +22,11 @@ describe("rag retrieval", () => {
     expect(r.length).toBe(1);
     expect(r[0].item.question).toBeTruthy();
   });
+
+  it("matches a question to its own prepared answer in mock mode (lexical blend)", async () => {
+    const bank = mockAnswerBank();
+    const r = await retrieveAnswer("Tell me about a time you had a conflict with a teammate.", bank, 1);
+    expect(r.length).toBe(1);
+    expect(r[0].item.question.toLowerCase()).toContain("conflict");
+  });
 });

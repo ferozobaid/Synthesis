@@ -1,39 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  MOCK_JD_TEXT,
   MOCK_QUESTIONS,
+  MOCK_USER_ID,
   mockAnswerBank,
-  mockBehaviouralScore,
 } from "@/lib/__mocks__/fixtures";
-import { retrieveAnswer } from "@/lib/rag";
 import { useMocks } from "@/lib/config";
+import {
+  respondToBehavioural,
+  startBehavioural,
+  summarizeBehavioural,
+} from "@/lib/behavioural/runner";
+import type { BehaviouralSession } from "@/lib/types";
 
 // POST /api/behavioural
-//   { action: "questions", company? }            -> question list (company filled in)
-//   { action: "score", questionId, answer }      -> score + RAG-matched prepared answer
+//   { action: "start", jdText? }                       -> session + questions (JD-filled)
+//   { action: "respond", session, questionId, answer } -> score + matched prepared answer
+//   { action: "summary", session }                     -> aggregate scores + feedback
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const action: string = body.action ?? "questions";
+  const action: string = body.action ?? "start";
 
-  if (action === "questions") {
-    const company: string = body.company || "this company";
-    const questions = MOCK_QUESTIONS.map((q) => ({
-      ...q,
-      question: q.question.replace("{{company}}", company),
-    }));
-    return NextResponse.json({ questions });
+  if (action === "start") {
+    // In mock/demo mode, fall back to a sample JD so "why this company" is grounded
+    // without the user pasting one.
+    const jdText: string =
+      body.jdText && body.jdText.trim() ? body.jdText : useMocks() ? MOCK_JD_TEXT : "";
+    return NextResponse.json(
+      startBehavioural({ questionBank: MOCK_QUESTIONS, jdText, userId: MOCK_USER_ID }),
+    );
   }
 
-  // action === "score"
-  const answer: string = body.answer ?? "";
-  const questionId: string = body.questionId ?? "";
-  const bank = mockAnswerBank();
-  const matches = await retrieveAnswer(answer || questionId, bank, 1);
-  const top = matches[0];
+  if (action === "summary") {
+    const session = body.session as BehaviouralSession | undefined;
+    if (!session) return NextResponse.json({ error: "session required" }, { status: 400 });
+    return NextResponse.json(summarizeBehavioural(session));
+  }
 
-  return NextResponse.json({
-    mock: useMocks(),
-    score: mockBehaviouralScore,
-    matched_answer: top ? { id: top.item.id, question: top.item.question } : null,
-    match_score: top ? Number(top.score.toFixed(3)) : null,
-  });
+  // action === "respond"
+  const session = body.session as BehaviouralSession | undefined;
+  if (!session) return NextResponse.json({ error: "session required" }, { status: 400 });
+  const questionId: string = body.questionId ?? "";
+  const answer: string = body.answer ?? "";
+  return NextResponse.json(
+    await respondToBehavioural(session, questionId, answer, mockAnswerBank()),
+  );
 }

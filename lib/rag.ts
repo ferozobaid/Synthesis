@@ -14,6 +14,8 @@ import type {
   Embedding,
 } from "@/lib/types";
 import { cosine, embed } from "@/lib/embeddings";
+import { embeddingsEnabled } from "@/lib/config";
+import { containment, jaccard } from "@/lib/text";
 import { getStage, pendingExhibits } from "@/lib/fsm/case-fsm";
 
 export interface Retrieved<T> {
@@ -43,23 +45,41 @@ export async function retrieveAnswer(
   bank: AnswerBankEntry[],
   k = 1,
 ): Promise<Retrieved<AnswerBankEntry>[]> {
-  const q = await embed(question, { query: true });
+  if (bank.length === 0) return [];
 
-  const precomputed = bank
-    .filter((b) => b.embedding && b.embedding.length > 0)
-    .map((b) => ({ item: b, embedding: b.embedding as Embedding }));
-
-  if (precomputed.length === bank.length && bank.length > 0) {
-    return topK(q, precomputed, k);
+  // Mock mode: the embeddings are a non-semantic hash, so cosine ranking is noise.
+  // Rank lexically instead — primarily the query question against each entry's own
+  // question, with a smaller tags/STAR contribution. Deterministic and topical.
+  if (!embeddingsEnabled()) {
+    return bank
+      .map((item) => {
+        const score =
+          0.7 * containment(question, item.question) +
+          0.3 *
+            jaccard(
+              question,
+              `${item.tags.join(" ")} ${item.situation} ${item.task} ${item.action} ${item.result}`,
+            );
+        return { item, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k);
   }
 
-  const embedded = await Promise.all(
+  // Real semantic embeddings → cosine top-k (production path). Uses precomputed
+  // embeddings when present; otherwise embeds the bank on the fly (dev/seed path).
+  const q = await embed(question, { query: true });
+  const allPrecomputed = bank.every((b) => b.embedding && b.embedding.length > 0);
+  const candidates = await Promise.all(
     bank.map(async (b) => ({
       item: b,
-      embedding: await embed(`${b.question} ${b.situation} ${b.task} ${b.action} ${b.result}`),
+      embedding:
+        allPrecomputed && b.embedding
+          ? (b.embedding as Embedding)
+          : await embed(`${b.question} ${b.situation} ${b.task} ${b.action} ${b.result}`),
     })),
   );
-  return topK(q, embedded, k);
+  return topK(q, candidates, k);
 }
 
 // =========================== Case pre-fetch =========================== //
