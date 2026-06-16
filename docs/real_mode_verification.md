@@ -102,7 +102,7 @@ that falls back to the deterministic heuristic on any error.
 | Uses `complete()` | **Yes** — 1 billed call per answered question (3/3 logged) |
 | `extractJSON` parses to `BehaviouralScore` | **Yes, all 3** — outputs 722–995 tokens, all under the 2000 cap → valid JSON, no truncation |
 | Fallback heuristic triggered | **NO** (post-fix). Scores now differ from the mock heuristic; pre-fix, 2 of 3 fell back on the 900 cap (see Findings F1) |
-| Output shape | **Confirmed** `BehaviouralScore` (dimension_scores 1-5, overall, strengths, improvements). `why_this_role` still carries a `Key-point coverage` dim despite no matched answer (see F2) |
+| Output shape | **Confirmed** `BehaviouralScore` (dimension_scores 1-5, overall, strengths, improvements). In this rerun `why_this_role` still carried a `Key-point coverage` dim despite no matched answer — **since fixed** (F2, commit `2aa5b4b`) |
 | Coherence spot-check | overall **4.3/5** — `leadership` **5/5**, `data_driven_decision` **5/5**, `why_this_role` **3/5** (lower, as expected for a non-STAR motivation answer); feedback references the answer |
 | Driver inputs | questions `leadership`, `data_driven_decision`, `why_this_role`; JD = `context/jd_samples/consultant.txt`. RAG matched prepared answers at 0.70 / 0.704; none for `why_this_role` |
 
@@ -160,13 +160,22 @@ calls that finished under the cap (`why_this_role`, the final score) diverged fr
   vs mock `3,1,1,2,3`; `leadership` 5/5 with `Ownership=5` vs the heuristic's `4`) → genuine Haiku.
 - No fallback observed on any of the 13 calls.
 
-### F2 (minor, still open) — Haiku doesn't omit `Key-point coverage` when no prepared answer matched
+### F2 — Haiku doesn't omit `Key-point coverage` when no prepared answer matched &nbsp; ✅ RESOLVED (commit `2aa5b4b`)
 
-`why_this_role` (no retrieved prepared answer) still returns a `Key-point coverage=3` dimension in the
-post-fix run; the prompt asks the model to omit it, and mock mode drops it deterministically. Low
-impact (nudges the behavioural average). If it matters, strengthen the omit instruction or filter the
-dimension in `coerceScore` when `prepared === null`. **Not addressed by the `max_tokens` fix; left as
-a minor follow-up.**
+In the post-fix rerun, `why_this_role` (no retrieved prepared answer) still returned a
+`Key-point coverage=3` dimension — Haiku doesn't always honor the "omit it" instruction, whereas mock
+mode drops it deterministically.
+
+**Fix applied (`2aa5b4b`).** Real-mode behavioural coercion (`coerceScore` in
+`lib/behavioural/evaluator.ts`) now **drops `key_point_coverage` whenever no prepared answer is matched**
+(`prepared === null`), even if Haiku returned it, and **recomputes `overall` from the remaining
+dimensions** (never the model's coverage-inclusive overall). The "relevance wasn't scored" note is kept,
+so real mode matches the mock heuristic. The mock path is unchanged.
+
+**Verification: unit tests** (`tests/behavioural-evaluator.test.ts`) — no-prepared coercion omits
+coverage, `overall` is recomputed from the remaining dimensions, the behaviour is robust to alternate
+labels, and prepared-present coercion still keeps coverage. **No additional live API rerun was needed —
+this is deterministic post-processing of the model's JSON, not a live-model-call issue.**
 
 ---
 
@@ -249,10 +258,13 @@ and the real path coerces Haiku's JSON into the same types — so the UI is unaf
   tightened the three system prompts to *"Return compact valid JSON only, with no prose outside the
   JSON."* The post-fix rerun confirms no truncation and genuine Haiku scoring (Findings F1).
 - Earlier (commit `ec43839`): opt-in usage log in `lib/claude.ts` + the `verify/real-mode.mjs` driver.
+- **F2 fix applied and verified** (commit `2aa5b4b`): real-mode `coerceScore` drops `key_point_coverage`
+  when no prepared answer is matched and recomputes `overall` from the remaining dimensions; covered by
+  unit tests (no live rerun needed — deterministic post-processing).
 - `.gitignore` now excludes the verification artifacts (`server.log`, `live-verification-output.txt`,
   `live-usage-lines.txt`) so local evidence isn't committed.
-- **This report update is report-only.** No rubric, schema (`lib/types.ts`), or module-structure
-  changes. F2 (KPC omission) remains a minor open follow-up. `npm test`, `tsc`, `npm run build` pass.
+- No rubric or schema (`lib/types.ts`) changes; mock-mode behaviour unchanged. `npm test`, `tsc`,
+  `npm run build` pass.
 
 ---
 
