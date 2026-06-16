@@ -256,7 +256,7 @@ function coerceScore(raw: unknown, c: CaseRecord, session: CaseSessionState): Ca
 async function claudeScore(c: CaseRecord, session: CaseSessionState): Promise<CaseScore> {
   const system =
     "You are a McKinsey case interviewer writing the final, rubric-anchored evaluation of a case. " +
-    "Score strictly against the rubric and the target solution, citing specific moments from the transcript. Return JSON only.";
+    "Score strictly against the rubric and the target solution, citing specific moments from the transcript. Return compact valid JSON only, with no prose outside the JSON.";
   const prompt = [
     `Case: ${c.title}`,
     `Target solution: ${c.target_solution_notes ?? ""}`,
@@ -273,7 +273,7 @@ async function claudeScore(c: CaseRecord, session: CaseSessionState): Promise<Ca
   ].join("\n");
 
   try {
-    const text = await complete(prompt, { system, temperature: 0, maxTokens: 1200 });
+    const text = await complete(prompt, { system, temperature: 0, maxTokens: 2000 });
     return coerceScore(extractJSON(text), c, session);
   } catch {
     return aggregateScore(c, session);

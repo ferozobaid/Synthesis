@@ -283,7 +283,7 @@ async function claudeEvaluation(c: CaseRecord, stage: CaseState, answer: string)
   const s = getStage(c, stage);
   const system =
     "You are a McKinsey case interviewer scoring a single candidate response against a fixed rubric. " +
-    "Score only what the response demonstrates. Be strict and evidence-grounded. Return JSON only.";
+    "Score only what the response demonstrates. Be strict and evidence-grounded. Return compact valid JSON only, with no prose outside the JSON.";
   const prompt = [
     `Case: ${c.title}`,
     `Stage: ${stage} — ${s?.objective ?? ""}`,
@@ -301,7 +301,7 @@ async function claudeEvaluation(c: CaseRecord, stage: CaseState, answer: string)
     .join("\n");
 
   try {
-    const text = await complete(prompt, { system, temperature: 0, maxTokens: 900 });
+    const text = await complete(prompt, { system, temperature: 0, maxTokens: 2000 });
     return coerceEvaluation(extractJSON(text), c, stage, answer);
   } catch {
     return heuristicEvaluation(c, stage, answer); // network/parse failure → heuristic

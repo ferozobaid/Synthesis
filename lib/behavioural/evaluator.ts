@@ -328,7 +328,16 @@ function preparedText(p: AnswerBankEntry | null): string {
   return `Situation: ${p.situation}\nTask: ${p.task}\nAction: ${p.action}\nResult: ${p.result}`;
 }
 
-function coerceScore(
+/** True if a model-returned dimension label refers to Key-point coverage (any casing/punctuation). */
+function isKeyPointCoverage(dimension: string): boolean {
+  return dimension.toLowerCase().replace(/[^a-z]/g, "").includes("keypoint");
+}
+
+/** Note mock mode adds when coverage can't be scored; reused so real mode matches. */
+const NO_COVERAGE_NOTE =
+  "Relevance to your prepared answer wasn't scored — no close match was found in your answer bank.";
+
+export function coerceScore(
   raw: unknown,
   question: string,
   answer: string,
@@ -337,7 +346,7 @@ function coerceScore(
   const r = raw as Partial<BehaviouralScore> | null;
   const ds = Array.isArray(r?.dimension_scores) ? r!.dimension_scores : [];
   if (ds.length === 0) return heuristicEvaluation(question, answer, prepared); // unusable → heuristic
-  const dimension_scores = ds
+  let dimension_scores = ds
     .filter((x) => x && x.dimension)
     .map((x) => ({
       dimension: String(x.dimension),
@@ -345,17 +354,33 @@ function coerceScore(
       justification: String(x.justification ?? ""),
       ...(x.evidence ? { evidence: String(x.evidence) } : {}),
     }));
+
+  // F2: with no matched prepared answer, Key-point coverage is "not applicable". Drop it even if
+  // the model returned it (Haiku doesn't always honor the "omit" instruction), so real mode matches
+  // the mock heuristic — then recompute `overall` from the remaining dimensions, never the model's
+  // (possibly coverage-inclusive) overall.
+  const noPrepared = prepared === null;
+  if (noPrepared) {
+    dimension_scores = dimension_scores.filter((x) => !isKeyPointCoverage(x.dimension));
+  }
+  if (dimension_scores.length === 0) return heuristicEvaluation(question, answer, prepared);
+
   const present = dimension_scores.map((x) => x.score);
+  const overall =
+    !noPrepared && typeof r?.overall === "number"
+      ? round1(r.overall)
+      : round1(present.reduce((a, b) => a + b, 0) / Math.max(1, present.length));
+
+  const improvements = Array.isArray(r?.improvements) ? r!.improvements.map(String) : [];
+  if (noPrepared && !improvements.includes(NO_COVERAGE_NOTE)) improvements.push(NO_COVERAGE_NOTE);
+
   return {
     dimension_scores,
-    overall:
-      typeof r?.overall === "number"
-        ? round1(r.overall)
-        : round1(present.reduce((a, b) => a + b, 0) / Math.max(1, present.length)),
+    overall,
     covered_key_points: Array.isArray(r?.covered_key_points) ? r!.covered_key_points.map(String) : [],
     missed_key_points: Array.isArray(r?.missed_key_points) ? r!.missed_key_points.map(String) : [],
     strengths: Array.isArray(r?.strengths) ? r!.strengths.map(String) : [],
-    improvements: Array.isArray(r?.improvements) ? r!.improvements.map(String) : [],
+    improvements,
   };
 }
 
@@ -366,7 +391,7 @@ async function claudeEvaluation(
 ): Promise<BehaviouralScore> {
   const system =
     "You are an interview coach scoring a single behavioural (STAR) answer against a fixed rubric. " +
-    "Score only what the response demonstrates. Be strict and evidence-grounded. Return JSON only.";
+    "Score only what the response demonstrates. Be strict and evidence-grounded. Return compact valid JSON only, with no prose outside the JSON.";
   const prompt = [
     `Question: ${question}`,
     "",
@@ -384,7 +409,7 @@ async function claudeEvaluation(
   ].join("\n");
 
   try {
-    const text = await complete(prompt, { system, temperature: 0, maxTokens: 900 });
+    const text = await complete(prompt, { system, temperature: 0, maxTokens: 2000 });
     return coerceScore(extractJSON(text), question, answer, prepared);
   } catch {
     return heuristicEvaluation(question, answer, prepared); // network/parse failure → heuristic
