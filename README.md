@@ -28,6 +28,9 @@ npm test         # unit + integration tests, all on mocks
 To run against live services, copy `.env.local.template` → `.env.local` and fill in your
 Supabase + Anthropic keys. Absent keys, the app automatically uses mocks (`/lib/__mocks__/`).
 
+**Deploying?** See [docs/deployment.md](docs/deployment.md) — a public Vercel deploy in
+mock mode needs only `SYNTHESIS_USE_MOCKS=true` (no API keys).
+
 ---
 
 ## Two planes — never cross them
