@@ -29,13 +29,21 @@ function client(): Anthropic {
 /** Non-streaming completion → concatenated text. Used for scoring / structured parse. */
 export async function complete(prompt: string, opts: CompleteOpts = {}): Promise<string> {
   if (useMocks()) return mockComplete(prompt, opts);
+  const model = opts.model ?? activeModel();
   const res = await client().messages.create({
-    model: opts.model ?? activeModel(),
+    model,
     max_tokens: opts.maxTokens ?? 1500,
     temperature: opts.temperature ?? 0,
     system: opts.system,
     messages: [{ role: "user", content: prompt }],
   });
+  // Opt-in real-mode usage logging for cost/verification. Off by default; never reached
+  // in mock mode (returns above). No effect on the response shape. See SYNTHESIS_LOG_USAGE.
+  if (process.env.SYNTHESIS_LOG_USAGE === "true") {
+    console.error(
+      `[synthesis usage] model=${model} input_tokens=${res.usage.input_tokens} output_tokens=${res.usage.output_tokens}`,
+    );
+  }
   return res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
 }
 
