@@ -32,6 +32,11 @@ Datasets/
 coverage/
 .vitest/
 
+# Real-mode verification artifacts (local evidence only — never commit)
+server.log
+live-verification-output.txt
+live-usage-lines.txt
+
 # Python (offline plane: scripts/ingestion, scripts/validation)
 __pycache__/
 *.py[cod]

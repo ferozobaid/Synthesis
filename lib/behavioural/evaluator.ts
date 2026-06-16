@@ -366,7 +366,7 @@ async function claudeEvaluation(
 ): Promise<BehaviouralScore> {
   const system =
     "You are an interview coach scoring a single behavioural (STAR) answer against a fixed rubric. " +
-    "Score only what the response demonstrates. Be strict and evidence-grounded. Return JSON only.";
+    "Score only what the response demonstrates. Be strict and evidence-grounded. Return compact valid JSON only, with no prose outside the JSON.";
   const prompt = [
     `Question: ${question}`,
     "",
@@ -384,7 +384,7 @@ async function claudeEvaluation(
   ].join("\n");
 
   try {
-    const text = await complete(prompt, { system, temperature: 0, maxTokens: 900 });
+    const text = await complete(prompt, { system, temperature: 0, maxTokens: 2000 });
     return coerceScore(extractJSON(text), question, answer, prepared);
   } catch {
     return heuristicEvaluation(question, answer, prepared); // network/parse failure → heuristic
