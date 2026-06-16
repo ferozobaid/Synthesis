@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  coerceScore,
   evaluateBehavioural,
   heuristicEvaluation,
   scoreDimensions,
@@ -96,5 +97,60 @@ describe("behavioural evaluator (mock heuristic)", () => {
     expect((scoreDimensions(complete, prepared).star_structure as number)).toBeGreaterThan(
       scoreDimensions(incomplete, prepared).star_structure as number,
     );
+  });
+});
+
+describe("behavioural evaluator (real-mode coercion — F2: key-point coverage N/A)", () => {
+  // A simulated raw Haiku response that (incorrectly) includes Key-point coverage even when
+  // no prepared answer was retrieved. Scores chosen so the all-5 mean (2.6) differs from the
+  // remaining-4 mean (2.0), proving `overall` is recomputed rather than taken from the model.
+  const rawWithCoverage = () => ({
+    dimension_scores: [
+      { dimension: "STAR structure", score: 2, justification: "thin" },
+      { dimension: "Specificity / evidence", score: 2, justification: "generic" },
+      { dimension: "Ownership", score: 2, justification: "mixed" },
+      { dimension: "Impact / result", score: 2, justification: "no outcome" },
+      { dimension: "Key-point coverage", score: 5, justification: "n/a" },
+    ],
+    overall: 2.6, // the model's coverage-inclusive overall
+    covered_key_points: [],
+    missed_key_points: [],
+    strengths: [],
+    improvements: ["Add a concrete number."],
+  });
+
+  it("drops Key-point coverage from a coerced score when no prepared answer matched", () => {
+    const ev = coerceScore(rawWithCoverage(), "why this role?", "an answer", null);
+    const dims = ev.dimension_scores.map((d) => d.dimension);
+    expect(dims).not.toContain("Key-point coverage");
+    expect(dims.some((d) => d.toLowerCase().replace(/[^a-z]/g, "").includes("keypoint"))).toBe(false);
+    expect(ev.dimension_scores).toHaveLength(4);
+  });
+
+  it("recomputes overall from the remaining dimensions, ignoring the model's coverage-inclusive overall", () => {
+    const ev = coerceScore(rawWithCoverage(), "q", "an answer", null);
+    expect(ev.overall).toBe(2); // mean of remaining [2,2,2,2]
+    expect(ev.overall).not.toBe(2.6); // not the model's all-5 overall
+  });
+
+  it("keeps the 'not scored' coverage note when no prepared answer matched", () => {
+    const ev = coerceScore(rawWithCoverage(), "q", "an answer", null);
+    expect(ev.improvements.join(" ")).toMatch(/wasn't scored|no close match/i);
+  });
+
+  it("is robust to alternate coverage labels (e.g. key_point_coverage)", () => {
+    const raw = rawWithCoverage();
+    raw.dimension_scores[4].dimension = "key_point_coverage";
+    const ev = coerceScore(raw, "q", "an answer", null);
+    expect(ev.dimension_scores.some((d) => d.dimension.toLowerCase().includes("key"))).toBe(false);
+    expect(ev.dimension_scores).toHaveLength(4);
+  });
+
+  it("keeps Key-point coverage (and trusts the model's overall) when a prepared answer is present", () => {
+    const ev = coerceScore(rawWithCoverage(), "q", "an answer", prepared);
+    const dims = ev.dimension_scores.map((d) => d.dimension);
+    expect(dims).toContain("Key-point coverage");
+    expect(ev.dimension_scores).toHaveLength(5);
+    expect(ev.overall).toBe(2.6);
   });
 });
