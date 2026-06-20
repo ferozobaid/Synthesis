@@ -1,0 +1,25 @@
+{
+  "generated_from": "hand-authored synthetic fixtures (no real dataset rows; Datasets/ is gitignored)",
+  "families": {
+    "ACCOUNTANT": {
+      "family": "ACCOUNTANT",
+      "title": "Accountant",
+      "profile_text": "Title: Accountant\nCompany: Field Profile\n\nExperience with accounts payable and accounts receivable. Knowledge of GAAP and financial reporting. Proficiency in Excel required. Experience preparing tax returns and account reconciliations. Bachelor's degree in Accounting required.\n\nRequired skills: Excel, Financial Modeling"
+    },
+    "INFORMATION-TECHNOLOGY": {
+      "family": "INFORMATION-TECHNOLOGY",
+      "title": "Information Technology",
+      "profile_text": "Title: Information Technology\nCompany: Field Profile\n\nStrong SQL and Python required. Experience with AWS and Docker. Knowledge of JavaScript and React to build and deploy software. Bachelor's degree in Computer Science required.\n\nRequired skills: SQL, Python, AWS, Docker, JavaScript"
+    },
+    "CHEF": {
+      "family": "CHEF",
+      "title": "Chef",
+      "profile_text": "Title: Chef\nCompany: Field Profile\n\nExperience working in a professional kitchen. Knowledge of food safety and menu planning. Ability to manage line cooks and culinary staff. Culinary degree preferred."
+    },
+    "HEALTHCARE": {
+      "family": "HEALTHCARE",
+      "title": "Healthcare",
+      "profile_text": "Title: Healthcare\nCompany: Field Profile\n\nRegistered nurse with patient care experience. Knowledge of clinical procedures and medical records. Ability to administer medication and support physicians. Nursing degree required."
+    }
+  }
+}
