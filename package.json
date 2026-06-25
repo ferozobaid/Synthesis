@@ -10,7 +10,11 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:prep": "python3 scripts/validation/prepare_data.py",
+    "validate:fit": "tsx scripts/validation/score_resumes.ts",
+    "validate:report": "python3 scripts/validation/validate_matching.py",
+    "validate:smoke": "tsx scripts/validation/score_resumes.ts --fixtures && python3 scripts/validation/validate_matching.py --fixtures"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
@@ -25,9 +29,11 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@xenova/transformers": "^2.17.2",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
   },
