@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import type {
   BehaviouralQuestion,
   BehaviouralScore,
   BehaviouralSession,
 } from "@/lib/types";
+import MicButton from "@/components/MicButton";
+import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 
 const SAMPLE_JD = `Title: Entry Level Oracle Financial Technology Consultant
 Company: Revature
@@ -64,6 +66,21 @@ export default function BehaviouralPage() {
   const [results, setResults] = useState<Record<string, TurnResult>>({});
   const [loading, setLoading] = useState(false);
 
+  // Append finalised speech to whatever is already in the box, so a user can
+  // type, dictate, and edit in any order.
+  const appendSpeech = useCallback((text: string) => {
+    setAnswer((prev) => appendTranscript(prev, text));
+  }, []);
+
+  const {
+    supported,
+    listening,
+    interimTranscript,
+    error: voiceError,
+    start: startVoice,
+    stop: stopVoice,
+  } = useSpeechRecognition({ onFinalResult: appendSpeech });
+
   const [summary, setSummary] = useState<SummaryResult | null>(null);
 
   const current = questions[idx];
@@ -90,6 +107,7 @@ export default function BehaviouralPage() {
 
   async function submit() {
     if (!session || !current) return;
+    stopVoice();
     setLoading(true);
     try {
       const d = await postBehavioural<TurnResult>({
@@ -106,6 +124,7 @@ export default function BehaviouralPage() {
   }
 
   function next() {
+    stopVoice();
     setIdx((i) => Math.min(i + 1, questions.length - 1));
     setAnswer("");
   }
@@ -136,7 +155,7 @@ export default function BehaviouralPage() {
       <p className="mt-1 text-slate-600">
         We generate questions from the job description, retrieve your prepared STAR answers,
         and score each response.
-        <span className="ml-1 text-slate-400">Voice input arrives after the text path.</span>
+        <span className="ml-1 text-slate-400">Answer by typing or by voice (Chrome/Edge).</span>
       </p>
       {mock && (
         <p className="mt-3 text-xs text-amber-600">
@@ -191,6 +210,26 @@ export default function BehaviouralPage() {
             className="mt-4 w-full rounded-lg border border-slate-300 p-3 text-sm"
             placeholder="Type your STAR answer (Situation, Task, Action, Result)…"
           />
+
+          {/* Voice input: appends into the same answer box; typing always works. */}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <MicButton supported={supported} listening={listening} onStart={startVoice} onStop={stopVoice} />
+            {listening && (
+              <span className="text-xs italic text-slate-400" aria-live="polite">
+                {interimTranscript ? interimTranscript : "Listening…"}
+              </span>
+            )}
+            {!supported && (
+              <span className="text-xs text-slate-400">
+                Voice input isn&apos;t supported in this browser — please type your answer.
+              </span>
+            )}
+          </div>
+          {voiceError && (
+            <p className="mt-2 text-xs text-amber-600" role="alert">
+              {voiceError}
+            </p>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button
