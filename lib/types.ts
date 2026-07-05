@@ -83,20 +83,6 @@ export interface JobDescription {
   created_at: string;
 }
 
-// ===================== O*NET retrieval =====================
-
-export type OnetContentType = "skill" | "task" | "tool" | "knowledge" | "description";
-
-/** A single retrieval-sized O*NET chunk. Mirrors public.onet_chunks (migration 0011). */
-export interface OnetChunk {
-  soc: string; // occupation code, e.g. "15-2051.00"
-  occupation_title: string;
-  content_type: OnetContentType;
-  content: string;
-  metadata?: Record<string, unknown>;
-  embedding?: Embedding | null;
-}
-
 // ===================== Fit analyzer =====================
 
 export type RequirementStatus = "matched" | "partial" | "missing";

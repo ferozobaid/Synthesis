@@ -2,7 +2,7 @@
   "name": "synthesis",
   "version": "0.1.0",
   "private": true,
-  "description": "Synthesis — voice-enabled, retrieval-grounded interview-prep platform (live plane only).",
+  "description": "Synthesis - voice-enabled, retrieval-assisted interview-prep platform.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,10 +11,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "validate:prep": "python3 scripts/validation/prepare_data.py",
+    "validate:prep": "python scripts/validation/prepare_data.py",
     "validate:fit": "tsx scripts/validation/score_resumes.ts",
-    "validate:report": "python3 scripts/validation/validate_matching.py",
-    "validate:smoke": "tsx scripts/validation/score_resumes.ts --fixtures && python3 scripts/validation/validate_matching.py --fixtures"
+    "validate:report": "python scripts/validation/validate_matching.py",
+    "validate:smoke": "python scripts/validation/prepare_data.py --smoke && tsx scripts/validation/score_resumes.ts --smoke && python scripts/validation/validate_matching.py --smoke"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

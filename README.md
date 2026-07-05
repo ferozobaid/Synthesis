@@ -1,81 +1,82 @@
 # Synthesis
 
-A voice-enabled, retrieval-grounded **interview-preparation platform**, built as a
-Community Analytics capstone. Three modules on one shared JD-parser + RAG backbone:
+A voice-enabled, retrieval-assisted interview-preparation platform, built as a
+Community Analytics capstone. The app has three modules:
 
-1. **Resume-to-JD Fit Analyzer** — parse a resume + a chosen job description, match
-   per-requirement, and return an interpretable fit score (matched / partial / missing,
-   gaps, missing keywords, recommendations).
-2. **Behavioural Interview Simulator** — behavioural questions (incl. "why this company"
-   from the parsed JD), scored against the user's own STAR answer bank via RAG.
-3. **Case Interview Simulator** — an adaptive FSM agent that probes, redirects, drips
-   exhibit data, gives graduated hints, and scores.
+1. **Resume-to-JD Fit Analyzer** - parses a resume and a job description, grounds
+   skills against `lib/data/onet-taxonomy.json`, and returns an interpretable fit
+   report. The current production method is `hybrid_0_25`: 25% deterministic
+   rules + 75% local semantic matching when embeddings are enabled, with a
+   rules-only fallback.
+2. **Behavioural Interview Simulator** - asks JD-grounded behavioural questions
+   and scores answers against the user's prepared STAR answer bank.
+3. **Case Interview Simulator** - runs an adaptive FSM interviewer that probes,
+   redirects, reveals exhibits, gives hints, and scores the final response.
 
-> **Status:** foundation scaffold. The three module UIs run on **mocked data with no real
-> credentials**. See [CLAUDE.md](CLAUDE.md) for build mechanics and locked decisions, and
-> `source-of-truth.md` for product decisions.
+The Fit Analyzer does **not** use O*NET RAG or Supabase pgvector. O*NET is a
+committed local data dictionary loaded through `lib/onet.ts`.
 
 ---
 
-## Quick start (no credentials needed)
+## Quick Start
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000 — home + 3 modules on mock data
-npm test         # unit + integration tests, all on mocks
+npm run dev      # http://localhost:3000
+npm test
 ```
 
-To run against live services, copy `.env.local.template` → `.env.local` and fill in your
-Supabase + Anthropic keys. Absent keys, the app automatically uses mocks (`/lib/__mocks__/`).
+To run against live services, copy `.env.local.template` to `.env.local` and fill
+in the relevant keys. Absent keys, the app falls back to mock mode.
 
-**Deploying?** See [docs/deployment.md](docs/deployment.md) — a public Vercel deploy in
-mock mode needs only `SYNTHESIS_USE_MOCKS=true` (no API keys).
+For semantic fit scoring, set:
 
----
-
-## Two planes — never cross them
-
-- **LIVE plane** (`/app`, `/lib`): Next.js API routes → direct Claude API streaming;
-  Supabase pgvector retrieval; pre-fetch RAG at case load + stage transitions only.
-- **OFFLINE plane** (`/scripts`, `/n8n`): ingestion (extract → clean → chunk → embed →
-  upsert) + validation, orchestrated by n8n. **Never imported by the live plane.**
-
-A guard test asserts no `/scripts` import ever appears in `/app` or `/lib`.
+```bash
+EMBEDDINGS_ENABLED=true
+EMBEDDINGS_MODEL=Xenova/bge-small-en-v1.5
+```
 
 ---
 
-## Locked decisions
+## Two Planes
+
+- **Live plane** (`/app`, `/lib`): Next.js API routes, direct Claude calls where
+  needed, local O*NET dictionary grounding for fit analysis, and local retrieval
+  helpers for behavioural answer-bank matching / case-stage pre-fetch.
+- **Offline plane** (`/scripts`): validation scripts and O*NET taxonomy
+  maintenance. Offline scripts are never imported by the live plane.
+
+A guard test asserts no `/scripts` import appears in `/app` or `/lib`.
+
+---
+
+## Locked Decisions
 
 | Area | Decision |
 |---|---|
-| Default model | `claude-haiku-4-5` (single switch in `/lib/claude.ts`) |
-| Demo model | `claude-sonnet-4-6` (only when toggled) |
-| Embeddings | local **BGE-small-en-v1.5** (384-dim) — `@xenova/transformers` live, Python `sentence-transformers` offline. Never a paid API. |
-| Voice | Web Speech API, browser only, added after text works (behavioural first) |
-| Auth | Supabase Auth + RLS + cascade delete on every per-user table |
-| Datasets | dev/validation only — never on the live path |
-
-### Embeddings note
-
-`@xenova/transformers` is an **optional, lazily-loaded** dependency so `npm install`/`npm test`
-stay fast and native-build-free. `/lib/embeddings.ts` uses a deterministic local fallback by
-default; set `EMBEDDINGS_ENABLED=true` and `npm install @xenova/transformers` to switch on real
-BGE-small vectors. Offline ingestion uses the same model family (`BAAI/bge-small-en-v1.5`) so
-vectors are comparable — a parity test asserts cosine(same text) > 0.99.
+| Default model | `claude-haiku-4-5` |
+| Demo model | `claude-sonnet-4-6` |
+| Fit Analyzer | `hybrid_0_25` when local embeddings are enabled; rules-only fallback |
+| O*NET | Local JSON dictionary only: `lib/data/onet-taxonomy.json` |
+| Embeddings | Local BGE-small via `@xenova/transformers`; never a paid API |
+| Voice | Web Speech API, browser only |
+| Auth / persistence | Supabase planned for user data, not for O*NET taxonomy retrieval |
+| Datasets | Dev/validation only; never imported by live-plane code |
 
 ---
 
-## Repo structure
+## Repo Structure
 
-```
-app/         Next.js App Router — live plane (UIs + API routes)
-lib/         Shared live-plane utilities (claude, supabase, embeddings, rag, parsers, fsm, types)
+```text
+app/          Next.js App Router - UIs + API routes
+lib/          Live-plane utilities: parsers, fit scoring, O*NET dictionary,
+              embeddings, retrieval helpers, case FSM, shared types
 components/   Shared UI
-supabase/    Migrations (the locked schema contract)
-scripts/     Offline plane: ingestion/ + validation/ (Python) — never imported by app
-n8n/         Offline ingestion orchestration
-context/     Processed content (cases, behavioural bank, samples, scoring criteria)
-tests/       Vitest unit + integration
+supabase/     User-data migrations and mock-compatible schema
+scripts/      Offline validation and O*NET taxonomy maintenance
+context/      Cases, behavioural bank, samples, scoring criteria
+tests/        Vitest unit + integration tests
+reports/      Generated project reports
 ```
 
-See [CLAUDE.md](CLAUDE.md) for team ownership and the Definition of Done.
+See `CLAUDE.md` for build mechanics and `source-of-truth.md` for product framing.

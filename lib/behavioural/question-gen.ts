@@ -4,7 +4,7 @@
  * dynamic questions — notably "why this company" (JD company) and "why this role"
  * (JD role title). Falls back to the bank's generic phrasing when no JD is present.
  *
- * Pure + deterministic. Live plane only — never imports from /scripts or /n8n.
+ * Pure + deterministic. Live plane only; never imports from offline scripts.
  */
 import type { BehaviouralQuestion, JDRequirements } from "@/lib/types";
 

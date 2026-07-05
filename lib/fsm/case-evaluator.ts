@@ -16,7 +16,7 @@
  * `isStrong()` collapses an Evaluation into the boolean the pure FSM
  * (lib/fsm/case-fsm) needs to decide advance vs. probe/redirect/hint.
  *
- * Live plane only. Never imports from /scripts or /n8n.
+ * Live plane only. Never imports from offline scripts.
  */
 import { complete, extractJSON } from "@/lib/claude";
 import { useMocks } from "@/lib/config";
