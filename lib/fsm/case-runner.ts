@@ -1,13 +1,13 @@
 /**
  * Case session orchestration — the async layer that ties the pure FSM
- * (lib/fsm/case-fsm) to the evaluator, RAG pre-fetch and final scoring. Kept out
+ * (lib/fsm/case-fsm) to the evaluator, retrieval pre-fetch and final scoring. Kept out
  * of the route handler so a whole session is testable without HTTP.
  *
  * Flow per response: evaluate the answer → record it in the transcript → run the
  * FSM step → record the interviewer's move → either pre-fetch the next stage's
  * context (on advance) or, on reaching `scoring`, produce the final CaseScore.
  *
- * Live plane only. Never imports from /scripts or /n8n.
+ * Live plane only. Never imports from offline scripts.
  */
 import { useMocks } from "@/lib/config";
 import {

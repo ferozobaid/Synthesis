@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { scoreFit } from "@/lib/matching";
+import { scoreFitAnalyzer, scoreFitHybrid } from "@/lib/matching-semantic";
 import { parseResume } from "@/lib/parsers/resume-parser";
 import { parseJD } from "@/lib/parsers/jd-parser";
+import type { FitReport } from "@/lib/types";
 
 const RESUME = `JANE DOE
 EXPERIENCE
@@ -82,5 +84,48 @@ describe("matching — edge cases", () => {
   it("resume with no matching skills → nothing matched", () => {
     const r = scoreFit(parseResume("Pastry chef. Ran a bakery for 8 years."), parseJD(JD));
     expect(r.per_requirement.some((p) => p.status === "matched")).toBe(false);
+  });
+});
+
+describe("fit analyzer production method", () => {
+  it("falls back to structured scoring when embeddings are disabled", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "false";
+    try {
+      const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
+      expect(result.method).toBe("structured");
+      expect(result.semantic).toBeNull();
+      expect(result.report.overall_score).toBe(result.structured.overall_score);
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("blends structured and semantic reports with the hybrid_0_25 ratio", () => {
+    const base: FitReport = {
+      overall_score: 40,
+      per_requirement: [
+        { requirement: "SQL", status: "missing", evidence: null, weight: 1, score: 0.2 },
+      ],
+      top_strengths: ["rules strength"],
+      gaps: ["rules gap"],
+      missing_keywords: ["SQL"],
+      recommendations: ["rules rec"],
+    };
+    const semantic: FitReport = {
+      overall_score: 80,
+      per_requirement: [
+        { requirement: "SQL", status: "matched", evidence: "semantic evidence", weight: 1, score: 0.9 },
+      ],
+      top_strengths: ["semantic strength"],
+      gaps: [],
+      missing_keywords: [],
+      recommendations: ["semantic rec"],
+    };
+    const hybrid = scoreFitHybrid(base, semantic, 0.25);
+    expect(hybrid.overall_score).toBe(70);
+    expect(hybrid.per_requirement[0].score).toBeCloseTo(0.725);
+    expect(hybrid.per_requirement[0].evidence).toBe("semantic evidence");
   });
 });

@@ -5,13 +5,13 @@ const MODULES = [
     href: "/fit",
     title: "Fit Analyzer",
     blurb:
-      "Score your resume against a job description, with a per-requirement breakdown, gaps, missing keywords, and recommendations.",
+      "Score your resume against a job description with O*NET-grounded requirements, hybrid semantic scoring, gaps, and recommendations.",
   },
   {
     href: "/behavioural",
     title: "Behavioural Simulator",
     blurb:
-      'Practice behavioural questions — including "why this company" — scored against your own STAR answer bank.',
+      'Practice behavioural questions, including "why this company", scored against your own STAR answer bank.',
   },
   {
     href: "/case",
@@ -27,8 +27,8 @@ export default function Home() {
       <header className="mb-12">
         <h1 className="text-4xl font-bold tracking-tight">Synthesis</h1>
         <p className="mt-3 text-lg text-slate-600">
-          Voice-enabled, retrieval-grounded interview preparation. Running on
-          mocked data — no credentials required.
+          Voice-enabled, retrieval-assisted interview preparation. Running on
+          mocked data - no credentials required.
         </p>
       </header>
 
@@ -42,14 +42,14 @@ export default function Home() {
             <h2 className="text-xl font-semibold">{m.title}</h2>
             <p className="mt-2 text-sm text-slate-600">{m.blurb}</p>
             <span className="mt-4 inline-block text-sm font-medium text-accent">
-              Open →
+              Open
             </span>
           </Link>
         ))}
       </div>
 
       <footer className="mt-16 text-sm text-slate-400">
-        Synthesis · Community Analytics capstone · text-first, voice later.
+        Synthesis - Community Analytics capstone - text-first, voice later.
       </footer>
     </main>
   );

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Build the two shareable Synthesis deliverable PDFs into reports/:
+Build the current Synthesis Fit Validation Study PDF.
 
-  1. Synthesis_Progress_Report.pdf        — the audit vs Proposal Final V2 (team-facing).
-  2. Synthesis_Fit_Validation_Study.pdf   — Deliverable #2: metrics + confusion matrices + ablation.
-
-Run:  python3 reports/build_reports.py
+Run:
+  python reports/build_reports.py
 """
 
 from __future__ import annotations
@@ -17,24 +15,21 @@ import sys
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, ListFlowable, ListItem,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, ".."))
 ART = os.path.join(REPO, "scripts", "validation", ".artifacts")
-FIGS = os.path.join(HERE, "figs")
-os.makedirs(FIGS, exist_ok=True)
 
 NAVY = colors.HexColor("#1f3a5f")
-ACCENT = colors.HexColor("#2563eb")
-GREEN = colors.HexColor("#15803d")
-AMBER = colors.HexColor("#b45309")
-RED = colors.HexColor("#b91c1c")
 GREY = colors.HexColor("#64748b")
 LIGHT = colors.HexColor("#f1f5f9")
 
@@ -47,16 +42,9 @@ SMALL = ParagraphStyle("SMALL", parent=styles["Normal"], fontSize=8.3, leading=1
 CELL = ParagraphStyle("CELL", parent=styles["Normal"], fontSize=8.6, leading=11)
 CELLB = ParagraphStyle("CELLB", parent=CELL, fontName="Helvetica-Bold")
 
-USABLE_W = letter[0] - 1.4 * inch
 
-
-def P(t, s=BODY):
-    return Paragraph(t, s)
-
-
-def bullets(items, s=BODY):
-    return ListFlowable([ListItem(P(i, s), leftIndent=10) for i in items],
-                        bulletType="bullet", start="•", leftIndent=12)
+def P(text, style=BODY):
+    return Paragraph(text, style)
 
 
 def table(data, col_widths, header=True, font=8.6):
@@ -81,242 +69,286 @@ def table(data, col_widths, header=True, font=8.6):
     return t
 
 
-def fit_image(path, max_w=USABLE_W):
-    iw, ih = ImageReader(path).getSize()
-    w = min(max_w, iw)
-    return Image(path, width=w, height=w * ih / iw)
+def dash_items(items, style=BODY):
+    return [P("- " + item, style) for item in items]
 
 
 def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 7.5)
     canvas.setFillColor(GREY)
-    canvas.drawString(0.7 * inch, 0.5 * inch, "Synthesis · Team Cynthése · BUSA 649")
+    canvas.drawString(0.7 * inch, 0.5 * inch, "Synthesis Fit Validation Study - July 5, 2026")
     canvas.drawRightString(letter[0] - 0.7 * inch, 0.5 * inch, f"Page {doc.page}")
     canvas.restoreState()
 
 
-# --------------------------------------------------------------------------- #
-# PDF 1 — Progress Report
-# --------------------------------------------------------------------------- #
-def build_progress_report():
-    out = os.path.join(HERE, "Synthesis_Progress_Report.pdf")
-    doc = SimpleDocTemplate(out, pagesize=letter, topMargin=0.7 * inch, bottomMargin=0.7 * inch,
-                            leftMargin=0.7 * inch, rightMargin=0.7 * inch,
-                            title="Synthesis — Progress Report", author="Team Cynthése")
-    s = []
-    s.append(P("Synthesis — Progress Report", H1))
-    s.append(P("Repo audit vs. Proposal Final V2 (BUSA 649) &nbsp;·&nbsp; 20 June 2026 &nbsp;·&nbsp; "
-               "branch <font face='Courier'>feature/onet-rag-step-2-retriever</font> &nbsp;·&nbsp; "
-               "method: static read of app/lib/supabase/scripts/tests/docs + <font face='Courier'>npm test</font> (103 pass)", SUB))
-
-    s.append(P("Executive summary", H2))
-    s.append(P("The application engineering is mature and genuinely works; the measured-result science and voice are essentially "
-               "not started, and the production data plane (Supabase / pgvector / auth / ingestion / n8n) is scaffolded but dormant. "
-               "All three modules run end-to-end today in mock mode and in real (Haiku) mode for the two LLM-scored modules.", BODY))
-    s.append(bullets([
-        "<b>Fit Analyzer</b> — fully real, deterministic, O*NET-grounded; 0–100 score with per-requirement evidence. Zero Claude cost.",
-        "<b>Behavioural Simulator</b> — real JD-driven questions + STAR retrieval + 5-dim rubric scoring (Haiku verified). Text only.",
-        "<b>Case Simulator</b> — most complete: pure 8-state FSM (probe / redirect / hint / exhibit-drip / never-skip-scoring), real per-turn + final scoring (Haiku verified), full adaptive chat UI.",
-    ]))
-    s.append(P("<b>Overall completion vs. full proposal ≈ 60%</b> — app/platform ~75–80%, validation science ~10% "
-               "(now built, see companion study), production data plane ~35%, voice 0%. Cost on track: ~$0.015/behavioural, "
-               "~$0.063/case, $0/fit — far under the $10 budget.", BODY))
-
-    s.append(P("Completion by dimension", H2))
-    rows = [["#", "Dimension", "Est.", "Basis"]]
-    for r in [
-        ["1", "Resume Fit Analyzer", "85%", "Real engine + UI + API; no upload UI / validation / postings grounding"],
-        ["2", "Behavioural Simulator", "85% / 0% voice", "Real eval verified; voice not started"],
-        ["3", "Case Simulator", "90%", "FSM + eval + scoring + UI complete & verified"],
-        ["4", "O*NET / RAG / pgvector", "40%", "Taxonomy + in-memory retrieval real; pgvector stubbed; 21/1016; no postings"],
-        ["5", "Mock vs real mode", "90%", "Dual-mode; real Haiku verified; embeddings real-path unused"],
-        ["6", "API routes", "80%", "3 routes work; no persistence/auth"],
-        ["7", "UI pages", "85%", "4 polished pages; no upload/voice/auth"],
-        ["8", "Tests", "90%", "103 unit tests; no integration-vs-real-services"],
-        ["9", "Deployment", "90% mock / 30% real", "Mock-mode live; real needs Supabase + auth"],
-    ]:
-        rows.append([r[0], P(r[1], CELLB), P(r[2], CELL), P(r[3], CELL)])
-    s.append(table(rows, [0.3 * inch, 1.7 * inch, 1.15 * inch, 3.95 * inch]))
-
-    s.append(P("Fully done", H2))
-    s.append(bullets([
-        "Fit scoring engine (deterministic, O*NET-grounded) — <font face='Courier'>lib/matching.ts</font>, <font face='Courier'>lib/onet.ts</font>",
-        "Case FSM with all locked transition rules — <font face='Courier'>lib/fsm/case-fsm.ts</font>",
-        "Case + Behavioural evaluators (heuristic mock / Haiku real, with fallback)",
-        "Real-mode (Haiku) verification with measured cost — <font face='Courier'>docs/real_mode_verification.md</font>",
-        "Mock/real dual-mode architecture; locked schema migrations 0001–0011; two-plane guard test; 103 tests; mock-mode Vercel deploy",
-    ]))
-
-    s.append(P("Partially done", H2))
-    s.append(bullets([
-        "<b>Parsers</b> — heuristic resume/JD + real PDF/DOCX extraction; but no ≥95% robustness measurement, and extraction is regex, not LLM-driven as the proposal states.",
-        "<b>O*NET / RAG</b> — taxonomy + in-memory retrieval real; pgvector path is a TODO stub; only 21 of 1,016 occupations; postings corpus not in retrieval.",
-        "<b>API routes / UI</b> — work, but no persistence, no auth, no file-upload UI, no voice control.",
-        "<b>Embeddings (BGE)</b> — full code path + mock fallback, but never runs (EMBEDDINGS_ENABLED=false everywhere).",
-    ]))
-
-    s.append(P("Not started", H2))
-    s.append(bullets([
-        "Voice (Web Speech API) — named success metric \"behavioural-voice\"; zero code.",
-        "Offline ingestion pipeline (clean → chunk → embed → upsert) and n8n workflow — README-only.",
-        "Supabase persistence + Auth + RLS in practice — migrations unapplied; client never imported by any route.",
-        "Final presentation & write-up (Deliverable #3).",
-        "Fit-scorer validation study — <b>was not started; now BUILT</b> (see companion PDF).",
-    ]))
-
-    s.append(P("Mocked / stubbed — not production-real", H2))
-    s.append(bullets([
-        "pgvector retrieval → in-memory lexical; <font face='Courier'>match_onet_chunks</font> RPC never called.",
-        "Embeddings → deterministic non-semantic hash by default.",
-        "Supabase / persistence / auth → mock client; nothing read or written; fixed mock user id.",
-        "Case/behavioural inputs → always authored fixtures, regardless of mode.",
-        "O*NET corpus → 21 hand-picked occupations / 84 skills, not 1,016.",
-    ]))
-
-    s.append(PageBreak())
-    s.append(P("Risks / blockers", H2))
-    s.append(bullets([
-        "<b>Validation study</b> was the critical-path deliverable and was unstarted (now built; result in companion PDF).",
-        "<b>Voice</b> has a hard demo dependency and is 0% — lowest effort, must be scheduled now.",
-        "<b>Real mode is all-or-nothing</b> — needs Anthropic + all 3 Supabase vars together or it throws.",
-        "<b>Scope-creep trap</b> — the verification doc recommends mock+Haiku for the demo; pgvector/Supabase may be unnecessary for July 30.",
-        "<b>Stale counts</b> in CLAUDE.md (81) / deployment doc (86) vs actual 103 tests.",
-    ]))
-
-    s.append(P("Team action checklist (proposal §10 roles)", H2))
-    rows = [["Member", "Actions"]]
-    for who, acts in [
-        ("Rui (priority)", "Validation harness is built — review it; run the full + real-embeddings ablation; build the ingestion pipeline + n8n if real RAG is pursued."),
-        ("Feroz", "Decide demo posture (mock+Haiku vs real Supabase+pgvector); if real, implement the onet-retrieval pgvector path + wire Supabase/Auth; expand the taxonomy."),
-        ("Emmanuel", "Web Speech API voice on behavioural (Chrome + text fallback); file-upload UI (extractText already exists in lib)."),
-        ("Ibuken", "More cases/questions; user testing on the live URL; start the write-up; reconcile stale counts."),
-    ]:
-        rows.append([P(who, CELLB), P(acts, CELL)])
-    s.append(table(rows, [1.0 * inch, 6.1 * inch]))
-
-    s.append(P("Critical path — next 7 days", H2))
-    s.append(bullets([
-        "1. Validation: <b>done this pass</b> — review results, then iterate toward the 70/90 target (see companion PDF).",
-        "2. Voice spike on behavioural (Emmanuel) — Chrome STT → textarea behind a flag.",
-        "3. Lock demo posture (Feroz) — recommend mock + Haiku; defer pgvector unless persistence is required.",
-        "4. Parser robustness number — reuse the validation corpus to report the ≥95% parse metric.",
-    ]))
-    s.append(Spacer(1, 8))
-    s.append(P("Generated from the working audit (you-are-auditing-my-snazzy-sky.md). Figures and numbers reflect the repo on 20 June 2026.", SMALL))
-
-    doc.build(s, onFirstPage=footer, onLaterPages=footer)
-    return out
+def pct(x):
+    return f"{100 * float(x):.1f}%"
 
 
-# --------------------------------------------------------------------------- #
-# PDF 2 — Fit-Scorer Validation Study (with figures)
-# --------------------------------------------------------------------------- #
-def make_embeddings_cm():
-    """Generate an embeddings-arm confusion matrix PNG from results.jsonl (reuses validate_matching)."""
-    sys.path.insert(0, os.path.join(REPO, "scripts", "validation"))
-    import validate_matching as vm  # type: ignore
+def fmt(x, digits=3):
+    return f"{float(x):.{digits}f}"
 
-    results = os.path.join(ART, "results.jsonl")
-    if not os.path.exists(results):
-        return None
-    rows = [json.loads(l) for l in open(results, encoding="utf-8") if l.strip()]
-    labels = sorted({r["true_category"] for r in rows})
-    _, _, yt, yp = vm.accuracy(rows, "embeddings")
-    path = os.path.join(FIGS, "cm_embeddings.png")
-    vm.plot_confusion(yt, yp, labels, path, "Confusion matrix — embeddings arm (real BGE-small)")
+
+def arm_name(key):
+    return {
+        "structured": "Rules-only structured",
+        "embedding": "Embedding-only semantic",
+        "hybrid_0_25": "Hybrid 0.25 rules / 0.75 semantic",
+        "hybrid_0_5": "Hybrid 0.50 rules / 0.50 semantic",
+        "hybrid_0_75": "Hybrid 0.75 rules / 0.25 semantic",
+    }.get(key, key)
+
+
+def display_family(label):
+    return {
+        "CONSULTANT": "Consultant",
+        "FINANCE": "Finance",
+        "INFORMATION-TECHNOLOGY": "IT",
+    }.get(label, label)
+
+
+def metrics_path():
+    path = os.path.join(ART, "metrics.scoped.json")
+    if not os.path.exists(path):
+        sys.exit("Missing scripts/validation/.artifacts/metrics.scoped.json - run npm run validate:report first.")
     return path
 
 
-def build_validation_study():
+def build_current_validation_study():
     out = os.path.join(HERE, "Synthesis_Fit_Validation_Study.pdf")
-    metrics = json.load(open(os.path.join(ART, "metrics.json")))
+    metrics = json.load(open(metrics_path(), encoding="utf-8"))
     arms = metrics["arms"]
+    best_arm = metrics["best_arm"]
+    labels = metrics["labels"]
+    jd_diag = metrics.get("jd_parse_diagnostics") or {}
 
-    doc = SimpleDocTemplate(out, pagesize=letter, topMargin=0.7 * inch, bottomMargin=0.7 * inch,
-                            leftMargin=0.7 * inch, rightMargin=0.7 * inch,
-                            title="Synthesis — Fit-Scorer Validation Study", author="Team Cynthése")
-    s = []
-    s.append(P("Fit-Scorer Validation Study", H1))
-    s.append(P("Deliverable #2 / Success Metric #1 &nbsp;·&nbsp; 20 June 2026 &nbsp;·&nbsp; "
-               "Targets: top-1 ≥ 70%, top-3 ≥ 90%", SUB))
+    doc = SimpleDocTemplate(
+        out,
+        pagesize=letter,
+        topMargin=0.7 * inch,
+        bottomMargin=0.7 * inch,
+        leftMargin=0.7 * inch,
+        rightMargin=0.7 * inch,
+        title="Synthesis - Fit Validation Study",
+        author="Team Cynthese",
+    )
 
-    s.append(P("What was measured", H2))
-    s.append(P("The falsifiable proposal claim: <i>a resume scores highest against postings from its own field.</i> "
-               "Each resume is scored against one synthetic requirement profile per job family (built from the LinkedIn "
-               "postings corpus), then families are ranked. The harness scores with the <b>live engine</b> "
-               "(it imports the real <font face='Courier'>parseResume</font> / <font face='Courier'>parseJD</font> / "
-               "<font face='Courier'>scoreFit</font> / embeddings), so the number reflects the shipping product.", BODY))
-    s.append(P("Corpus: 2,484 resumes → 2,362 after dropping the 3 under-populated families (BPO, AUTOMOBILE, AGRICULTURE) "
-               "and corrupt rows → <b>21 families</b>. Field profiles from 48,069 postings mapped via a curated title→family map "
-               "(43% title coverage).", SMALL))
+    story = []
+    story.append(P("Synthesis Fit Validation Study", H1))
+    story.append(P("Current scoped real-JD validation, production-fit interpretation, and proposed human check", SUB))
 
-    s.append(P("Result — and the headline finding", H2))
-    rows = [["Arm", "top-1", "top-3", "Notes"]]
-    rows.append([P("structured — full corpus (live engine)", CELL), P("12.1%", CELL), P("32.6%", CELL), P("rules + O*NET only", CELL)])
-    rows.append([P("structured — subset", CELL), P(f"{arms['structured']['top1']:.1%}", CELL), P(f"{arms['structured']['top3']:.1%}", CELL), P("same 840 resumes as below", CELL)])
-    rows.append([P("<b>embeddings — subset (real BGE)</b>", CELLB),
-                 P(f"<b>{arms['embeddings']['top1']:.1%}</b>", CELLB), P(f"<b>{arms['embeddings']['top3']:.1%}</b>", CELLB),
-                 P("nearly hits target out of the box", CELL)])
-    rows.append([P("combined — subset (50/50)", CELL), P(f"{arms['combined']['top1']:.1%}", CELL), P(f"{arms['combined']['top3']:.1%}", CELL), P("naive blend; weak arm drags it down", CELL)])
-    rows.append([P("<b>targets</b>", CELLB), P("<b>70%</b>", CELLB), P("<b>90%</b>", CELLB), P("", CELL)])
-    s.append(table(rows, [2.3 * inch, 0.8 * inch, 0.8 * inch, 3.2 * inch]))
-    s.append(P("<b>The missing half of the proposal's own methodology — \"semantic embeddings <i>plus</i> deterministic rules\" — "
-               "is the half that works.</b> Real BGE-small embeddings take top-1 from ~12% to <b>66.5%</b> and top-3 to "
-               "<b>87.0%</b>, within striking distance of the 70/90 targets, while the shipped rules-only engine flatlines "
-               "near chance (21-class random ≈ 4.8%). The naive 50/50 blend hurts, so the blend must weight embeddings higher. "
-               "Embeddings were never wired into the live fit engine — that is the top lever to clear target.", BODY))
-    s.append(P("Embeddings/combined figures are a stratified 40/family subset (840 resumes); the structured full-corpus number "
-               "(2,362) is shown for reference. The harness scores 100% on clean fixtures, confirming the low structured number "
-               "is an engine/methodology limit, not a harness bug.", SMALL))
+    story.append(P("Executive Summary", H2))
+    story.append(P(
+        "This study evaluates whether the Synthesis Fit Analyzer preserves a coarse occupational signal when "
+        "scoring real resumes against real job postings. The current validation is scoped to three O*NET-aligned "
+        "families: Consultant, Finance, and Information Technology. Each resume is scored against posting-level "
+        "JDs from each family, and the method is credited when the true family receives the highest average score.",
+    ))
+    story += dash_items([
+        f"The best pre-specified method is <b>{arm_name(best_arm)}</b>, with top-1 accuracy of "
+        f"<b>{pct(arms[best_arm]['top1'])}</b>, MRR of <b>{fmt(arms[best_arm]['mrr'])}</b>, and mean rank of "
+        f"<b>{fmt(arms[best_arm]['mean_rank'], 2)}</b>.",
+        "This is strong enough for a graduate course validation study, but it should be interpreted as a coarse "
+        "discriminative sanity check, not as direct pairwise fit accuracy.",
+        "A post-hoc grid search over hybrid weights found a maximum family-level top-1 of 68.8 percent at "
+        "structured weight 0.15. Because that was test-set tuning and did not cross the 70 percent threshold, "
+        "the report keeps the pre-specified hybrid 0.25 as the main candidate.",
+        "The next, more task-valid evaluation should manually label 40-60 JD-resume pairs as strong, medium, "
+        "or weak fit and test whether analyzer scores rank them in that order.",
+    ])
 
-    s.append(P("Ablation — embeddings vs structured", H2))
-    s.append(fit_image(os.path.join(ART, "accuracy_by_arm.png"), USABLE_W * 0.72))
+    story.append(P("Why This Validation Exists", H2))
+    story.append(P(
+        "The production Fit Analyzer is a one-JD-to-one-resume scorer. A family-level task cannot prove that a "
+        "specific score is correct for a specific pair. Instead, this validation asks a narrower question: does a "
+        "scoring method generally place a resume closer to postings from its own occupational family than to "
+        "postings from other scoped families?",
+    ))
 
-    cm_emb = make_embeddings_cm()
-    s.append(PageBreak())
-    s.append(P("Confusion matrices", H2))
-    s.append(P("Row-normalized (true family → predicted family). The embeddings arm has a strong diagonal; the structured arm "
-               "scatters off-diagonal.", SMALL))
-    if cm_emb:
-        s.append(fit_image(cm_emb, USABLE_W))
-        s.append(Spacer(1, 8))
-    s.append(fit_image(os.path.join(ART, "confusion_matrix.png"), USABLE_W))
+    story.append(P("Study Design", H2))
+    story += dash_items([
+        "Input data: local resume and posting datasets stored under the repo's gitignored Datasets directory.",
+        "Family mapping: candidate postings are classified by the LLM mapper into 21 retained families plus UNMAPPED; "
+        "the current validation filters to Consultant, Finance, and Information Technology.",
+        "JD sampling: 100 high-confidence postings are collected for each scoped family before scoring.",
+        "Parser gate: selected JDs are parsed with production parseJD(); the main study keeps JDs with at least "
+        "three parsed requirements.",
+        "Scoring unit: each resume is scored against every retained JD. Scores are averaged by JD family, and the "
+        "highest average score is the predicted family.",
+    ])
 
-    s.append(PageBreak())
-    s.append(P("Per-family top-1 (structured arm)", H2))
-    pf = metrics["per_family_structured"]
-    ordered = sorted(pf.items(), key=lambda kv: -kv[1]["top1"])
-    rows = [["Family", "n", "top-1"]]
-    for fam, d in ordered:
-        rows.append([P(fam, CELL), P(str(d["n"]), CELL), P(f"{d['top1']:.1%}", CELL)])
-    s.append(table(rows, [3.0 * inch, 0.8 * inch, 1.0 * inch]))
+    story.append(P("Dataset After Parsing", H2))
+    jd_counts = metrics.get("jd_counts", {})
+    rows = [["Family", "Resumes", "JDs kept", "JDs originally sampled"]]
+    for label in labels:
+        n_res = arms[best_arm]["per_family"][label]["n"]
+        rows.append([P(display_family(label), CELL), P(str(n_res), CELL), P(str(jd_counts.get(label, "")), CELL), P("100", CELL)])
+    rows.append([P("<b>Total</b>", CELLB), P(f"<b>{metrics['n_resumes']}</b>", CELLB),
+                 P(f"<b>{sum(jd_counts.values())}</b>", CELLB), P("<b>300</b>", CELLB)])
+    story.append(table(rows, [2.4 * inch, 1.1 * inch, 1.1 * inch, 1.5 * inch]))
 
-    s.append(P("Levers to reach target", H2))
-    s.append(bullets([
-        "<b>Add the embeddings arm to the live fit engine</b> (<font face='Courier'>lib/matching.ts</font>) and weight the blend toward embeddings — it nearly clears target alone.",
-        "Expand the O*NET taxonomy beyond 21 occupations (the structured arm is tech/analytics-biased).",
-        "Improve the postings title→family mapping coverage (currently 43%).",
-    ]))
+    if jd_diag:
+        story.append(P(
+            f"The parseability gate kept <b>{jd_diag['kept']}</b> of <b>{jd_diag['total']}</b> postings. "
+            f"The threshold was at least <b>{jd_diag['min_jd_requirements']}</b> parsed requirements per JD.",
+        ))
+        rows = [["Family", "Kept", "Dropped", "Mean req.", "Median req.", "Zero req."]]
+        for label, stats in jd_diag.get("families", {}).items():
+            rows.append([
+                P(display_family(label), CELL),
+                P(f"{stats['kept']}/{stats['total']}", CELL),
+                P(str(stats["dropped"]), CELL),
+                P(f"{stats['mean']:.2f}", CELL),
+                P(f"{stats['median']:.1f}", CELL),
+                P(str(stats["zero_requirement"]), CELL),
+            ])
+        story.append(table(rows, [2.1 * inch, 0.75 * inch, 0.8 * inch, 0.85 * inch, 0.95 * inch, 0.85 * inch]))
 
-    s.append(P("Reproduce", H2))
-    s.append(P("<font face='Courier'>npm run validate:prep</font> → <font face='Courier'>npm run validate:fit</font> → "
-               "<font face='Courier'>npm run validate:report</font>. Real embeddings: "
-               "<font face='Courier'>npm i @xenova/transformers</font> then "
-               "<font face='Courier'>EMBEDDINGS_ENABLED=true npm run validate:fit -- --sample 40</font>. "
-               "Smoke (no dataset): <font face='Courier'>npm run validate:smoke</font>. "
-               "Harness: <font face='Courier'>scripts/validation/</font>.", SMALL))
+    story.append(P("Methods Compared", H2))
+    rows = [["Method", "Description", "Production interpretation"]]
+    rows.append([
+        P("Rules-only structured", CELLB),
+        P("Current deterministic scoreFit() logic: O*NET-grounded skill extraction, requirement status, gaps, and evidence.", CELL),
+        P("Strong baseline and most interpretable path.", CELL),
+    ])
+    rows.append([
+        P("Embedding-only semantic", CELLB),
+        P("Requirement-level semantic retrieval over resume evidence chunks using local BGE-small embeddings.", CELL),
+        P("Tests whether semantic similarity aligns better with human-like fit judgement.", CELL),
+    ])
+    rows.append([
+        P("Hybrid arms", CELLB),
+        P("Per-resume min-max blend of structured and embedding family scores with structured weights 0.25, 0.50, and 0.75.", CELL),
+        P("Hybrid 0.25 is now the production candidate, subject to human check.", CELL),
+    ])
+    story.append(table(rows, [1.55 * inch, 3.25 * inch, 2.3 * inch]))
 
-    doc.build(s, onFirstPage=footer, onLaterPages=footer)
+    story.append(P("Headline Results", H2))
+    rows = [["Arm", "Top-1", "Mean rank", "MRR", "Mean margin"]]
+    for key in ["structured", "embedding", "hybrid_0_25", "hybrid_0_5", "hybrid_0_75"]:
+        a = arms[key]
+        rows.append([
+            P(f"<b>{arm_name(key)}</b>" if key == best_arm else arm_name(key), CELLB if key == best_arm else CELL),
+            P(f"<b>{pct(a['top1'])}</b>" if key == best_arm else pct(a["top1"]), CELLB if key == best_arm else CELL),
+            P(fmt(a["mean_rank"], 2), CELL),
+            P(fmt(a["mrr"]), CELL),
+            P(fmt(a["mean_margin"], 2), CELL),
+        ])
+    story.append(table(rows, [2.9 * inch, 0.8 * inch, 0.9 * inch, 0.75 * inch, 0.9 * inch]))
+    story.append(P(
+        "Top-3 accuracy is intentionally not reported as a headline metric because this validation has only three "
+        "families. The more informative metrics are top-1, mean rank, MRR, margin, and the confusion matrix.",
+        SMALL,
+    ))
+
+    story.append(P("Per-Family Findings", H2))
+    rows = [["Family", "Structured", "Embedding", "Hybrid 0.25", "Main observation"]]
+    observations = {
+        "CONSULTANT": "Hardest family; business, finance, and consulting language overlaps heavily.",
+        "FINANCE": "Very strong across structured-heavy methods; financial requirements are distinctive.",
+        "INFORMATION-TECHNOLOGY": "Embedding improves sharply after parser robustness fixes.",
+    }
+    for label in labels:
+        rows.append([
+            P(display_family(label), CELL),
+            P(pct(arms["structured"]["per_family"][label]["top1"]), CELL),
+            P(pct(arms["embedding"]["per_family"][label]["top1"]), CELL),
+            P(pct(arms["hybrid_0_25"]["per_family"][label]["top1"]), CELL),
+            P(observations[label], CELL),
+        ])
+    story.append(table(rows, [1.9 * inch, 0.85 * inch, 0.85 * inch, 0.9 * inch, 2.6 * inch]))
+
+    story.append(P("Confusion Matrix - Best Arm", H2))
+    story.append(P("Rows are true resume families; columns are predicted families. Values are resume counts.", SMALL))
+    cm = arms[best_arm]["confusion_matrix"]
+    rows = [["True / Predicted"] + [display_family(label) for label in labels]]
+    for true in labels:
+        rows.append([P(display_family(true), CELLB)] + [P(str(cm.get(true, {}).get(pred, 0)), CELL) for pred in labels])
+    story.append(table(rows, [1.8 * inch, 1.55 * inch, 1.2 * inch, 2.0 * inch]))
+
+    story.append(P("Interpretation", H2))
+    story += dash_items([
+        "The hybrid 0.25 arm is the best pre-specified family-level proxy method. It balances semantic flexibility "
+        "with some rules-based grounding.",
+        "The 70 percent threshold is not formally met. However, 68.0 percent on 353 resumes is close enough that the "
+        "result should be discussed as near-threshold rather than as a hard method failure.",
+        "Consultant is the main failure mode. This is expected because consultant resumes and JDs often share general "
+        "business, analysis, stakeholder, strategy, and finance vocabulary with the other scoped families.",
+        "Family-level errors can be reasonable transferability cases. A consultant resume scoring highly for a finance "
+        "analyst JD is not necessarily a bad fit in the production task.",
+    ])
+
+    story.append(P("Limitations", H2))
+    story += dash_items([
+        "<b>Proxy task:</b> family top-1 measures coarse occupational discrimination, not one-pair fit accuracy.",
+        "<b>Label source:</b> posting family labels come from the LLM mapper and have not yet been human-checked.",
+        "<b>Scope:</b> only three families are included, so results should not be generalized to all O*NET families.",
+        "<b>Parser dependency:</b> the study depends on parseResume() and parseJD(); parser errors can affect scores.",
+        "<b>Ambiguous fit:</b> cross-family transferability is treated as wrong by family top-1 even when it may be "
+        "reasonable for a real applicant.",
+        "<b>Weight tuning:</b> a post-hoc sensitivity check found 68.8 percent at structured weight 0.15, but this is "
+        "not adopted as the main method because it would tune to the family proxy test set.",
+    ])
+
+    story.append(P("Proposed Human Check", H2))
+    story.append(P(
+        "The next validation should be a smaller but more task-valid pair-level study. Instead of asking whether a "
+        "resume belongs to the same broad family as a JD, it should ask whether a specific resume is a strong, "
+        "medium, or weak fit for a specific JD.",
+    ))
+    story += dash_items([
+        "Sample 40-60 JD-resume pairs, stratified by analyzer score: about one third high-score, one third middle-score, "
+        "and one third low-score pairs.",
+        "Include all three scoped JD families and a few plausible cross-family pairs, especially Consultant versus Finance.",
+        "Hide analyzer scores during labelling to reduce confirmation bias.",
+        "Label each pair with a fixed rubric, then compare rules-only, embedding-only, and hybrid 0.25 against those labels.",
+    ])
+
+    story.append(P("Human Labelling Rubric", H2))
+    rows = [["Dimension", "0", "1", "2"]]
+    rubric = [
+        ("Core skills match", "Most must-have skills missing", "Some core skills matched", "Most core skills matched"),
+        ("Experience and domain", "Clearly unrelated", "Transferable overlap", "Highly related work/domain"),
+        ("Seniority and years", "Clearly below or mismatched", "Close but imperfect", "Meets level and years"),
+        ("Education or hard constraints", "Hard requirement missing", "Unclear or partial", "Meets or not required"),
+    ]
+    for row in rubric:
+        rows.append([P(row[0], CELLB), P(row[1], CELL), P(row[2], CELL), P(row[3], CELL)])
+    story.append(table(rows, [1.65 * inch, 1.75 * inch, 1.75 * inch, 1.95 * inch]))
+    story.append(P(
+        "Total score mapping: 0-3 = Weak fit, 4-6 = Medium fit, 7-8 = Strong fit. This makes human labels more "
+        "objective than a single impressionistic judgement.",
+    ))
+
+    story.append(P("Human Check Metrics", H2))
+    story += dash_items([
+        "<b>Spearman correlation:</b> analyzer score versus human total score.",
+        "<b>Mean score monotonicity:</b> Strong pairs should have higher average analyzer scores than Medium, which "
+        "should be higher than Weak.",
+        "<b>Pairwise ordering accuracy:</b> for two pairs with different human labels, the method should rank the "
+        "stronger human label higher.",
+        "<b>Optional threshold view:</b> inspect whether score bands can map to strong, medium, and weak recommendations.",
+    ])
+
+    story.append(P("Recommended Reporting Position", H2))
+    story.append(P(
+        "Use the current family-level validation as large-scale supporting evidence, not as the final claim of pairwise "
+        "accuracy. The main claim should be: hybrid semantic-plus-rules scoring shows stronger coarse occupational "
+        "signal than rules alone, with hybrid 0.25 as the best pre-specified validation arm. Final production calibration "
+        "should be based on the proposed human-labelled JD-resume pair study.",
+    ))
+    story.append(P(
+        "Reproducibility: run npm run validate:prep, npm run validate:fit, and npm run validate:report. The report uses "
+        "scripts/validation/.artifacts/metrics.scoped.json generated by that pipeline.",
+        SMALL,
+    ))
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return out
 
 
 if __name__ == "__main__":
-    if not os.path.exists(os.path.join(ART, "metrics.json")):
-        sys.exit("Missing scripts/validation/.artifacts/metrics.json — run the validation harness first "
-                 "(npm run validate:fit && npm run validate:report).")
-    p1 = build_progress_report()
-    p2 = build_validation_study()
+    path = build_current_validation_study()
     print("Wrote:")
-    for p in (p1, p2):
-        print(f"  {p}  ({os.path.getsize(p) // 1024} KB)")
+    print(f"  {path}  ({os.path.getsize(path) // 1024} KB)")
