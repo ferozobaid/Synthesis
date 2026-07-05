@@ -14,13 +14,13 @@ function walk(dir: string): string[] {
 }
 
 describe("two-plane guard", () => {
-  it("no /scripts import appears in /app or /lib", () => {
+  it("no /scripts or /n8n import appears in /app or /lib", () => {
     const files = [...walk("app"), ...walk("lib")];
     const offenders = files.filter((f) => {
       const src = readFileSync(f, "utf8");
       return (
-        /from\s+["'](@\/)?scripts\//.test(src) ||
-        /import\(\s*["'](@\/)?scripts\//.test(src)
+        /from\s+["'](@\/)?(scripts|n8n)\//.test(src) ||
+        /import\(\s*["'](@\/)?(scripts|n8n)\//.test(src)
       );
     });
     expect(offenders).toEqual([]);

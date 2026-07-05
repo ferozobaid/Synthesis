@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { FitReport, RequirementStatus } from "@/lib/types";
 
 const SAMPLE_RESUME = `JANE DOE
-Business Analytics - jane.doe@email.com
+Business Analytics · jane.doe@email.com
 
 SUMMARY
 Commercial analyst with 3 years turning messy data into decisions.
@@ -32,25 +32,14 @@ const STATUS_STYLE: Record<RequirementStatus, string> = {
   missing: "bg-red-100 text-red-700",
 };
 
-type FitAnalyzeResponse = {
-  mock: boolean;
-  report: FitReport;
-  scoring?: {
-    method: string;
-    structured_weight: number;
-    semantic_weight: number;
-    embeddings_enabled: boolean;
-    fallback_reason: string | null;
-  };
-  jd: { company: string | null; role_title: string | null };
-  resume_skills: string[];
-};
-
 export default function FitPage() {
   const [resumeText, setResumeText] = useState("");
   const [jdText, setJdText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<FitAnalyzeResponse | null>(null);
+  const [data, setData] = useState<
+    | { mock: boolean; report: FitReport; jd: { company: string | null; role_title: string | null }; resume_skills: string[] }
+    | null
+  >(null);
 
   async function analyze() {
     setLoading(true);
@@ -70,60 +59,37 @@ export default function FitPage() {
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-12">
-      <Link href="/" className="text-sm text-slate-500 hover:text-accent">Home</Link>
+      <Link href="/" className="text-sm text-slate-500 hover:text-accent">← Home</Link>
       <h1 className="mt-2 text-3xl font-bold">Fit Analyzer</h1>
       <p className="mt-1 text-slate-600">Paste a resume and a job description, then analyze the match.</p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div>
           <label className="text-sm font-medium">Resume</label>
-          <textarea
-            value={resumeText}
-            onChange={(e) => setResumeText(e.target.value)}
-            rows={10}
-            className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm"
-            placeholder="Paste resume text..."
-          />
+          <textarea value={resumeText} onChange={(e) => setResumeText(e.target.value)} rows={10}
+            className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Paste resume text…" />
         </div>
         <div>
           <label className="text-sm font-medium">Job description</label>
-          <textarea
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            rows={10}
-            className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm"
-            placeholder="Paste JD text..."
-          />
+          <textarea value={jdText} onChange={(e) => setJdText(e.target.value)} rows={10}
+            className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Paste JD text…" />
         </div>
       </div>
 
       <div className="mt-4 flex gap-3">
-        <button
-          onClick={analyze}
-          disabled={loading}
-          className="rounded-lg bg-accent px-5 py-2 font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Analyzing..." : "Analyze fit"}
+        <button onClick={analyze} disabled={loading}
+          className="rounded-lg bg-accent px-5 py-2 font-medium text-white disabled:opacity-50">
+          {loading ? "Analyzing…" : "Analyze fit"}
         </button>
-        <button
-          onClick={() => {
-            setResumeText(SAMPLE_RESUME);
-            setJdText(SAMPLE_JD);
-          }}
-          className="rounded-lg border border-slate-300 px-5 py-2 font-medium"
-        >
+        <button onClick={() => { setResumeText(SAMPLE_RESUME); setJdText(SAMPLE_JD); }}
+          className="rounded-lg border border-slate-300 px-5 py-2 font-medium">
           Load sample
         </button>
       </div>
 
       {report && (
         <section className="mt-10">
-          {data?.mock && (
-            <p className="mb-3 text-xs text-amber-600">
-              Running without credentials - analysis is computed locally and grounded in the O*NET taxonomy; results
-              are not saved.
-            </p>
-          )}
+          {data?.mock && <p className="mb-3 text-xs text-amber-600">Running without credentials — analysis is computed locally and grounded in the O*NET taxonomy; results aren&apos;t saved.</p>}
           <div className="flex items-center gap-4">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-2xl font-bold text-accent">
               {report.overall_score}
@@ -131,19 +97,8 @@ export default function FitPage() {
             <div>
               <div className="text-lg font-semibold">Overall fit</div>
               <div className="text-sm text-slate-600">
-                {data?.jd.role_title ?? "Role"}{data?.jd.company ? ` - ${data.jd.company}` : ""}
+                {data?.jd.role_title ?? "Role"}{data?.jd.company ? ` · ${data.jd.company}` : ""}
               </div>
-              {data?.scoring && (
-                <div className="mt-1 text-xs text-slate-500">
-                  Method: {data.scoring.method}
-                  {data.scoring.method.startsWith("hybrid")
-                    ? ` (${Math.round(data.scoring.structured_weight * 100)}% rules / ${Math.round(data.scoring.semantic_weight * 100)}% semantic)`
-                    : ""}
-                </div>
-              )}
-              {data?.scoring?.fallback_reason && (
-                <div className="mt-1 text-xs text-amber-600">{data.scoring.fallback_reason}</div>
-              )}
             </div>
           </div>
 
@@ -160,27 +115,17 @@ export default function FitPage() {
           <div className="mt-2 overflow-hidden rounded-lg border border-slate-200">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
-                <tr>
-                  <th className="p-3">Requirement</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Evidence</th>
-                </tr>
+                <tr><th className="p-3">Requirement</th><th className="p-3">Status</th><th className="p-3">Evidence</th></tr>
               </thead>
               <tbody>
                 {report.per_requirement.map((r, i) => (
                   <tr key={i} className="border-t border-slate-100">
                     <td className="p-3">
                       {r.requirement}
-                      <span className="ml-2 align-middle text-xs text-slate-400">
-                        {r.weight >= 1 ? "must-have" : "nice-to-have"}
-                      </span>
+                      <span className="ml-2 align-middle text-xs text-slate-400">{r.weight >= 1 ? "must-have" : "nice-to-have"}</span>
                     </td>
-                    <td className="p-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="p-3 text-slate-500">{r.evidence ?? "-"}</td>
+                    <td className="p-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}>{r.status}</span></td>
+                    <td className="p-3 text-slate-500">{r.evidence ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

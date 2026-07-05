@@ -11,6 +11,7 @@ import type {
   BehaviouralQuestion,
   CaseRecord,
   FitReport,
+  OnetChunk,
   Star,
 } from "@/lib/types";
 
@@ -63,48 +64,12 @@ export function mockAnswerBank(): AnswerBankEntry[] {
 export const mockFitReport: FitReport = {
   overall_score: 74,
   per_requirement: [
-    {
-      requirement: "SQL proficiency",
-      status: "matched",
-      evidence: "Built outlet-level reporting in SQL across regions",
-      weight: 1,
-      score: 0.92,
-    },
-    {
-      requirement: "Python or R",
-      status: "matched",
-      evidence: "Automated analysis in Python (pandas)",
-      weight: 1,
-      score: 0.88,
-    },
-    {
-      requirement: "Data visualization / BI tools",
-      status: "partial",
-      evidence: "Power BI dashboards for sales reviews",
-      weight: 0.8,
-      score: 0.6,
-    },
-    {
-      requirement: "Statistical analysis",
-      status: "partial",
-      evidence: "A/B and funnel analysis",
-      weight: 0.8,
-      score: 0.55,
-    },
-    {
-      requirement: "Bachelor's in a quantitative field",
-      status: "matched",
-      evidence: "BSc, Business Analytics",
-      weight: 1,
-      score: 0.9,
-    },
-    {
-      requirement: "Cybersecurity / financial-services domain",
-      status: "missing",
-      evidence: null,
-      weight: 0.4,
-      score: 0.1,
-    },
+    { requirement: "SQL proficiency", status: "matched", evidence: "Built outlet-level reporting in SQL across regions", weight: 1, score: 0.92 },
+    { requirement: "Python or R", status: "matched", evidence: "Automated analysis in Python (pandas)", weight: 1, score: 0.88 },
+    { requirement: "Data visualization / BI tools", status: "partial", evidence: "Power BI dashboards for sales reviews", weight: 0.8, score: 0.6 },
+    { requirement: "Statistical analysis", status: "partial", evidence: "A/B and funnel analysis", weight: 0.8, score: 0.55 },
+    { requirement: "Bachelor's in a quantitative field", status: "matched", evidence: "BSc, Business Analytics", weight: 1, score: 0.9 },
+    { requirement: "Cybersecurity / financial-services domain", status: "missing", evidence: null, weight: 0.4, score: 0.1 },
   ],
   top_strengths: [
     "Strong SQL + Python foundation",
@@ -122,3 +87,55 @@ export const mockFitReport: FitReport = {
     "Mirror the JD's 'data modeling' language where it is genuinely true",
   ],
 };
+
+/**
+ * Deterministic O*NET retrieval chunks for focused unit tests — hand-authored from a real
+ * taxonomy occupation (Data Scientists, 15-2051.00), covering all five content types. No
+ * Supabase, no network; stable across calls.
+ */
+export function mockOnetChunks(): OnetChunk[] {
+  return [
+    {
+      soc: "15-2051.00",
+      occupation_title: "Data Scientists",
+      content_type: "description",
+      content:
+        "Develop and apply statistical models, machine learning, and analytics to large datasets to inform business decisions.",
+      metadata: { source: "mock" },
+      embedding: null,
+    },
+    {
+      soc: "15-2051.00",
+      occupation_title: "Data Scientists",
+      content_type: "task",
+      content:
+        "Analyze large, complex datasets to identify trends and build predictive models that support decision-making.",
+      metadata: { source: "mock" },
+      embedding: null,
+    },
+    {
+      soc: "15-2051.00",
+      occupation_title: "Data Scientists",
+      content_type: "skill",
+      content: "Critical Thinking — Data Scientists",
+      metadata: { source: "mock" },
+      embedding: null,
+    },
+    {
+      soc: "15-2051.00",
+      occupation_title: "Data Scientists",
+      content_type: "tool",
+      content: "Python — Data Scientists",
+      metadata: { source: "mock" },
+      embedding: null,
+    },
+    {
+      soc: "15-2051.00",
+      occupation_title: "Data Scientists",
+      content_type: "knowledge",
+      content: "Mathematics — Data Scientists",
+      metadata: { source: "mock" },
+      embedding: null,
+    },
+  ];
+}

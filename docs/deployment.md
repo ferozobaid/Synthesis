@@ -1,94 +1,180 @@
-# Deployment - Vercel
+# Deployment — Vercel
 
-The default deployment path is mock mode: a demoable public deployment with no
-API keys. Real Claude/Supabase credentials can be added later, but the Fit
-Analyzer itself does not require Supabase.
+How to deploy Synthesis to Vercel. The default path is **mock mode**: a fully
+demoable public deployment that needs **no API keys**. Real mode (live Claude +
+Supabase) is documented in [§ Real-mode deploy](#real-mode-deploy-later--do-not-enable-yet)
+so it can be switched on later without re-investigation.
 
 ## TL;DR
 
-The app is deployment-safe as-is. Static content, cases, behavioural seed data,
-and the O*NET taxonomy are bundled at build time. O*NET is loaded from
-`lib/data/onet-taxonomy.json`; there is no O*NET RAG service, `onet_chunks`
-table, or pgvector RPC to provision.
+The app is deployment-safe as-is. All data (case content, behavioural banks, the
+O*NET taxonomy) is **statically imported JSON** that bundles at build time — there are
+no runtime filesystem reads, and nothing crashes when `ANTHROPIC_API_KEY` is absent.
+To deploy in mock mode you set **one** environment variable:
 
-For a mock-mode Vercel deploy set:
-
-```text
+```
 SYNTHESIS_USE_MOCKS=true
 ```
 
-Then import the repo into Vercel. Next.js is auto-detected.
+Then import the repo in Vercel (zero-config — `next build` is auto-detected) and deploy.
 
-## Mock-Mode Deploy
+---
 
-Required environment variable:
+## Mock-mode deploy (do this now)
 
-| Var | Value | Purpose |
+### Environment variables
+
+| Var | Value on Vercel | Controls |
 |---|---|---|
-| `SYNTHESIS_USE_MOCKS` | `true` | Pins the app to mock mode and avoids Claude/Supabase calls. |
+| `SYNTHESIS_USE_MOCKS` | `true` | Pins mock mode — the app serves authored fixtures and never calls Claude or Supabase. |
 
-Do not set `ANTHROPIC_API_KEY` or Supabase variables for a public mock demo.
+That is the complete required set. The app would already auto-fall back to mocks with
+**no** env vars (mock mode is the default whenever Anthropic + Supabase credentials are
+both absent — see `useMocks()` in [lib/config.ts](../lib/config.ts)), but pinning the
+flag makes the deployment's mode explicit and immune to a half-configured credential
+being added later.
 
-## Real-Mode Deploy
+Do **not** set `ANTHROPIC_API_KEY` or any Supabase var for a mock-mode deploy.
 
-Use this only when you are ready for live Claude calls and user-data persistence.
+### Steps
 
-| Var | Value | Purpose |
+1. **Confirm the build is green locally** (see [§ Pre-deploy verification](#pre-deploy-verification)).
+2. **Import the project** at [vercel.com/new](https://vercel.com/new) → select this Git
+   repository. Vercel auto-detects Next.js; leave Build Command (`next build`), Output,
+   and Install Command at their defaults. No `vercel.json` is needed or present.
+3. **Add the env var**: Project → Settings → Environment Variables →
+   `SYNTHESIS_USE_MOCKS = true` for the Production (and Preview) environments.
+4. **Deploy**. Or, via CLI: `npm i -g vercel && vercel --prod` (set the env var first
+   with `vercel env add SYNTHESIS_USE_MOCKS`).
+5. **Smoke-test** the deployed URL (see [§ Smoke test](#smoke-test-post-deploy)).
+
+> `.env.local` is gitignored and never ships to Vercel — environment configuration on
+> Vercel comes only from the dashboard / `vercel env`.
+
+---
+
+## Real-mode deploy (later — do NOT enable yet)
+
+Documented so it's ready for PR2 / a live demo. Do not set these now.
+
+| Var | Value | Controls |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic key | Enables real Claude calls. |
+| `ANTHROPIC_API_KEY` | `sk-ant-…` | Enables real Claude calls (Haiku). |
 | `SYNTHESIS_USE_MOCKS` | `false` | Turns mocks off. |
-| `SYNTHESIS_MODEL_MODE` | `default` | Uses the locked Haiku model. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL | User-data persistence/auth, if enabled. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | Browser/client scoped Supabase access. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service key | Server-only Supabase access. |
-| `EMBEDDINGS_ENABLED` | `false` on Vercel | Keep local semantic embeddings off on serverless unless explicitly tested. |
+| `SYNTHESIS_MODEL_MODE` | `default` | Locked Haiku (`claude-haiku-4-5`). **Do not** use `demo` (Sonnet). |
+| `NEXT_PUBLIC_SUPABASE_URL` | project URL | Supabase project. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key | Supabase anon client (RLS-scoped). |
+| `SUPABASE_SERVICE_ROLE_KEY` | service-role key | Supabase server-only client. |
+| `EMBEDDINGS_ENABLED` | `false` | Keep off on Vercel (see limitations). |
+| `SYNTHESIS_LOG_USAGE` | `true` *(optional)* | Logs per-call token usage to server logs. |
+
+### The toggle rule (important)
 
 Mock mode is controlled by `useMocks()`:
 
-```text
-SYNTHESIS_USE_MOCKS=true   -> always mock
-SYNTHESIS_USE_MOCKS=false  -> real mode
-unset                      -> real only if Anthropic and Supabase creds are present
+```
+SYNTHESIS_USE_MOCKS=true   → always mock
+SYNTHESIS_USE_MOCKS=false  → always real
+unset                      → real only if BOTH Anthropic AND Supabase creds are present
 ```
 
-## Current Fit Analyzer Method
+You **cannot half-enable** real mode. If you set `SYNTHESIS_USE_MOCKS=false` with only
+an Anthropic key, real Claude calls work, but any code path that builds a Supabase
+client (`supabaseAnon()` / `supabaseService()`) would call `createClient(undefined)` and
+throw. So a real-mode deploy requires `SYNTHESIS_USE_MOCKS=false` **plus** the Anthropic
+key **plus** all three Supabase vars together. Provision Supabase (schema migrations under
+[supabase/migrations/](../supabase/migrations)) before turning real mode on.
 
-The Fit Analyzer API calls `scoreFitAnalyzer()`:
+---
 
-- Parses resume and JD text.
-- Grounds skills against the local O*NET dictionary via `lib/onet.ts`.
-- Uses `hybrid_0_25` when `EMBEDDINGS_ENABLED=true`: 25% rules + 75% local semantic matching.
-- Falls back to rules-only if embeddings are disabled or fail to load.
+## Known limitations
 
-This method does not query Supabase, pgvector, or an O*NET RAG index.
+- **Serverless function timeout.** No route sets `maxDuration`, so Vercel's default
+  applies (~10s on Hobby). Mock mode is fully synchronous (no network) and finishes far
+  under the limit. In **real mode**, the case simulator's `respond` path
+  ([app/api/case/route.ts](../app/api/case/route.ts)) can chain multiple Haiku calls per
+  FSM stage (evaluation + interviewer move + scoring) and may approach the limit under
+  load. Future fix, not needed now: add `export const maxDuration = 30;` to the case
+  route (Vercel Pro allows higher). No action required for a mock-mode deploy.
+- **No authentication yet.** Sessions use a fixed mock user id; the app is open to
+  anyone with the URL. Don't deploy real user data until Supabase Auth is wired.
+- **No live retrieval / pgvector.** RAG runs on a deterministic mock embedder; semantic
+  ranking is not active. Real BGE-small embeddings require local infra and are not run on
+  Vercel.
+- **Keep `EMBEDDINGS_ENABLED=false` on Vercel.** `@xenova/transformers` is an optional
+  dependency that is **not** in `package.json` and won't be installed on Vercel. The code
+  hides it behind an indirect import with a try/catch fallback to the mock embedder, so
+  enabling the flag would not crash — it would just silently fall back. Leave it off.
 
-## Known Limitations
+---
 
-- **No authentication yet.** Sessions use mock data unless Supabase/user flows are wired.
-- **Local embeddings on Vercel are not recommended by default.** `@xenova/transformers`
-  is available in development, but serverless cold start and runtime constraints need
-  separate testing before enabling `EMBEDDINGS_ENABLED=true` in production.
-- **No O*NET RAG layer.** This is intentional. O*NET is a compact committed dictionary,
-  and the current fit-scoring task benefits more from deterministic taxonomy grounding
-  than from vector retrieval over O*NET text chunks.
+## Pre-deploy verification
 
-## Pre-Deploy Verification
+Both pass on a clean checkout (last verified locally):
 
 ```bash
-npm run typecheck
-npm test
-npm run validate:smoke
+npm test        # 86 passed
+npm run build   # Compiled successfully — 10/10 pages, no fs/bundling warnings
 ```
 
-## Smoke Test
+To exercise **mock mode** locally even when your `.env.local` holds real credentials,
+override the flag for the run:
 
-After deployment, open:
+```bash
+SYNTHESIS_USE_MOCKS=true npm run build
+SYNTHESIS_USE_MOCKS=true npm start   # http://localhost:3000
+```
 
-- `/`
-- `/fit`
-- `/behavioural`
-- `/case`
+---
 
-And POST to `/api/fit/analyze` with a resume/JD pair. The JSON response includes
-`scoring.method`, which should show `hybrid_0_25` only when local embeddings are
-enabled; otherwise it will show `structured`.
+## Smoke test (post-deploy)
+
+Replace `$URL` with your deployed origin (e.g. `https://synthesis.vercel.app`).
+
+**Pages** — open in a browser, each should render:
+
+- `GET $URL/` — home with links to the three modules
+- `GET $URL/fit`
+- `GET $URL/behavioural`
+- `GET $URL/case`
+
+**API** (mock mode returns `mock: true` / authored fixtures):
+
+```bash
+# Fit analyzer — deterministic, returns a real scored report even in mock mode
+curl -s -X POST $URL/api/fit/analyze \
+  -H 'content-type: application/json' \
+  -d '{"resumeText":"SQL, Python, Power BI; built outlet-level reporting.","jdText":"Data Analyst. SQL required, Python a plus."}'
+# → { "mock": true, "report": { "overall_score": … }, "jd": {…}, "resume_skills": [...] }
+
+# Behavioural — start a session (JD-grounded questions)
+curl -s -X POST $URL/api/behavioural \
+  -H 'content-type: application/json' \
+  -d '{"action":"start"}'
+# → { session…, questions: [...] }
+
+# Case — start the Beautify case (opening prompt + intro context)
+curl -s -X POST $URL/api/case \
+  -H 'content-type: application/json' \
+  -d '{"action":"start","caseId":"beautify"}'
+# → { session…, prompt…, … }
+```
+
+If all four pages load and the three POSTs return JSON, the deployment is live in mock
+mode.
+
+---
+
+## Why this is safe on serverless (architecture note)
+
+- **No runtime `fs`.** Case content, the behavioural question/seed-answer banks, and the
+  64K O*NET taxonomy are pulled in as static `import … from "@/…json"`
+  ([lib/__mocks__/fixtures.ts](../lib/__mocks__/fixtures.ts),
+  [lib/onet.ts](../lib/onet.ts)) with `resolveJsonModule` on — they are inlined into the
+  function bundle at build time, not read from disk at request time.
+- **No top-level client construction.** The Anthropic and Supabase clients are built
+  lazily inside mock-gated functions ([lib/claude.ts](../lib/claude.ts),
+  [lib/supabase.ts](../lib/supabase.ts)), so importing a route never touches a missing
+  key.
+- **Optional native deps stay out of the bundle.** The embeddings extractor is loaded via
+  an indirect dynamic import the bundler can't see ([lib/embeddings.ts](../lib/embeddings.ts)).

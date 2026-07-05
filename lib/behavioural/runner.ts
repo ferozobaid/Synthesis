@@ -1,6 +1,6 @@
 /**
  * Behavioural session orchestration — the async layer that ties question
- * generation, retrieval of the candidate's prepared answer, and the evaluator
+ * generation, RAG retrieval of the candidate's prepared answer, and the evaluator
  * together. Kept out of the route handler so a whole session is testable without
  * HTTP (mirrors lib/fsm/case-runner.ts).
  *
@@ -8,7 +8,7 @@
  * new session) → respondToBehavioural per answer (retrieve matched prepared answer →
  * evaluate → record) → summarizeBehavioural (aggregate across answered questions).
  *
- * Live plane only. Never imports from offline scripts.
+ * Live plane only. Never imports from /scripts or /n8n.
  */
 import { useMocks } from "@/lib/config";
 import { parseJD } from "@/lib/parsers/jd-parser";

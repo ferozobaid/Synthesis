@@ -12,11 +12,11 @@
  *  - REAL MODE (Haiku 4.5): a rubric-anchored, low-temperature scoring prompt that
  *    returns the same shape; falls back to the heuristic on any error.
  *
- * Key-point coverage is the retrieval-grounded dimension: when retrieval returned nothing
+ * Key-point coverage is the RAG-grounded dimension: when retrieval returned nothing
  * relevant (`prepared === null`) it is marked "not applicable" — dropped from the
  * dimension list with an explicit feedback note — rather than scored 0.
  *
- * Live plane only. Never imports from offline scripts.
+ * Live plane only. Never imports from /scripts or /n8n.
  */
 import { complete, extractJSON } from "@/lib/claude";
 import { useMocks } from "@/lib/config";

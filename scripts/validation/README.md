@@ -1,111 +1,83 @@
-# scripts/validation/ - Scoped real-JD fit validation
+# scripts/validation/ — Fit-scorer validation study (Deliverable #2)
 
-Validates the falsifiable claim that a resume scores highest against real
-posting-level JDs from its own family. The current study is intentionally scoped
-to the O*NET-aligned families:
+Validates the falsifiable proposal claim: **a resume scores highest against postings
+from its own field.** Emits **top-1 / top-3 category-match accuracy, a confusion
+matrix, and an embeddings-vs-structured ablation**. Targets: **top-1 ≥ 70%, top-3 ≥ 90%**.
 
-- `INFORMATION-TECHNOLOGY`
-- `FINANCE`
-- `CONSULTANT`
-
-The older synthetic `field_profiles.json` harness is no longer the main path.
-Validation inputs now flow through the same production parsers used by the app:
-`parseResume()` and `parseJD()`.
+This is **offline plane**, but it scores with the **live engine** — the harness imports
+the real pure functions (`parseResume`, `parseJD`, `scoreFit`, `embed`/`cosine`) so the
+number reflects the shipping product, not a re-implementation. (It is never imported by
+the app; `tests/two-plane.test.ts`, which scans only `app/` + `lib/`, is unaffected.)
 
 ## Pipeline
 
-| Step | File | In -> Out |
+| Step | File | In → Out |
 |---|---|---|
-| 1. Prep | `prepare_data.py` | `Resume.csv` + `postings.csv` -> scoped resume/JD JSONL |
-| 2. Map | `llm_family_map.py` | posting -> 21 retained families + `UNMAPPED` cache |
-| 3. Score | `score_resumes.ts` | scoped JSONL -> structured / embedding / hybrid scores |
-| 4. Report | `validate_matching.py` | results -> metrics + figures |
+| 1. Prep | `prepare_data.py` (pandas) | `Datasets/` CSVs → `.artifacts/resumes.jsonl` + committed `field_profiles.json` |
+| 2. Score | `score_resumes.ts` (tsx, live engine) | artifacts → `.artifacts/results.jsonl` |
+| 3. Report | `validate_matching.py` (sklearn/matplotlib) | results → console + `.artifacts/{metrics.json, confusion_matrix.png, accuracy_by_arm.png}` |
 
-The LLM mapper remains 22-way (`21 families + UNMAPPED`) even though this study
-filters down to three families. This keeps the cache useful for a future mapper
-benchmark without making the current validation pay for every posting.
-
-## Inputs
-
-Required local, gitignored files:
-
-```text
-Datasets/archive/Resume/Resume.csv
-Datasets/archive-2/postings.csv
-```
-
-`job_skills.csv` and `skills.csv` are not required for the scoped real-JD study
-because synthetic field profiles are no longer built.
-
-## Outputs
-
-Derived artifacts are written under `scripts/validation/.artifacts/`:
-
-```text
-resumes.scoped.jsonl
-jds.scoped.jsonl
-posting_family_map.jsonl
-sampling_report.json
-results.scoped.jsonl
-jd_parse_diagnostics.scoped.json
-metrics.scoped.json
-accuracy_by_arm.scoped.png
-confusion_matrix.scoped.png
-```
-
-These artifacts are gitignored.
+Supporting: `family_map.py` (curated posting-title → resume-family map — the auditable
+crux of step 1) and `rank.ts` (pure ranking/blend helpers, unit-tested in
+`tests/validation-rank.test.ts`).
 
 ## Run
 
-Smoke test, no OpenAI calls:
-
 ```bash
+# Smoke (no dataset needed — committed fixtures; emits a confusion matrix):
 npm run validate:smoke
-```
 
-Main scoped study:
+# Full study (requires the gitignored Datasets/):
+npm run validate:prep      # build resumes.jsonl + field_profiles.json
+npm run validate:fit       # score every resume × 21 field profiles (structured arm; ~80s)
+npm run validate:report    # top-1/top-3 + confusion matrix + ablation
 
-```bash
-npm run validate:prep
-npm run validate:fit
+# Real embeddings ablation (otherwise the embeddings arm is a NON-semantic mock):
+npm i @xenova/transformers
+EMBEDDINGS_ENABLED=true npm run validate:fit -- --sample 40   # ≤40/family, fast on CPU
 npm run validate:report
 ```
 
-`validate:prep` reads `OPENAI_API_KEY` from `.env.local`, classifies candidate
-postings into 22 labels, and stops after collecting 100 high-confidence real JDs
-for each scoped family. Cached labels are reused on later runs.
+## Current result (structured arm, live engine, full corpus)
 
-Embeddings use local BGE-small through `@xenova/transformers` when
-`EMBEDDINGS_ENABLED=true`; otherwise the deterministic mock embedder is used and
-the embedding arm should not be interpreted as semantic.
+Structured arm on the **full corpus** (2,362 resumes), plus the **embeddings-vs-structured
+ablation** on a stratified subset (40/family = 840 resumes, real BGE-small):
 
-`validate:fit` parses every selected JD before scoring and, for the main scoped
-study, defaults to `--min-jd-requirements 3`. This drops postings that do not
-yield enough structured requirements for `scoreFit()`/semantic matching to be a
-meaningful test. Smoke mode defaults to `0` because its fixtures are tiny. The
-gate can be overridden, for example:
+| arm | top-1 | top-3 |
+|---|---|---|
+| structured — full corpus (live engine) | 12.1% | 32.6% |
+| structured — subset | 11.4% | 32.7% |
+| **embeddings — subset (real BGE)** | **66.5%** | **87.0%** |
+| combined — subset (50/50 blend) | 45.0% | 73.9% |
+| targets | 70% | 90% |
 
-```bash
-npm run validate:fit -- --min-jd-requirements 0
-```
+**Headline finding:** the missing half of the proposal's *own* methodology ("semantic
+embeddings **plus** deterministic rules") is the half that works. Real BGE embeddings take
+top-1 from **11% → 67%** and top-3 to **87%** — within striking distance of the 70/90
+targets — while the shipped **rules-only** engine flatlines near chance. The naive 50/50
+`combined` blend *hurts* (the weak structured arm drags the strong embeddings arm down),
+so the blend weight needs tuning toward embeddings.
 
-## Metrics
+Why the structured arm is so low (both consistent with the audit):
+1. The live engine is a fit-*scorer* (resume vs one JD) used here as a field-*classifier*
+   (resume vs 21 profiles); its O*NET vocabulary is **tech/analytics-biased** (21
+   occupations / 84 skills), so non-tech families fall back to thin lexical overlap.
+2. Field profiles are aggregated from noisy postings via a curated title→family map
+   (43% title coverage); mapping noise caps the ceiling.
 
-Because the scoped validation has only three families, top-3 accuracy is not a
-headline metric. The report focuses on:
+The harness scores **100% on the clean fixtures**, confirming the low structured number is
+an engine/methodology limit, not a harness bug.
 
-- top-1 accuracy
-- mean rank
-- MRR
-- correct-family margin
-- 3x3 confusion matrix
+**Levers to reach target** (next iterations): **add the embeddings arm to the live fit
+engine** (the proposal always specified it; it nearly clears target alone) and tune the
+combine weight toward embeddings; secondarily, expand the O*NET taxonomy beyond 21
+occupations and improve the title→family mapping coverage.
 
-The same frozen split is used for all arms:
+## Notes
 
-- `structured`
-- `embedding`
-- `hybrid_0_25`
-- `hybrid_0_5`
-- `hybrid_0_75`
-
-The hybrid suffix is the structured-score weight.
+- `.artifacts/` is gitignored (derived from the gitignored `Datasets/`). `field_profiles.json`
+  and `fixtures/` **are** committed.
+- `prepare_data.py` follows the EDA: drops the 3 under-populated families
+  (BPO/AUTOMOBILE/AGRICULTURE) + corrupt rows → 21 families / 2,362 resumes, and
+  de-duplicates posting reposts. Resume text cleaning (full-width dash, "Company Name"
+  leak, ALL-CAPS title leak) is applied by the live `parseResume`.

@@ -1,10 +1,10 @@
 /**
- * Local retrieval helpers for behavioural answer-bank matching and case-stage
- * pre-fetch. This is not an O*NET RAG layer: the Fit Analyzer grounds O*NET
- * directly through lib/data/onet-taxonomy.json + lib/onet.ts.
+ * Retrieval interface (pgvector cosine). Enforces the PRE-FETCH pattern: callers
+ * retrieve context once at request entry — for the case module, only at case load and
+ * stage transitions — never mid-stream.
  *
- * Callers retrieve context once at request entry - for the case module, only at
- * case load and stage transitions - never mid-stream.
+ * Production path is a Supabase pgvector RPC (`match_*` on an HNSW cosine index). Here
+ * we expose an in-memory top-k so the same ranking logic is testable and works on mocks.
  */
 import type {
   AnswerBankEntry,
@@ -37,8 +37,8 @@ export function topK<T>(
 
 /**
  * Retrieve the user's best-matching prepared STAR answer(s) for a behavioural question.
- * Pre-fetched once per question. Uses precomputed embeddings when present; otherwise
- * embeds the bank on the fly in dev/seed mode.
+ * Pre-fetched once per question (never per token). Uses precomputed embeddings when
+ * present; otherwise embeds the bank on the fly (dev/seed path).
  */
 export async function retrieveAnswer(
   question: string,
@@ -48,7 +48,7 @@ export async function retrieveAnswer(
   if (bank.length === 0) return [];
 
   // Mock mode: the embeddings are a non-semantic hash, so cosine ranking is noise.
-  // Rank lexically instead: primarily the query question against each entry's own
+  // Rank lexically instead — primarily the query question against each entry's own
   // question, with a smaller tags/STAR contribution. Deterministic and topical.
   if (!embeddingsEnabled()) {
     return bank
@@ -66,8 +66,8 @@ export async function retrieveAnswer(
       .slice(0, k);
   }
 
-  // Real local embeddings: cosine top-k. Uses precomputed embeddings when present;
-  // otherwise embeds the bank on the fly.
+  // Real semantic embeddings → cosine top-k (production path). Uses precomputed
+  // embeddings when present; otherwise embeds the bank on the fly (dev/seed path).
   const q = await embed(question, { query: true });
   const allPrecomputed = bank.every((b) => b.embedding && b.embedding.length > 0);
   const candidates = await Promise.all(
@@ -84,11 +84,12 @@ export async function retrieveAnswer(
 
 // =========================== Case pre-fetch =========================== //
 //
-// Case context is pre-fetched at case load and at each stage transition only -
-// never mid-response. `prefetchCaseStage` assembles the next stage's context
-// (objective, prompts, the exhibit that will drip, the hint ladder) so it is
-// ready before the candidate replies, and ranks the case's exhibit insights by
-// cosine similarity using the same local top-k path as behavioural retrieval.
+// CLAUDE.md mandates RAG pre-fetch for the case module at case LOAD and at each
+// STAGE TRANSITION only — never mid-response. `prefetchCaseStage` assembles the
+// next stage's context (objective, prompts, the exhibit that will drip, the hint
+// ladder) so it is ready before the candidate replies, and ranks the case's
+// exhibit insights by cosine similarity to the stage — the same pgvector-style
+// top-k path used for behavioural retrieval, here over in-memory case content.
 
 export interface StageContext {
   stage: CaseState;
@@ -99,14 +100,14 @@ export interface StageContext {
   hint_ladder: string[];
   /** The next exhibit that will be revealed at this stage (already-revealed excluded). */
   pending_exhibit: CaseExhibit | null;
-  /** Top-k exhibit insights most relevant to this stage. */
+  /** Top-k exhibit insights most relevant to this stage (retrieved grounding). */
   grounding: string[];
 }
 
 /**
  * Pre-fetch everything the interviewer needs for `stage` before the user responds.
- * Pure read over the authored case + local retrieval interface; safe to call at
- * case load (stage="intro") and on each transition.
+ * Pure read over the authored case + the retrieval interface; safe to call at case
+ * load (stage="intro") and on each transition.
  */
 export async function prefetchCaseStage(
   c: CaseRecord,

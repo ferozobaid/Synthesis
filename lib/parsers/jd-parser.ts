@@ -11,15 +11,12 @@ import type {
 } from "@/lib/types";
 import { extractCanonicalSkills, skillCategory } from "@/lib/onet";
 
-const FULLWIDTH_DASH = /\uFF0D/g;
+const FULLWIDTH_DASH = /－/g;
 
 export function cleanJDText(raw: string): string {
   return raw
     .normalize("NFKC")
     .replace(FULLWIDTH_DASH, "-")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\r/g, "\n")
-    .replace(/[\u00B7\u25AA\u25CF\u2023]/g, "\n- ")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -35,7 +32,7 @@ function categoryOf(s: string): RequirementCategory {
   if (/(degree|bachelor|master|bsc|b\.?a\.?|phd|mba|education)/.test(l)) return "education";
   if (/(years?|experience|background)/.test(l)) return "experience";
   if (/(industry|domain|sector|services)/.test(l)) return "domain";
-  if (/(skill|proficien|knowledge of|familiar|hands[- ]?on|sql|python|excel|java|javascript|typescript|react|api|cloud|tools?)/.test(l)) return "skill";
+  if (/(skill|proficien|knowledge of|familiar|sql|python|excel|tools?)/.test(l)) return "skill";
   return "other";
 }
 
@@ -44,44 +41,24 @@ function isNiceToHave(s: string): boolean {
 }
 
 const REQ_CUE =
-  /(experience|skills?|proficien|degree|bachelor|knowledge|ability|familiar|required|preferred|responsibilit|qualifications?|requirements?|years|must|plus|communication|analy|hands[- ]?on|develop|design|build|implement|support|manage|coding|programming)/i;
+  /(experience|skills?|proficien|degree|bachelor|knowledge|ability|familiar|required|preferred|years|must|plus|communication|analy)/i;
 
-// Intro/boilerplate sentences and header lines that are not real requirements.
+// Intro/boilerplate sentences and header lines that aren't real requirements.
 const BOILERPLATE =
   /^(we are|we're|we have|we offer|we will|we seek|join|about (us|the|our)|our (company|team|mission|client)|who we are|the role|the opportunity|in this role)\b/i;
 const HEADER_LINE =
-  /^(title|company|job title|role|location|department|industry|domain|reports to|salary|employment type|seniority|level)\s*:/i;
+  /^(title|company|job title|role|location|department|industry|domain|education|reports to|salary|employment type|seniority|level)\s*:/i;
 
-const REQUIREMENT_HEADER =
-  /^(?:job\s+description|description|responsibilities|duties|requirements?|qualifications?|preferred qualifications?|minimum qualifications?|basic qualifications?|must(?:\s+have)?(?:\s+skills?)?|skills?\s+(?:require|required|requirements?)|skills?|technical skills?|education)\s*:?\s*/i;
-
-const INLINE_SECTION =
-  /\b(job description|responsibilities|duties|requirements?|qualifications?|preferred qualifications?|minimum qualifications?|basic qualifications?|must(?:\s+have)?(?:\s+skills?)?|skills?\s+(?:require|required|requirements?)|technical skills?)\s*:/gi;
-
-const BULLET = /^[-*\u2022\u2023\u00B7\u25CF\u25AA]+\s*/;
-
-function stripRequirementHeader(s: string): string {
-  return s.replace(BULLET, "").replace(REQUIREMENT_HEADER, "").trim();
-}
-
-/** Join soft-wrapped prose lines so one requirement is not fragmented. */
+/** Join soft-wrapped prose lines (continuation lines start lowercase / "(") so a
+ *  single requirement isn't fragmented across the JD's hard line wraps. */
 function reflowLines(text: string): string {
-  const withSections = text.replace(INLINE_SECTION, "\n$1:");
-  const lines = withSections.split("\n");
+  const lines = text.split("\n");
   const out: string[] = [];
   for (const raw of lines) {
     const line = raw.trim();
+    const isBullet = /^[-•*‣·●▪]/.test(line);
     const prev = out[out.length - 1];
-    const isBullet = BULLET.test(line);
-    if (
-      out.length &&
-      line &&
-      !isBullet &&
-      !REQUIREMENT_HEADER.test(line) &&
-      /^[a-z(]/.test(line) &&
-      prev &&
-      !/[.;:]$/.test(prev)
-    ) {
+    if (out.length && line && !isBullet && /^[a-z(]/.test(line) && prev && !/[.;:]$/.test(prev)) {
       out[out.length - 1] = `${prev} ${line}`;
     } else {
       out.push(line);
@@ -90,34 +67,13 @@ function reflowLines(text: string): string {
   return out.join("\n");
 }
 
-function splitLongSkillList(s: string): string[] | null {
-  if (s.length <= 240) return null;
-  const commaParts = s
-    .split(/,(?=\s*[A-Za-z+#. -]{2,40}(?:,|$))/)
-    .map((p) => stripRequirementHeader(p.trim()))
-    .filter(Boolean);
-  if (commaParts.length < 3) return null;
-  return commaParts.some((p) => extractCanonicalSkills(p).length > 0) ? commaParts : null;
-}
-
 function splitRequirements(text: string): string[] {
-  const chunks: string[] = [];
-  for (const raw of reflowLines(text).split(/\n|\u2022|;|(?<=[.;])\s+(?=[A-Z])/)) {
-    const stripped = stripRequirementHeader(raw.trim());
-    if (!stripped || BOILERPLATE.test(stripped) || HEADER_LINE.test(stripped)) continue;
-
-    const split = splitLongSkillList(stripped);
-    if (split) chunks.push(...split);
-    else chunks.push(stripped);
-  }
-
-  return chunks
-    .map((s) => s.replace(/\s+/g, " ").trim())
-    .filter((s) => {
-      if (s.length < 5 || s.length > 300) return false;
-      if (extractCanonicalSkills(s).length > 0) return true;
-      return s.length >= 12;
-    });
+  return reflowLines(text)
+    .split(/\n|•|;|(?<=[.;])\s+(?=[A-Z])/)
+    .map((s) => s.trim())
+    .filter(
+      (s) => s.length >= 12 && s.length <= 240 && !BOILERPLATE.test(s) && !HEADER_LINE.test(s),
+    );
 }
 
 export function parseJD(raw: string): JDRequirements {
@@ -126,9 +82,7 @@ export function parseJD(raw: string): JDRequirements {
   const company = headerValue(text, "Company");
   const roleTitle = headerValue(text, "Title") || headerValue(text, "Job Title");
 
-  const chunks = splitRequirements(text).filter(
-    (c) => REQ_CUE.test(c) || extractCanonicalSkills(c).length > 0,
-  );
+  const chunks = splitRequirements(text).filter((c) => REQ_CUE.test(c));
   const must_have: JDRequirement[] = [];
   const nice_to_have: JDRequirement[] = [];
   const seen = new Set<string>();
@@ -157,7 +111,7 @@ export function parseJD(raw: string): JDRequirements {
   const education =
     headerValue(text, "Education") || text.match(/Bachelor[^.\n]*/i)?.[0] || null;
 
-  // Domain: the first industry/domain-category skill the JD mentions.
+  // Domain: the first industry/domain-category skill the JD mentions (O*NET-grounded).
   const domain =
     headerValue(text, "Industry") ||
     headerValue(text, "Domain") ||

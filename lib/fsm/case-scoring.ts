@@ -13,7 +13,7 @@
  *  - REAL MODE (Haiku): one holistic, low-temperature call over the transcript +
  *    rubric anchors + target_solution_notes; falls back to the mock aggregation.
  *
- * Live plane only. Never imports from offline scripts.
+ * Live plane only. Never imports from /scripts or /n8n.
  */
 import { complete, extractJSON } from "@/lib/claude";
 import { useMocks } from "@/lib/config";
