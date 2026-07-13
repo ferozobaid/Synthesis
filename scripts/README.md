@@ -1,10 +1,13 @@
-# scripts/ — OFFLINE plane (owner: Rui)
+# scripts/ - Offline Plane
 
-Never imported by `/app` or `/lib` (a test enforces this). Runs independently or
-orchestrated by n8n.
+Never imported by `/app` or `/lib`; a test enforces this boundary.
 
-- `ingestion/` — extract → clean → chunk → embed → upsert (Python, local BGE-small).
-- `validation/` — `profile_datasets.py`, `validate_matching.py`.
+- `validation/` - scoped real-JD validation, reporting, and smoke fixtures.
+- `onet/` - scripts for maintaining the committed O*NET taxonomy dictionary.
 
-**Rules:** `ANTHROPIC_API_KEY` is never set in any script; embeddings are local
-sentence-transformers (never a paid API); datasets are dev/validation only.
+Rules:
+
+- `ANTHROPIC_API_KEY` is never set in any script.
+- Datasets are dev/validation only.
+- OpenAI usage is limited to the validation LLM family mapper.
+- O*NET is not ingested into Supabase; runtime code reads `lib/data/onet-taxonomy.json`.

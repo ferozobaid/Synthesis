@@ -1,11 +1,12 @@
 /**
- * Local embedding client — BGE-small-en-v1.5 (384-dim), never a paid API.
+ * Local embedding client - BGE-small-en-v1.5 (384-dim), never a paid API.
  *
- * Live plane uses @xenova/transformers (CLS pooling + L2 normalize) when
- * EMBEDDINGS_ENABLED=true and the optional dep is installed; otherwise it falls
- * back to a deterministic mock vector so dev/test need no native build. The offline
- * ingestion pipeline (Python sentence-transformers, BAAI/bge-small-en-v1.5) uses the
- * same model + pooling so vectors are comparable — a parity test asserts cosine > 0.99.
+ * When EMBEDDINGS_ENABLED=true, the live plane uses @xenova/transformers with
+ * CLS pooling + L2 normalization. Otherwise it falls back to a deterministic
+ * mock vector so dev/test need no native model load.
+ *
+ * These embeddings power semantic fit scoring and behavioural/case retrieval
+ * helpers. O*NET itself stays a local JSON dictionary, not a vector index.
  */
 import { EMBEDDING_DIM, type Embedding } from "@/lib/types";
 import { embeddingsEnabled, embeddingsModel } from "@/lib/config";
@@ -23,7 +24,7 @@ function normalize(v: number[]): Embedding {
 
 /**
  * Deterministic, L2-normalized pseudo-embedding. Stable for the same input so
- * retrieval is consistent in dev/test. NOT semantically meaningful — real ranking
+ * retrieval is consistent in dev/test. NOT semantically meaningful - real ranking
  * requires EMBEDDINGS_ENABLED=true with @xenova/transformers installed.
  */
 export function mockEmbed(text: string): Embedding {
@@ -38,9 +39,8 @@ export function mockEmbed(text: string): Embedding {
   return normalize(v);
 }
 
-// Lazily-created transformers.js pipeline (OPTIONAL, uninstalled by default).
-// The indirect import hides the specifier from TS + the bundler so the package is
-// only resolved at runtime when actually enabled — keeping install/build lean.
+// Lazily-created transformers.js pipeline. The indirect import hides the
+// specifier from TS + the bundler so the package is only resolved when enabled.
 type Extractor = (input: string, opts: unknown) => Promise<{ data: Float32Array }>;
 const dynamicImport = new Function("m", "return import(m)") as (
   m: string,
@@ -67,7 +67,7 @@ export async function embed(
     const out = await extractor(input, { pooling: "cls", normalize: true });
     return Array.from(out.data);
   } catch {
-    // Optional dep missing or failed to load — fall back to the deterministic mock.
+    // Optional dep missing or failed to load: fall back to deterministic mock.
     return mockEmbed(input);
   }
 }

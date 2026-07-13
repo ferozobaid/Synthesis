@@ -59,7 +59,7 @@ const SECTION_HEADERS = [
   "experience", "work experience", "professional experience", "employment history",
   "employment", "education", "academic background", "academic", "skills",
   "technical skills", "core competencies", "competencies", "certifications",
-  "certification", "projects", "summary", "profile", "objective", "awards",
+  "certification", "projects", "professional summary", "summary", "profile", "objective", "awards",
   "honors", "publications", "references", "interests", "languages", "volunteer",
 ];
 
@@ -76,6 +76,45 @@ function sliceSection(text: string, names: string[]): string {
 }
 
 const BULLET = /^[-•*‣·●▪]+\s*/;
+
+const ROLE_OR_LABEL =
+  /\b(analyst|associate|consultant|developer|engineer|manager|administrator|specialist|technology|information|finance|financial|accountant|teacher|chef|sales|designer|advocate|aviation|banking|healthcare|fitness|construction|apparel|media|relations|resume|curriculum|vitae)\b/i;
+
+function titleCaseName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\b([a-z])([a-z.'-]*)/g, (_, first: string, rest: string) => first.toUpperCase() + rest);
+}
+
+export function extractName(cleaned: string): string | null {
+  const headerRe = new RegExp(`^\\s*(${SECTION_HEADERS.join("|")})\\s*:?\\s*$`, "i");
+  for (const raw of cleaned.split("\n").slice(0, 10)) {
+    const line = raw.trim().replace(/\s+/g, " ");
+    if (!line || line.length > 70) continue;
+    if (headerRe.test(line)) break;
+    if (/@|https?:|www\.|\d{3}[-.\s]\d{3}/i.test(line)) continue;
+    if (ROLE_OR_LABEL.test(line)) continue;
+    const tokens = line.split(/\s+/);
+    if (tokens.length < 2 || tokens.length > 4) continue;
+    if (!tokens.every((t) => /^[A-Za-z][A-Za-z.'-]*$/.test(t))) continue;
+    return line === line.toUpperCase() ? titleCaseName(line) : line;
+  }
+  return null;
+}
+
+export function extractSummary(cleaned: string): string | null {
+  const summary = sliceSection(cleaned, ["professional summary", "summary", "profile", "objective"]);
+  if (!summary) return null;
+  const text = summary
+    .split("\n")
+    .map((line) => line.replace(BULLET, "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length < 20) return null;
+  return text.length <= 700 ? text : `${text.slice(0, 697).trimEnd()}...`;
+}
 
 /** Pull a date / date-range substring out of a role header, if present. */
 function extractDates(header: string): string | undefined {
@@ -144,7 +183,10 @@ function parseExperienceEntries(expText: string): ParsedResume["experience"] {
 
 /** Heuristic structured parse (EDA-cleaned, O*NET-normalised skills). */
 export function parseResume(raw: string): ParsedResume {
-  const cleaned = stripLeadingTitleLine(cleanResumeText(raw));
+  const normalized = cleanResumeText(raw);
+  const cleaned = stripLeadingTitleLine(normalized);
+  const name = extractName(normalized);
+  const summary = extractSummary(cleaned);
   // Skills: lexicon hits ∪ taxonomy scan, normalised to canonical O*NET forms.
   const skills = normalizeSkills([...extractSkills(cleaned), ...extractCanonicalSkills(cleaned)]);
   const expText = sliceSection(cleaned, [
@@ -163,7 +205,7 @@ export function parseResume(raw: string): ParsedResume {
         .map((l) => ({ degree: l }))
     : [];
 
-  return { name: null, summary: null, skills, experience, education, raw_text: cleaned };
+  return { name, summary, skills, experience, education, raw_text: cleaned };
 }
 
 /** Lazily extract text from an uploaded file (PDF via unpdf, DOCX via mammoth). */
