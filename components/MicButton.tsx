@@ -23,17 +23,30 @@ export default function MicButton({ supported, listening, onStart, onStop }: Mic
       onClick={listening ? onStop : onStart}
       aria-pressed={listening}
       aria-label={listening ? "Stop voice input" : "Start voice input"}
-      className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-        listening
-          ? "border-red-300 bg-red-50 text-red-700"
-          : "border-slate-300 text-slate-700 hover:bg-slate-50"
-      }`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 10,
+        border: `1px solid ${listening ? "var(--gap)" : "var(--line)"}`,
+        background: listening ? "var(--gap-tint)" : "var(--surface-2)",
+        color: listening ? "var(--gap)" : "var(--ink-2)",
+        padding: "10px 16px",
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
     >
       <span
         aria-hidden="true"
-        className={`inline-block h-2.5 w-2.5 rounded-full ${
-          listening ? "animate-pulse bg-red-500" : "bg-slate-400"
-        }`}
+        style={{
+          display: "inline-block",
+          width: 9,
+          height: 9,
+          borderRadius: "50%",
+          background: listening ? "var(--gap)" : "var(--ink-4)",
+          animation: listening ? "pulseDot 1.2s ease-in-out infinite" : "none",
+        }}
       />
       {listening ? "Listening… tap to stop" : "Speak answer"}
     </button>

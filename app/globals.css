@@ -2,10 +2,327 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Synthesis v3 — futuristic cockpit design tokens
+   Dark by default; light theme via html[data-theme="light"].
+   ============================================================ */
 :root {
+  color-scheme: dark;
+
+  --ink: #eaeef8;
+  --ink-2: #a6b1c7;
+  --ink-3: #707c96;
+  --ink-4: #4e5871;
+
+  --paper: #080b14;
+  --surface: #111726;
+  --surface-2: #0d1320;
+
+  --line: #242e46;
+  --line-2: #1a2236;
+
+  --accent: #7c78ff;
+  --accent-ink: #a7a3ff;
+  --accent-tint: rgba(124, 120, 255, 0.15);
+  --accent-tint-2: rgba(124, 120, 255, 0.1);
+
+  --secondary: #2dd4bf;
+  --secondary-tint: rgba(45, 212, 191, 0.14);
+
+  --success: #34d399;
+  --success-tint: rgba(52, 211, 153, 0.14);
+  --partial: #fbbf24;
+  --partial-tint: rgba(251, 191, 36, 0.14);
+  --gap: #fb7185;
+  --gap-tint: rgba(251, 113, 133, 0.14);
+  --neutral: #707c96;
+  --neutral-tint: rgba(112, 124, 150, 0.16);
+
+  --glow: linear-gradient(150deg, #5b57e8, #7c78ff 45%, #8b5cf6);
+  --nav-bg: rgba(10, 13, 22, 0.72);
+
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-md: 0 10px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(124, 120, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="light"] {
   color-scheme: light;
+
+  --ink: #0d1220;
+  --ink-2: #3d4658;
+  --ink-3: #697488;
+  --ink-4: #9aa3b2;
+
+  --paper: #f1f4fa;
+  --surface: #ffffff;
+  --surface-2: #f7f9fd;
+
+  --line: #e4e8f2;
+  --line-2: #eef1f7;
+
+  --accent: #5b57e8;
+  --accent-ink: #4a45d6;
+  --accent-tint: rgba(91, 87, 232, 0.1);
+  --accent-tint-2: rgba(91, 87, 232, 0.055);
+
+  --secondary: #0d9488;
+  --secondary-tint: rgba(13, 148, 136, 0.11);
+
+  --success: #12a06a;
+  --success-tint: rgba(18, 160, 106, 0.12);
+  --partial: #c0820e;
+  --partial-tint: rgba(192, 130, 14, 0.14);
+  --gap: #dd5b4f;
+  --gap-tint: rgba(221, 91, 79, 0.11);
+  --neutral: #697488;
+  --neutral-tint: rgba(105, 116, 136, 0.11);
+
+  --glow: linear-gradient(150deg, #5b57e8, #6f6bf2 45%, #8b5cf6);
+  --nav-bg: rgba(241, 244, 250, 0.75);
+
+  --shadow-sm: 0 1px 2px rgba(13, 18, 32, 0.05), 0 1px 3px rgba(13, 18, 32, 0.05);
+  --shadow-md: 0 4px 14px rgba(13, 18, 32, 0.06), 0 12px 32px rgba(13, 18, 32, 0.07);
+  --shadow-lg: 0 18px 50px rgba(13, 18, 32, 0.12), 0 4px 14px rgba(13, 18, 32, 0.06);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  @apply bg-paper text-ink antialiased;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* grid + radial-glow ambient background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 82% -5%, rgba(124, 120, 255, 0.18), transparent 60%),
+    radial-gradient(50% 40% at 6% 3%, rgba(45, 212, 191, 0.1), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+}
+
+html[data-theme="light"] body::before {
+  background:
+    radial-gradient(58% 44% at 84% -6%, rgba(91, 87, 232, 0.11), transparent 60%),
+    radial-gradient(48% 38% at 5% 2%, rgba(13, 148, 136, 0.08), transparent 55%),
+    linear-gradient(rgba(13, 18, 32, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 18, 32, 0.028) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+::selection {
+  background: var(--accent-tint);
+  color: var(--ink);
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: var(--ink-4);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-4);
+  border-radius: 8px;
+  border: 3px solid var(--paper);
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #cbd2e0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ringGrow {
+  from {
+    stroke-dashoffset: var(--from, 999);
+  }
+  to {
+    stroke-dashoffset: var(--to, 0);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+@keyframes barGrow {
+  from {
+    width: 0;
+  }
+}
+
+/* ============================================================
+   Responsive layout primitives
+   Desktop keeps the approved bento/cockpit grids; tablet and
+   mobile collapse to fewer columns / single column. Defined as
+   classes so screens can drop fixed inline gridTemplateColumns
+   (which inline styles could otherwise not override).
+   ============================================================ */
+
+/* Never allow the page itself to scroll sideways. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Landing hero: copy + live preview */
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 410px) 1fr;
+  gap: 48px;
+  align-items: center;
+}
+.hero-preview-top {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+@media (max-width: 520px) {
+  .hero-preview-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Dashboard 12-column bento */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+.bento-grid > .col-5 {
+  grid-column: span 5;
+}
+.bento-grid > .col-7 {
+  grid-column: span 7;
+}
+.bento-grid > .col-4 {
+  grid-column: span 4;
+}
+.bento-grid > .col-12 {
+  grid-column: span 12;
+}
+@media (max-width: 980px) {
+  .bento-grid > .col-5,
+  .bento-grid > .col-7 {
+    grid-column: span 12;
+  }
+}
+@media (max-width: 640px) {
+  .bento-grid > .col-4 {
+    grid-column: span 12;
+  }
+}
+
+/* Fit result: requirements + right rail */
+.fit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 22px;
+  align-items: start;
+}
+/* Case: chat + right rail */
+.case-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 316px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .fit-grid,
+  .case-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Nav condenses on small screens instead of overflowing */
+@media (max-width: 640px) {
+  .nav-inner {
+    gap: 12px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .nav-dash-link,
+  .nav-demo-chip {
+    display: none !important;
+  }
+}
+
+/* Visible keyboard focus for every interactive control */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
