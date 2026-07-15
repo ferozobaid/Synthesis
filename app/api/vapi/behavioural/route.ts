@@ -56,7 +56,6 @@ export async function POST(req: NextRequest) {
     return vapiEnvelope(TOOL_NAME, call.id, {
       complete: true,
       nextQuestion: null,
-      score: null,
       error: "session_not_found",
       spokenText: "I'm sorry, this interview session has expired.",
     });
@@ -69,12 +68,15 @@ export async function POST(req: NextRequest) {
       complete: true,
       nextQuestion: null,
       questionNumber: record.questions.length,
-      score: null,
       spokenText: "That completes the behavioural interview. Thank you.",
     });
   }
 
-  // Pass the current question ID and the exact answer into the existing scorer.
+  // Score the answer with the existing scorer, then persist the result IN THE
+  // STORED SESSION ONLY (for the separate final report). The per-answer score,
+  // matched answer, match score, and evaluator reasoning are NEVER returned to or
+  // spoken by Vapi during the interview — the voice tool receives only the four
+  // navigation fields below.
   const turn = await respondToBehavioural(
     record.session,
     current.id,
@@ -103,6 +105,5 @@ export async function POST(req: NextRequest) {
     nextQuestion: nextQuestion ? { id: nextQuestion.id, question: nextQuestion.question } : null,
     questionNumber: complete ? record.questions.length : nextIndex + 1,
     complete,
-    score: turn.score,
   });
 }

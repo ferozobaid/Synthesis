@@ -82,6 +82,7 @@ beforeEach(() => {
   process.env.UPSTASH_REDIS_REST_KV_REST_API_URL = "https://example.upstash.io";
   process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN = "test-token";
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
+  delete process.env.VAPI_AUTH_DEBUG;
 });
 
 describe("POST /api/vapi/session (bootstrap)", () => {
@@ -148,6 +149,69 @@ describe("POST /api/vapi/behavioural (tool webhook)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("fails closed when VAPI_WEBHOOK_SECRET is missing (never allows the request)", async () => {
+    delete process.env.VAPI_WEBHOOK_SECRET;
+    const res = await behaviouralPOST(
+      makeReq(behaviouralToolCall("s", "a"), authHeader) as never,
+    );
+    expect(res.status).not.toBe(200);
+    expect(res.status).toBe(500);
+  });
+
+  it("authorizes a token even if the STORED secret has trailing whitespace (regression)", async () => {
+    // Reproduces the production trailing-newline injection: the stored secret has
+    // a trailing "\n" while the client sends the clean token. Both sides are now
+    // trimmed before comparison, so authorization must succeed. Before the fix this
+    // returned 401 (the token was trimmed but the secret was not).
+    process.env.VAPI_WEBHOOK_SECRET = `${SECRET}\n`;
+    const sessionId = await bootstrap();
+    const res = await behaviouralPOST(
+      makeReq(behaviouralToolCall(sessionId, STRONG_BEHAVIOURAL), authHeader) as never,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("VAPI_AUTH_DEBUG logs a safe server-only diagnostic but never puts it in the response body", async () => {
+    process.env.VAPI_AUTH_DEBUG = "true";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await behaviouralPOST(
+      makeReq(behaviouralToolCall("s", "a"), { authorization: "Bearer wrong" }) as never,
+    );
+    expect(res.status).toBe(401);
+
+    // No diagnostic metadata is exposed in the API response.
+    const body = await res.json();
+    expect(body.diagnostic).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain(SECRET);
+
+    // The safe diagnostic goes only to the server log: presence + lengths + match.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const logged = warnSpy.mock.calls[0][1] as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      secretPresent: true,
+      secretLength: SECRET.length,
+      authHeaderPresent: true,
+      matched: false,
+    });
+    expect(typeof logged.tokenLength).toBe("number");
+    // never the secret or token bytes, even in the log
+    const serializedLog = JSON.stringify(logged);
+    expect(serializedLog).not.toContain(SECRET);
+    expect(serializedLog).not.toContain("wrong");
+    warnSpy.mockRestore();
+  });
+
+  it("does NOT log or expose diagnostics when VAPI_AUTH_DEBUG is unset", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await behaviouralPOST(
+      makeReq(behaviouralToolCall("s", "a"), { authorization: "Bearer wrong" }) as never,
+    );
+    expect(res.status).toBe(401);
+    expect((await res.json()).diagnostic).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("400s on a malformed Vapi payload (no tool call)", async () => {
     const res = await behaviouralPOST(makeReq({ message: {} }, authHeader) as never);
     expect(res.status).toBe(400);
@@ -170,11 +234,24 @@ describe("POST /api/vapi/behavioural (tool webhook)", () => {
     expect(result.complete).toBe(false);
     expect(result.nextQuestion.id).toBe(MOCK_QUESTIONS[1].id);
     expect(result.questionNumber).toBe(2);
-    expect(result.score).toBeTruthy();
 
-    // persisted index advanced
+    // SECURITY: only the four navigation fields are exposed during the interview.
+    expect(Object.keys(result).sort()).toEqual([
+      "complete",
+      "nextQuestion",
+      "questionNumber",
+      "spokenText",
+    ]);
+    // no per-answer score, matched answer, match score, or session data leaks
+    expect(result.score).toBeUndefined();
+    expect(result.matched_answer).toBeUndefined();
+    expect(result.match_score).toBeUndefined();
+    expect(result.session).toBeUndefined();
+
+    // the score is still recorded in the STORED session for the final report
     const stored = redisStore.get(`voice-session:${sessionId}`)!.value as BehaviouralVoiceSession;
     expect(stored.questionIndex).toBe(1);
+    expect(Object.keys(stored.session.scores ?? {})).toContain(MOCK_QUESTIONS[0].id);
   });
 
   it("reports completion after the final question", async () => {
@@ -188,7 +265,9 @@ describe("POST /api/vapi/behavioural (tool webhook)", () => {
     }
     expect(last.complete).toBe(true);
     expect(last.nextQuestion).toBeNull();
-    expect(last.score).toBeTruthy();
+    // no aggregate score is produced by the voice tool (the final report is a
+    // separate, candidate-visible flow), so none is exposed here
+    expect(last.score).toBeUndefined();
   });
 
   it("handles a missing/expired Redis session gracefully with a matched toolCallId", async () => {
@@ -257,11 +336,27 @@ describe("POST /api/vapi/case (tool webhook)", () => {
 
       last = JSON.parse(envelope.results[0].result);
       expect(typeof last.phase).toBe("string"); // stage mapping present
+
+      // SECURITY: no evaluator reasoning, FSM context, or stored session leaks.
+      expect(last.evaluation).toBeUndefined();
+      expect(last.decision).toBeUndefined();
+      expect(last.context).toBeUndefined();
+      expect(last.session).toBeUndefined();
+      expect(last.uiAction).toBeUndefined();
+      // final score is gated to completion
+      if (!last.complete) expect(last.score).toBeNull();
+
       if (last.exhibit) {
         sawExhibit = true;
-        expect((last.exhibit as { id: string }).id).toBeTruthy();
-        expect((last.exhibit as { title: string }).title).toBeTruthy();
-        expect(last.uiAction).toBe("reveal_exhibit");
+        const ex = last.exhibit as Record<string, unknown>;
+        expect(ex.id).toBeTruthy();
+        expect(ex.title).toBeTruthy();
+        expect(last.action).toBe("reveal");
+        // sanitized to candidate-visible fields only — no internal authoring data
+        expect(Object.keys(ex).sort()).toEqual(["data", "id", "insights", "title"]);
+        expect(ex.note).toBeUndefined();
+        expect(ex.stage).toBeUndefined();
+        expect(ex.synthesized).toBeUndefined();
       }
       phase = last.phase as string;
       if (last.complete) break;
@@ -270,7 +365,7 @@ describe("POST /api/vapi/case (tool webhook)", () => {
     expect(sawExhibit).toBe(true); // exhibit mapping exercised
     expect(last.complete).toBe(true);
     expect(last.phase).toBe("scoring"); // stage mapping at terminal
-    expect(last.score).toBeTruthy();
+    expect(last.score).toBeTruthy(); // final score exposed only now, at completion
   });
 
   it("handles a missing/expired Redis session gracefully", async () => {

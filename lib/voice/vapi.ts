@@ -88,17 +88,53 @@ export function findToolCall(
 }
 
 /**
+ * Constant-time token comparison. Returns false immediately on a length
+ * mismatch (the lengths themselves are not secret and are surfaced only through
+ * the opt-in diagnostics below — never the bytes).
+ */
+function tokensMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
  * Verify `Authorization: Bearer <VAPI_WEBHOOK_SECRET>`. Returns an error response
  * to short-circuit with, or null when the request is authorized.
+ *
+ * Fails closed: a missing secret rejects the request (500) and a bad/absent token
+ * rejects it (401). API responses never carry diagnostic metadata. When
+ * VAPI_AUTH_DEBUG === "true" (off by default), a safe SERVER-ONLY line is logged
+ * on failure — presence + character lengths + match result ONLY, never the
+ * secret, the token, or any substring/fingerprint of them.
  */
 export function authorizeVapi(req: Request): NextResponse | null {
-  const secret = process.env.VAPI_WEBHOOK_SECRET;
+  // Root-cause fix: the token side was already trimmed on extraction, but the
+  // secret side was compared raw. A secret injected with a trailing newline
+  // (a common `vercel env` / `echo` artifact) then never matched. Trim both.
+  const rawSecret = process.env.VAPI_WEBHOOK_SECRET;
+  const secret = rawSecret?.trim();
+  const header = req.headers.get("authorization") ?? "";
+  const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? "";
+  const matched = !!secret && token.length > 0 && tokensMatch(token, secret);
+
+  // Safe, server-only diagnostic — never included in any API response body.
+  if (!matched && process.env.VAPI_AUTH_DEBUG === "true") {
+    console.warn("[vapi-auth] authorization failed", {
+      secretPresent: !!rawSecret,
+      // Raw (un-trimmed) length so a stray trailing byte is still visible here.
+      secretLength: rawSecret ? rawSecret.length : 0,
+      authHeaderPresent: header.length > 0,
+      tokenLength: token.length,
+      matched,
+    });
+  }
+
   if (!secret) {
     return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
   }
-  const header = req.headers.get("authorization") ?? "";
-  const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
-  if (!token || token !== secret) {
+  if (!matched) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   return null;

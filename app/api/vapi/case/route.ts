@@ -3,7 +3,7 @@ import { respondToCase } from "@/lib/fsm/case-runner";
 import { mockCase } from "@/lib/__mocks__/fixtures";
 import { loadSession, saveSession } from "@/lib/voice/session-store";
 import type { CaseVoiceSession } from "@/lib/voice/types";
-import type { CaseAction } from "@/lib/types";
+import type { CaseExhibit } from "@/lib/types";
 import {
   MAX_ANSWER_LENGTH,
   authorizeVapi,
@@ -18,15 +18,20 @@ import {
 // Vapi results envelope (result is a JSON string of the normalized shape below).
 const TOOL_NAME = "advance_case_interview";
 
-// FSM action → UI intent hint for the client. The raw FSM action names never
-// surface to the candidate (mirrors app/case/page.tsx's ACTION_LABEL policy).
-const UI_ACTION: Record<CaseAction, string> = {
-  advance: "advance_phase",
-  probe: "probe",
-  redirect: "redirect",
-  hint: "show_hint",
-  reveal: "reveal_exhibit",
-};
+/**
+ * Reduce a just-revealed exhibit to exactly the fields the existing Case UI
+ * (components/ui/ExhibitCard.tsx) already shows the candidate: title, insights,
+ * and data. `id` is a non-sensitive correlation handle. Internal authoring fields
+ * (note, stage, synthesized) and any not-yet-revealed exhibit are never included.
+ */
+function toPublicExhibit(ex: CaseExhibit) {
+  return {
+    id: ex.id,
+    title: ex.title,
+    insights: ex.insights ?? [],
+    data: ex.data,
+  };
+}
 
 export async function POST(req: NextRequest) {
   const unauthorized = authorizeVapi(req);
@@ -89,24 +94,16 @@ export async function POST(req: NextRequest) {
   };
   await saveSession(sessionId, updated);
 
-  const action = turn.interviewer.action;
-  const exhibit = turn.interviewer.exhibit
-    ? {
-        id: turn.interviewer.exhibit.id,
-        title: turn.interviewer.exhibit.title,
-        synthesized: turn.interviewer.exhibit.synthesized,
-        insights: turn.interviewer.exhibit.insights ?? [],
-        data: turn.interviewer.exhibit.data,
-      }
-    : null;
-
+  // Return ONLY the candidate-visible surface. Evaluator reasoning
+  // (turn.evaluation), FSM context (turn.decision / turn.context) and the stored
+  // session JSON are never included. The final score is exposed only at
+  // completion (it is the candidate-facing report rendered in the Case UI).
   return vapiEnvelope(TOOL_NAME, call.id, {
     spokenText: turn.interviewer.text,
     phase: turn.stage,
-    action,
+    action: turn.interviewer.action,
     complete: turn.complete,
-    uiAction: turn.complete ? "complete" : (UI_ACTION[action] ?? "none"),
-    exhibit,
-    score: turn.score,
+    exhibit: turn.interviewer.exhibit ? toPublicExhibit(turn.interviewer.exhibit) : null,
+    score: turn.complete ? turn.score : null,
   });
 }
