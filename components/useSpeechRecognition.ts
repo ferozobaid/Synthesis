@@ -9,9 +9,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * tested directly.
  */
 export function appendTranscript(existing: string, addition: string): string {
-  if (!existing) return addition;
-  return /\s$/.test(existing) ? `${existing}${addition}` : `${existing} ${addition}`;
+  const cleaned = addition.trim();
+  if (!cleaned) return existing;
+  if (!existing) return cleaned;
+  return /\s$/.test(existing) ? `${existing}${cleaned}` : `${existing} ${cleaned}`;
 }
+
+export type SpeechRecognitionStatus =
+  | "idle"
+  | "requesting_permission"
+  | "listening"
+  | "stopped"
+  | "permission_denied"
+  | "unsupported"
+  | "no_speech"
+  | "recognition_error";
 
 /** Human-friendly, non-technical messages for each failure mode. */
 const ERROR_MESSAGES: Record<string, string> = {
@@ -30,15 +42,46 @@ const ERROR_MESSAGES: Record<string, string> = {
   "bad-grammar": "Something went wrong with voice input. Please type your answer.",
 };
 
+const STATUS_MESSAGES: Record<SpeechRecognitionStatus, string | null> = {
+  idle: null,
+  requesting_permission:
+    "Choose Allow in the browser prompt to dictate, or keep typing your answer.",
+  listening: null,
+  stopped: "Voice input stopped. You can edit the transcript or keep typing.",
+  permission_denied:
+    "Microphone access was blocked. Allow it in your browser, or type your answer.",
+  unsupported: "Voice input is not supported in this browser. Please type your answer.",
+  no_speech: "No speech detected. Try again, or type your answer.",
+  recognition_error: "Voice input is not working right now. Please type your answer.",
+};
+
+export function statusForSpeechError(error: string): SpeechRecognitionStatus {
+  if (error === "not-allowed" || error === "service-not-allowed") return "permission_denied";
+  if (error === "no-speech") return "no_speech";
+  if (error === "aborted") return "stopped";
+  return "recognition_error";
+}
+
+export function getSpeechStatusMessage(
+  status: SpeechRecognitionStatus,
+  errorMessage: string | null = null,
+): string | null {
+  return errorMessage ?? STATUS_MESSAGES[status];
+}
+
 export interface UseSpeechRecognition {
   /** True only when the browser exposes the Web Speech API. */
   supported: boolean;
   /** True while actively listening. */
   listening: boolean;
+  /** Current recoverable voice-input lifecycle state. */
+  status: SpeechRecognitionStatus;
   /** Words recognised so far in the current utterance, not yet finalised. */
   interimTranscript: string;
   /** Friendly error message, or null when there is nothing wrong. */
   error: string | null;
+  /** Friendly lifecycle message, including non-error states. */
+  message: string | null;
   /** Begin listening. Finalised phrases are handed to `onFinalResult`. */
   start: () => void;
   /** Stop listening. */
@@ -69,10 +112,13 @@ export function useSpeechRecognition({
 }: Options): UseSpeechRecognition {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [status, setStatus] = useState<SpeechRecognitionStatus>("idle");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const runningRef = useRef(false);
+  const terminalStatusRef = useRef<SpeechRecognitionStatus | null>(null);
   // Keep the latest callback without forcing recogniser re-creation.
   const onFinalResultRef = useRef(onFinalResult);
   useEffect(() => {
@@ -85,9 +131,11 @@ export function useSpeechRecognition({
     const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Ctor) {
       setSupported(false);
+      setStatus("unsupported");
       return;
     }
     setSupported(true);
+    setStatus("idle");
 
     const recognition = new Ctor();
     recognition.lang = lang;
@@ -110,18 +158,45 @@ export function useSpeechRecognition({
       setInterimTranscript(interim);
     };
 
+    recognition.onstart = () => {
+      runningRef.current = true;
+      terminalStatusRef.current = null;
+      setListening(true);
+      setStatus("listening");
+      setError(null);
+    };
+
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       // "aborted" fires on a normal stop(); it isn't a user-facing error.
-      if (event.error !== "aborted") {
-        setError(ERROR_MESSAGES[event.error] ?? "Voice input isn't working right now. Please type your answer.");
-      }
+      const nextStatus = statusForSpeechError(event.error);
+      terminalStatusRef.current = nextStatus;
+      runningRef.current = false;
       setListening(false);
       setInterimTranscript("");
+
+      if (nextStatus === "stopped") {
+        setStatus("stopped");
+        setError(null);
+        return;
+      }
+
+      setStatus(nextStatus);
+      setError(
+        ERROR_MESSAGES[event.error] ??
+          getSpeechStatusMessage(nextStatus) ??
+          "Voice input isn't working right now. Please type your answer.",
+      );
     };
 
     recognition.onend = () => {
+      runningRef.current = false;
       setListening(false);
       setInterimTranscript("");
+      if (terminalStatusRef.current) {
+        terminalStatusRef.current = null;
+        return;
+      }
+      setStatus("stopped");
     };
 
     recognitionRef.current = recognition;
@@ -136,34 +211,60 @@ export function useSpeechRecognition({
       } catch {
         /* already stopped — nothing to clean up */
       }
+      runningRef.current = false;
+      terminalStatusRef.current = null;
       recognitionRef.current = null;
     };
   }, [lang]);
 
   const start = useCallback(() => {
     const recognition = recognitionRef.current;
-    if (!recognition || listening) return;
+    if (!recognition) {
+      setStatus("unsupported");
+      setError(null);
+      return;
+    }
+    if (runningRef.current) return;
+
+    runningRef.current = true;
+    terminalStatusRef.current = null;
     setError(null);
+    setStatus("requesting_permission");
     setInterimTranscript("");
     try {
       recognition.start();
-      setListening(true);
     } catch {
-      // start() throws if called while already started; treat as a no-op.
+      runningRef.current = false;
+      setListening(false);
+      setStatus("recognition_error");
+      setError("Voice input couldn't start. Please type your answer.");
     }
-  }, [listening]);
+  }, []);
 
   const stop = useCallback(() => {
     const recognition = recognitionRef.current;
-    if (!recognition) return;
+    if (!recognition || !runningRef.current) return;
+    terminalStatusRef.current = null;
     try {
       recognition.stop();
     } catch {
       /* not started — nothing to stop */
     }
+    runningRef.current = false;
     setListening(false);
+    setStatus("stopped");
+    setError(null);
     setInterimTranscript("");
   }, []);
 
-  return { supported, listening, interimTranscript, error, start, stop };
+  return {
+    supported,
+    listening,
+    status,
+    interimTranscript,
+    error,
+    message: getSpeechStatusMessage(status, error),
+    start,
+    stop,
+  };
 }
