@@ -19,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "@supabase/supabase-js": "^2.108.1",
+    "@upstash/redis": "^1.38.0",
     "mammoth": "^1.12.0",
     "next": "^14.2.0",
     "react": "^18.3.1",
