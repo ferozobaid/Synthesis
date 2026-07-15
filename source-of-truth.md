@@ -3,6 +3,19 @@
 This is the current product-level source of truth. If older planning notes
 conflict with this file, this file wins unless Feroz explicitly changes it.
 
+> **Reconciliation note (14 July 2026, Codex handoff).** This file predates the v3
+> cockpit UX and has not yet been fully rewritten. Until Phase F updates it:
+> - For **current execution state and UX**, the authority is the
+>   "Current Status at Codex Handoff" section of
+>   `Synthesis_Finish_Line_Execution_Plan.md`. The v3 UX (landing, onboarding,
+>   dashboard, unified readiness, dark/light theme, localStorage presentation
+>   state, refreshed Fit/Behavioural/Case) is **complete, merged in PR #11, and
+>   deployed** — it is not "future" work.
+> - **Supabase persistence, authentication, and user accounts are descoped** for
+>   the MVP (the "if enabled" language below is aspirational, not active work).
+> - The human-validation study target is **24–36 pairs** (per Phase C), which
+>   supersedes the "40–60" figure further down in this file.
+
 ---
 
 ## What Synthesis Is
