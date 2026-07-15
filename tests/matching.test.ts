@@ -1,9 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import type { NextRequest } from "next/server";
 import { scoreFit } from "@/lib/matching";
 import { scoreFitAnalyzer, scoreFitHybrid } from "@/lib/matching-semantic";
 import { parseResume } from "@/lib/parsers/resume-parser";
 import { parseJD } from "@/lib/parsers/jd-parser";
-import type { FitReport } from "@/lib/types";
+import { EMBEDDING_DIM, type FitReport } from "@/lib/types";
+import { setEmbeddingLoaderForTests } from "@/lib/embeddings";
+import { POST as fitAnalyzePOST } from "@/app/api/fit/analyze/route";
 
 const RESUME = `JANE DOE
 EXPERIENCE
@@ -17,6 +20,14 @@ BSc, Business Analytics`;
 const JD = `Title: Data Analyst
 Required: strong SQL and Python; data visualization. Statistical analysis is essential.
 A Bachelor's degree is required. Experience with cybersecurity is a plus.`;
+
+let restoreEmbeddingLoader: (() => void) | null = null;
+
+afterEach(() => {
+  restoreEmbeddingLoader?.();
+  restoreEmbeddingLoader = null;
+  vi.restoreAllMocks();
+});
 
 describe("matching — classification & scoring", () => {
   it("matches a skill present in the resume, with evidence", () => {
@@ -94,8 +105,96 @@ describe("fit analyzer production method", () => {
     try {
       const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
       expect(result.method).toBe("structured");
+      expect(result.embedding_backend).toBe("disabled");
       expect(result.semantic).toBeNull();
       expect(result.report.overall_score).toBe(result.structured.overall_score);
+      expect(result.structured_weight).toBe(1);
+      expect(result.semantic_weight).toBe(0);
+      expect(result.fallback_reason).toBe("EMBEDDINGS_ENABLED is not true");
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("falls back to structured scoring when strict BGE loading fails", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "true";
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => {
+      throw new Error("model unavailable");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
+      expect(result.method).toBe("structured");
+      expect(result.embedding_backend).toBe("failed");
+      expect(result.semantic).toBeNull();
+      expect(result.report).toEqual(result.structured);
+      expect(result.structured_weight).toBe(1);
+      expect(result.semantic_weight).toBe(0);
+      expect(result.fallback_reason).toBe(
+        "Local BGE embeddings could not be loaded; using structured scoring.",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[fit] BGE embedding load failed; using structured scoring.",
+      );
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("falls back to structured scoring when strict BGE inference fails", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "true";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      throw new Error("tensor failed");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
+      expect(result.method).toBe("structured");
+      expect(result.embedding_backend).toBe("failed");
+      expect(result.semantic).toBeNull();
+      expect(result.report).toEqual(result.structured);
+      expect(result.structured_weight).toBe(1);
+      expect(result.semantic_weight).toBe(0);
+      expect(result.fallback_reason).toBe(
+        "Local BGE embedding inference failed; using structured scoring.",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[fit] BGE embedding inference failed; using structured scoring.",
+      );
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("returns hybrid_0_25 when strict BGE load and inference succeeds", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "true";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let calls = 0;
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      const data = new Float32Array(EMBEDDING_DIM);
+      data[calls++ % EMBEDDING_DIM] = 1;
+      return { data };
+    });
+
+    try {
+      const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
+      expect(result.method).toBe("hybrid_0_25");
+      expect(result.embedding_backend).toBe("bge");
+      expect(result.semantic).not.toBeNull();
+      expect(result.structured_weight).toBe(0.25);
+      expect(result.semantic_weight).toBe(0.75);
+      expect(result.fallback_reason).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
       else process.env.EMBEDDINGS_ENABLED = prev;
@@ -127,5 +226,71 @@ describe("fit analyzer production method", () => {
     expect(hybrid.overall_score).toBe(70);
     expect(hybrid.per_requirement[0].score).toBeCloseTo(0.725);
     expect(hybrid.per_requirement[0].evidence).toBe("semantic evidence");
+  });
+});
+
+describe("fit analyzer API compatibility", () => {
+  it("preserves scoring shape and includes embedding_backend", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "false";
+    try {
+      const req = new Request("http://localhost/api/fit/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText: RESUME, jdText: JD }),
+      });
+      const response = await fitAnalyzePOST(req as unknown as NextRequest);
+      const body = await response.json();
+
+      expect(body).toHaveProperty("mock");
+      expect(body).toHaveProperty("report");
+      expect(body).toHaveProperty("scoring");
+      expect(body).toHaveProperty("jd");
+      expect(body).toHaveProperty("resume_skills");
+      expect(body.scoring).toMatchObject({
+        method: "structured",
+        structured_weight: 1,
+        semantic_weight: 0,
+        embeddings_enabled: false,
+        embedding_backend: "disabled",
+        fallback_reason: "EMBEDDINGS_ENABLED is not true",
+      });
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("includes embedding_backend for the hybrid BGE success response", async () => {
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "true";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    let calls = 0;
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      const data = new Float32Array(EMBEDDING_DIM);
+      data[calls++ % EMBEDDING_DIM] = 1;
+      return { data };
+    });
+    try {
+      const req = new Request("http://localhost/api/fit/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText: RESUME, jdText: JD }),
+      });
+      const response = await fitAnalyzePOST(req as unknown as NextRequest);
+      const body = await response.json();
+
+      expect(body.scoring).toMatchObject({
+        method: "hybrid_0_25",
+        structured_weight: 0.25,
+        semantic_weight: 0.75,
+        embeddings_enabled: true,
+        embedding_backend: "bge",
+        fallback_reason: null,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
   });
 });

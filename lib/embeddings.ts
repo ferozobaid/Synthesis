@@ -45,27 +45,114 @@ type Extractor = (input: string, opts: unknown) => Promise<{ data: Float32Array 
 const dynamicImport = new Function("m", "return import(m)") as (
   m: string,
 ) => Promise<{ pipeline: (task: string, model: string) => Promise<Extractor> }>;
+type ExtractorLoader = () => Promise<Extractor>;
+
+export type EmbeddingFailureCategory = "load" | "inference";
+
+export class EmbeddingError extends Error {
+  constructor(
+    readonly category: EmbeddingFailureCategory,
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "EmbeddingError";
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return "unknown error";
+}
+
+async function defaultExtractorLoader(): Promise<Extractor> {
+  const mod = await dynamicImport("@xenova/transformers");
+  return mod.pipeline("feature-extraction", embeddingsModel());
+}
 
 let _extractor: Promise<Extractor> | null = null;
+let extractorLoader: ExtractorLoader = defaultExtractorLoader;
+
+export function setEmbeddingLoaderForTests(loader: ExtractorLoader): () => void {
+  const previous = extractorLoader;
+  extractorLoader = loader;
+  _extractor = null;
+  return () => {
+    extractorLoader = previous;
+    _extractor = null;
+  };
+}
+
 async function getExtractor(): Promise<Extractor> {
   if (!_extractor) {
-    _extractor = dynamicImport("@xenova/transformers").then((mod) =>
-      mod.pipeline("feature-extraction", embeddingsModel()),
+    const model = embeddingsModel();
+    _extractor = extractorLoader().then((extractor) => {
+      console.info(`[embeddings] BGE loaded (${model})`);
+      return extractor;
+    });
+  }
+  try {
+    return await _extractor;
+  } catch (error) {
+    _extractor = null;
+    throw new EmbeddingError(
+      "load",
+      `BGE embedding load failed: ${errorMessage(error)}`,
+      error,
     );
   }
-  return _extractor;
+}
+
+function inputFor(text: string, opts: { query?: boolean }): string {
+  return opts.query ? BGE_QUERY_PREFIX + text : text;
+}
+
+async function runExtractor(
+  extractor: Extractor,
+  input: string,
+): Promise<Embedding> {
+  try {
+    const out = await extractor(input, { pooling: "cls", normalize: true });
+    const embedding = Array.from(out.data);
+    if (embedding.length !== EMBEDDING_DIM) {
+      throw new Error(`expected ${EMBEDDING_DIM} dimensions, received ${embedding.length}`);
+    }
+    return embedding;
+  } catch (error) {
+    if (error instanceof EmbeddingError) throw error;
+    throw new EmbeddingError(
+      "inference",
+      `BGE embedding inference failed: ${errorMessage(error)}`,
+      error,
+    );
+  }
+}
+
+export async function embedStrict(
+  text: string,
+  opts: { query?: boolean } = {},
+): Promise<Embedding> {
+  const extractor = await getExtractor();
+  return runExtractor(extractor, inputFor(text, opts));
+}
+
+export async function embedBatchStrict(
+  texts: string[],
+  opts: { query?: boolean } = {},
+): Promise<Embedding[]> {
+  const extractor = await getExtractor();
+  return Promise.all(texts.map((text) => runExtractor(extractor, inputFor(text, opts))));
 }
 
 export async function embed(
   text: string,
   opts: { query?: boolean } = {},
 ): Promise<Embedding> {
-  const input = opts.query ? BGE_QUERY_PREFIX + text : text;
+  const input = inputFor(text, opts);
   if (!embeddingsEnabled()) return mockEmbed(input);
   try {
-    const extractor = await getExtractor();
-    const out = await extractor(input, { pooling: "cls", normalize: true });
-    return Array.from(out.data);
+    return await embedStrict(text, opts);
   } catch {
     // Optional dep missing or failed to load: fall back to deterministic mock.
     return mockEmbed(input);

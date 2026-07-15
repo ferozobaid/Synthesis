@@ -19,6 +19,7 @@ export const MODEL_IDS: Record<ModelMode, string> = {
 /** BGE-small-en-v1.5 dimensionality — must match vector(384) in migrations. */
 export const EMBEDDING_DIM = 384 as const;
 export type Embedding = number[];
+export type EmbeddingBackend = "disabled" | "bge" | "failed" | "mock";
 
 // ===================== Profiles =====================
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { FitReport } from "@/lib/types";
+import type { EmbeddingBackend, FitReport } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { RequirementCard } from "@/components/ui/RequirementCard";
@@ -14,6 +14,7 @@ interface FitScoring {
   structured_weight: number;
   semantic_weight: number;
   embeddings_enabled: boolean;
+  embedding_backend?: EmbeddingBackend;
   fallback_reason: string | null;
 }
 
@@ -28,6 +29,11 @@ interface FitResponse {
 /** Compact, user-friendly transparency line — no method ids or raw JSON. */
 function scoringLabel(s: FitScoring | undefined): string | null {
   if (!s) return null;
+  if (s.method === "hybrid_0_25" && s.embedding_backend === "bge") {
+    return "Scored using hybrid role matching with local BGE";
+  }
+  if (s.embedding_backend === "failed") return "Fallback scoring used; local BGE unavailable";
+  if (s.embedding_backend === "mock") return "Scored using mock embedding context";
   if (s.method === "hybrid_0_25") return "Scored using hybrid role matching";
   if (s.fallback_reason) return "Fallback scoring used";
   return "Scored using rule-based matching";
