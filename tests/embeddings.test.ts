@@ -1,8 +1,22 @@
-import { describe, it, expect } from "vitest";
-import { mockEmbed, cosine, embed } from "@/lib/embeddings";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import {
+  mockEmbed,
+  cosine,
+  embed,
+  embedBatchStrict,
+  setEmbeddingLoaderForTests,
+} from "@/lib/embeddings";
 import { EMBEDDING_DIM } from "@/lib/types";
 
 describe("embeddings", () => {
+  let restoreEmbeddingLoader: (() => void) | null = null;
+
+  afterEach(() => {
+    restoreEmbeddingLoader?.();
+    restoreEmbeddingLoader = null;
+    vi.restoreAllMocks();
+  });
+
   it("mockEmbed is deterministic, 384-dim, and L2-normalized", () => {
     const a = mockEmbed("hello world");
     const b = mockEmbed("hello world");
@@ -21,7 +35,45 @@ describe("embeddings", () => {
   });
 
   it("embed() falls back to the mock vector when disabled", async () => {
-    const v = await embed("hello", { query: true });
-    expect(v.length).toBe(EMBEDDING_DIM);
+    const prev = process.env.EMBEDDINGS_ENABLED;
+    process.env.EMBEDDINGS_ENABLED = "false";
+    try {
+      const v = await embed("hello", { query: true });
+      expect(v.length).toBe(EMBEDDING_DIM);
+    } finally {
+      if (prev === undefined) delete process.env.EMBEDDINGS_ENABLED;
+      else process.env.EMBEDDINGS_ENABLED = prev;
+    }
+  });
+
+  it("embedBatchStrict uses the configured extractor without falling back to mock vectors", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      const data = new Float32Array(EMBEDDING_DIM);
+      data[0] = 1;
+      return { data };
+    });
+
+    const [v] = await embedBatchStrict(["hello"], { query: true });
+
+    expect(v).toEqual([1, ...new Array<number>(EMBEDDING_DIM - 1).fill(0)]);
+    expect(v).not.toEqual(mockEmbed("hello"));
+  });
+
+  it("embedBatchStrict categorizes BGE load failures", async () => {
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => {
+      throw new Error("missing model");
+    });
+
+    await expect(embedBatchStrict(["hello"])).rejects.toMatchObject({ category: "load" });
+  });
+
+  it("embedBatchStrict categorizes BGE inference failures", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      throw new Error("bad tensor");
+    });
+
+    await expect(embedBatchStrict(["hello"])).rejects.toMatchObject({ category: "inference" });
   });
 });

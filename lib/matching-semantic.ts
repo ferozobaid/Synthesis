@@ -7,6 +7,7 @@
  */
 import type {
   Embedding,
+  EmbeddingBackend,
   FitReport,
   JDRequirement,
   JDRequirements,
@@ -15,7 +16,13 @@ import type {
   RequirementStatus,
 } from "@/lib/types";
 import { embeddingsEnabled } from "@/lib/config";
-import { cosine, embedBatch } from "@/lib/embeddings";
+import {
+  cosine,
+  embedBatch,
+  embedBatchStrict,
+  EmbeddingError,
+  type EmbeddingFailureCategory,
+} from "@/lib/embeddings";
 import { scoreFit } from "@/lib/matching";
 import { extractCanonicalSkills } from "@/lib/onet";
 
@@ -32,6 +39,7 @@ export interface FitAnalyzerScore {
   structured_weight: number;
   semantic_weight: number;
   embeddings_enabled: boolean;
+  embedding_backend: EmbeddingBackend;
   fallback_reason?: string;
 }
 
@@ -52,6 +60,15 @@ export interface IndexedJDRequirement {
 
 export interface IndexedJDRequirements {
   requirements: IndexedJDRequirement[];
+}
+
+type EmbedBatcher = (
+  texts: string[],
+  opts?: { query?: boolean },
+) => Promise<Embedding[]>;
+
+interface SemanticIndexOptions {
+  embedBatcher?: EmbedBatcher;
 }
 
 function clamp01(n: number): number {
@@ -112,15 +129,24 @@ export function jdRequirementItems(jd: JDRequirements): { requirement: JDRequire
   ];
 }
 
-export async function indexResumeEvidence(resume: ParsedResume): Promise<IndexedResumeEvidence> {
+export async function indexResumeEvidence(
+  resume: ParsedResume,
+  options: SemanticIndexOptions = {},
+): Promise<IndexedResumeEvidence> {
   const texts = resumeEvidenceTexts(resume);
-  const embeddings = await embedBatch(texts);
+  const embeddings = await (options.embedBatcher ?? embedBatch)(texts);
   return { chunks: texts.map((text, i) => ({ text, embedding: embeddings[i] })) };
 }
 
-export async function indexJDRequirements(jd: JDRequirements): Promise<IndexedJDRequirements> {
+export async function indexJDRequirements(
+  jd: JDRequirements,
+  options: SemanticIndexOptions = {},
+): Promise<IndexedJDRequirements> {
   const items = jdRequirementItems(jd);
-  const embeddings = await embedBatch(items.map((item) => item.requirement.text), { query: true });
+  const embeddings = await (options.embedBatcher ?? embedBatch)(
+    items.map((item) => item.requirement.text),
+    { query: true },
+  );
   return {
     requirements: items.map((item, i) => ({
       requirement: item.requirement,
@@ -251,10 +277,11 @@ export function scoreSemanticIndexed(
 export async function scoreFitSemantic(
   resume: ParsedResume,
   jd: JDRequirements,
+  options: SemanticIndexOptions = {},
 ): Promise<FitReport> {
   const [resumeIndex, jdIndex] = await Promise.all([
-    indexResumeEvidence(resume),
-    indexJDRequirements(jd),
+    indexResumeEvidence(resume, options),
+    indexJDRequirements(jd, options),
   ]);
   return scoreSemanticIndexed(resumeIndex, jdIndex);
 }
@@ -277,6 +304,20 @@ export function scoreFitHybrid(
   };
 }
 
+function embeddingFailureCategory(error: unknown): EmbeddingFailureCategory {
+  return error instanceof EmbeddingError ? error.category : "inference";
+}
+
+function embeddingFallbackReason(category: EmbeddingFailureCategory): string {
+  return category === "load"
+    ? "Local BGE embeddings could not be loaded; using structured scoring."
+    : "Local BGE embedding inference failed; using structured scoring.";
+}
+
+function warnEmbeddingFailure(category: EmbeddingFailureCategory): void {
+  console.warn(`[fit] BGE embedding ${category} failed; using structured scoring.`);
+}
+
 export async function scoreFitAnalyzer(
   resume: ParsedResume,
   jd: JDRequirements,
@@ -294,12 +335,13 @@ export async function scoreFitAnalyzer(
       structured_weight: 1,
       semantic_weight: 0,
       embeddings_enabled: false,
+      embedding_backend: "disabled",
       fallback_reason: "EMBEDDINGS_ENABLED is not true",
     };
   }
 
   try {
-    const semantic = await scoreFitSemantic(resume, jd);
+    const semantic = await scoreFitSemantic(resume, jd, { embedBatcher: embedBatchStrict });
     return {
       report: scoreFitHybrid(structured, semantic, structuredWeight),
       method: "hybrid_0_25",
@@ -308,9 +350,11 @@ export async function scoreFitAnalyzer(
       structured_weight: structuredWeight,
       semantic_weight: semanticWeight,
       embeddings_enabled: true,
+      embedding_backend: "bge",
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown embedding error";
+    const category = embeddingFailureCategory(error);
+    warnEmbeddingFailure(category);
     return {
       report: structured,
       method: "structured",
@@ -319,7 +363,8 @@ export async function scoreFitAnalyzer(
       structured_weight: 1,
       semantic_weight: 0,
       embeddings_enabled: true,
-      fallback_reason: `semantic scoring failed: ${message}`,
+      embedding_backend: "failed",
+      fallback_reason: embeddingFallbackReason(category),
     };
   }
 }

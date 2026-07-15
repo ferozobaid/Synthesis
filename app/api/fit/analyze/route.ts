@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
       structured_weight: scoring.structured_weight,
       semantic_weight: scoring.semantic_weight,
       embeddings_enabled: scoring.embeddings_enabled,
+      embedding_backend: scoring.embedding_backend,
       fallback_reason: scoring.fallback_reason ?? null,
     },
     jd: {
