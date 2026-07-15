@@ -1,0 +1,32 @@
+{
+  "generator": "scripts/validation/generate_human_fit_package.ts",
+  "deterministic": true,
+  "total_pairs": 36,
+  "role_family_counts": {
+    "CONSULTANT": 12,
+    "FINANCE": 12,
+    "INFORMATION-TECHNOLOGY": 12
+  },
+  "sampled_score_band_counts": {
+    "low": 12,
+    "high": 12,
+    "medium": 12
+  },
+  "expected_category_counts": {
+    "Weak": 15,
+    "Strong": 12,
+    "Medium": 9
+  },
+  "mismatch_counts": {
+    "cross-family-mismatch": 12,
+    "same-family-strong": 12,
+    "same-family-partial": 12
+  },
+  "analyzer_methods": [
+    "structured"
+  ],
+  "embeddings_enabled": false,
+  "score_min": 31,
+  "score_max": 89,
+  "regeneration_command": "env TMPDIR=/private/tmp EMBEDDINGS_ENABLED=false npm exec -- tsx scripts/validation/generate_human_fit_package.ts"
+}
