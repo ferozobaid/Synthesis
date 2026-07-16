@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash, randomBytes } from "node:crypto";
 import { startBehavioural } from "@/lib/behavioural/runner";
 import { startCase } from "@/lib/fsm/case-runner";
 import {
@@ -68,11 +69,32 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
     const sessionId = newSessionId();
+
+    // Report access capability: return the raw token to the client ONCE; persist
+    // only its SHA-256 so the status endpoint can verify without storing the token.
+    const reportToken = randomBytes(32).toString("hex");
+    const reportTokenHash = createHash("sha256").update(reportToken).digest("hex");
+
+    const resolvedRole = targetRole ?? started.jd?.role_title ?? null;
+    const resolvedCompany = companyName ?? started.jd?.company ?? null;
+    const resolvedName = candidateName ?? null;
+
     const record: BehaviouralVoiceSession = {
       module: "behavioural",
       session: started.session,
       questions: started.questions,
       questionIndex: 0,
+      reportStatus: "pending",
+      report: null,
+      reportError: null,
+      processedCallId: null,
+      processingStartedAt: null,
+      reportTokenHash,
+      context: {
+        candidateName: resolvedName,
+        targetRole: resolvedRole,
+        companyName: resolvedCompany,
+      },
       createdAt: now,
       updatedAt: now,
     };
@@ -86,13 +108,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       sessionId,
+      reportToken,
       firstQuestion: started.questions[0] ?? null,
       // Complete ordered question set (stable ids + text) + the numbered string.
       questions: started.questions.map((q) => ({ id: q.id, question: q.question })),
       questionList,
-      candidateName: candidateName ?? null,
-      targetRole: targetRole ?? started.jd?.role_title ?? null,
-      companyName: companyName ?? started.jd?.company ?? null,
+      candidateName: resolvedName,
+      targetRole: resolvedRole,
+      companyName: resolvedCompany,
     });
   }
 

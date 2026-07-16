@@ -97,7 +97,7 @@ describe("POST /api/vapi/session (bootstrap)", () => {
     expect(data.companyName).toBe("Revature");
 
     const stored = redisStore.get(`voice-session:${data.sessionId}`);
-    expect(stored?.ex).toBe(2700);
+    expect(stored?.ex).toBe(7200);
     expect((stored?.value as BehaviouralVoiceSession).questionIndex).toBe(0);
   });
 

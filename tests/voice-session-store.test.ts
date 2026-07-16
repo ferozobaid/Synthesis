@@ -65,10 +65,10 @@ describe("voice session store", () => {
     expect(await loadSession("abc")).toEqual(record);
   });
 
-  it("applies the 45-minute TTL on save", async () => {
+  it("applies the 2-hour TTL on save", async () => {
     await saveSession("abc", sampleRecord());
-    expect(VOICE_SESSION_TTL_SECONDS).toBe(2700);
-    expect(redisStore.get("voice-session:abc")?.ex).toBe(2700);
+    expect(VOICE_SESSION_TTL_SECONDS).toBe(7200);
+    expect(redisStore.get("voice-session:abc")?.ex).toBe(7200);
   });
 
   it("uses the voice-session:<id> key format", async () => {
@@ -89,7 +89,7 @@ describe("voice session store", () => {
     expect(updated.questionIndex).toBe(3);
     const loaded = (await loadSession("abc")) as BehaviouralVoiceSession;
     expect(loaded.questionIndex).toBe(3);
-    expect(redisStore.get("voice-session:abc")?.ex).toBe(2700);
+    expect(redisStore.get("voice-session:abc")?.ex).toBe(7200);
   });
 
   it("updateSession throws a typed error when the session is missing", async () => {

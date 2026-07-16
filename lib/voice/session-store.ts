@@ -11,8 +11,12 @@
 import { Redis } from "@upstash/redis";
 import type { VoiceSession } from "@/lib/voice/types";
 
-/** 45 minutes, per the approved plan. Refreshed (sliding) on every write. */
-export const VOICE_SESSION_TTL_SECONDS = 45 * 60;
+/**
+ * 2 hours. Comfortably outlasts a full voice interview plus post-call scoring and
+ * client refresh-recovery, so the record cannot expire mid-flow. Refreshed
+ * (sliding) on every write.
+ */
+export const VOICE_SESSION_TTL_SECONDS = 2 * 60 * 60;
 
 const KEY_PREFIX = "voice-session:";
 
@@ -95,5 +99,20 @@ export async function updateSession(
 /** Remove a session (best-effort cleanup; TTL also reaps abandoned sessions). */
 export async function deleteSession(sessionId: string): Promise<void> {
   const key = keyFor(sessionId);
+  await getRedis().del(key);
+}
+
+/**
+ * Atomic mutual-exclusion lock (Redis SET NX EX). Returns true if this caller
+ * acquired the lock, false if another holder has it. Used to make end-of-call
+ * report processing concurrency-safe against duplicate webhook deliveries.
+ */
+export async function acquireLock(key: string, leaseSeconds: number): Promise<boolean> {
+  const res = await getRedis().set(key, "1", { nx: true, ex: leaseSeconds });
+  return res === "OK";
+}
+
+/** Release a lock acquired with acquireLock (best-effort; the lease also expires). */
+export async function releaseLock(key: string): Promise<void> {
   await getRedis().del(key);
 }

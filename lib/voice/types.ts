@@ -12,6 +12,10 @@ import type {
   BehaviouralSession,
   CaseSessionState,
 } from "@/lib/types";
+import type { BehaviouralSummary } from "@/lib/behavioural/runner";
+
+/** Lifecycle of the post-call scoring report for a behavioural voice session. */
+export type ReportStatus = "pending" | "processing" | "done" | "failed";
 
 /** A behavioural voice session: the existing session plus the server-owned cursor. */
 export interface BehaviouralVoiceSession {
@@ -24,6 +28,26 @@ export interface BehaviouralVoiceSession {
   questionIndex: number;
   createdAt: string;
   updatedAt: string;
+
+  // --- Post-call scoring (populated by the end-of-call-report webhook) --------
+  /** Lifecycle of the final report; "pending" at bootstrap. */
+  reportStatus?: ReportStatus;
+  /** The aggregate report, present only once reportStatus === "done". */
+  report?: BehaviouralSummary | null;
+  /** Failure message, present only once reportStatus === "failed". */
+  reportError?: string | null;
+  /** Vapi call id that produced (or is producing) the report — idempotency key. */
+  processedCallId?: string | null;
+  /** ISO timestamp when processing was claimed — used for stale-lease recovery. */
+  processingStartedAt?: string | null;
+  /** SHA-256 (hex) of the bootstrap report token; the raw token is client-only. */
+  reportTokenHash?: string;
+  /** Candidate/role/company context captured at bootstrap (for the report). */
+  context?: {
+    candidateName: string | null;
+    targetRole: string | null;
+    companyName: string | null;
+  };
 }
 
 /** A case voice session: the existing FSM session state plus the case id. */

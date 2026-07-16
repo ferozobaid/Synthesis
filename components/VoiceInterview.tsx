@@ -1,18 +1,19 @@
 "use client";
 
 /**
- * Behavioural voice interview — hands-free voice layer over the existing
- * behavioural flow. Vapi owns the live conversation; Synthesis scores the
- * transcript AFTER the call (post-call scoring is a later step). There is no
- * per-turn tool call and no transcript-content trigger that ends the call.
+ * Behavioural voice interview — hands-free voice layer. Vapi owns the live
+ * conversation; Synthesis scores the transcript AFTER the call via the
+ * assistant-level end-of-call-report webhook. There is no per-turn tool call and
+ * no transcript-content trigger that ends the call.
  *
- * Flow: POST /api/vapi/session (module: "behavioural") creates a server-side
- * session and returns the ordered `questions` array + a numbered `questionList`
- * string. We launch the Vapi Web SDK, hand the assistant `questionList` (and
- * context) via variableValues, and use the SAME ordered `questions` array as the
- * single source of truth for what to display. A safe message listener matches
- * each spoken assistant question to that ordered list to keep the on-screen
- * question in sync. The call ends only on Vapi's own `call-end` event.
+ * Flow: POST /api/vapi/session returns the ordered `questions` array, a numbered
+ * `questionList`, the exact `firstQuestion`, and a one-time `reportToken`. We show
+ * Q1 immediately, hand Vapi the list + first question + context via
+ * variableValues, keep the displayed question in sync from final assistant
+ * transcripts, and — when the call ends — poll the report status endpoint with the
+ * token until the report is done/failed. A pending {sessionId, reportToken} is
+ * kept in localStorage so polling resumes across a refresh. Raw transcripts live
+ * only in component state and are never persisted.
  *
  * Progressive enhancement: when the public Vapi env vars are absent the component
  * renders nothing, so the page is unchanged wherever voice isn't configured.
@@ -20,8 +21,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { containment } from "@/lib/text";
 
-// Public, browser-safe config. The server-only VAPI_WEBHOOK_SECRET / Redis creds
-// are never referenced here — the webhook auth stays entirely server-side.
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_BEHAVIOURAL_ASSISTANT_ID;
 
@@ -31,13 +30,16 @@ interface VapiLike {
   removeAllListeners?: () => void;
   start(assistant: string, overrides?: unknown): Promise<unknown>;
   stop(): void;
+  setMuted?(muted: boolean): void;
 }
 
 type VoiceStatus =
   | "connecting"
   | "listening"
   | "speaking"
-  | "complete"
+  | "processing"
+  | "done"
+  | "failed"
   | "error";
 
 interface Question {
@@ -45,61 +47,117 @@ interface Question {
   question: string;
 }
 
-/** A spoken assistant line must contain at least this fraction of a question's
- *  salient tokens to be treated as "the assistant is now asking that question". */
+/** The aggregate report shape the status endpoint returns (BehaviouralSummary). */
+export interface VoiceReport {
+  overall: number;
+  dimension_averages: { dimension: string; average: number }[];
+  answered: number;
+  feedback: { summary: string; next_focus: string[] };
+}
+
+interface TranscriptLine {
+  role: "assistant" | "user";
+  text: string;
+}
+
 const QUESTION_MATCH_THRESHOLD = 0.6;
+const QUESTION_SKIP_THRESHOLD = 0.8;
+const POLL_INTERVAL_MS = 2500;
+const POLL_MAX_ATTEMPTS = 48;
+const POLL_MAX_MS = 150_000;
+const TRANSCRIPT_CAP = 200;
+
+const PENDING_KEY = "synthesis.voice.behavioural.pending.v1";
+interface PendingCapability {
+  sessionId: string;
+  reportToken: string;
+  createdAt: number;
+}
+
+function readPending(): PendingCapability | null {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(PENDING_KEY) : null;
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p && typeof p.sessionId === "string" && typeof p.reportToken === "string") return p;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+function writePending(p: PendingCapability): void {
+  try {
+    window.localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+  } catch {
+    /* ignore */
+  }
+}
+function clearPending(): void {
+  try {
+    window.localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Best match of a spoken assistant line to the ordered question list, considering
- * only the current question and those after it (never jumps backwards). Returns
- * the matched index, or -1 when nothing clears the threshold. Ties keep the
- * earliest question (strict `>` update).
+ * Order-aware match to the NEXT question the assistant should ask. Prefers the
+ * immediate next question; only accepts a forward skip on a strong match, so a
+ * greeting/ack that merely echoes a keyword doesn't advance. `currentQ` is the
+ * last CONFIRMED question index (-1 before Q1 is actually read aloud).
  */
-function matchQuestionIndex(
-  spoken: string,
-  questions: Question[],
-  fromIndex: number,
-): number {
+function nextQuestionIndex(spoken: string, questions: Question[], currentQ: number): number {
+  const nextIdx = currentQ + 1;
+  if (nextIdx >= questions.length) return -1;
+  if (containment(questions[nextIdx].question, spoken) >= QUESTION_MATCH_THRESHOLD) return nextIdx;
   let best = -1;
   let bestScore = 0;
-  for (let i = Math.max(0, fromIndex); i < questions.length; i++) {
+  for (let i = nextIdx + 1; i < questions.length; i++) {
     const score = containment(questions[i].question, spoken);
     if (score > bestScore) {
       bestScore = score;
       best = i;
     }
   }
-  return bestScore >= QUESTION_MATCH_THRESHOLD ? best : -1;
+  return bestScore >= QUESTION_SKIP_THRESHOLD ? best : -1;
 }
 
 export default function VoiceInterview({
   jdText,
   onActiveChange,
+  onComplete,
 }: {
   jdText?: string;
-  /** True while a voice call is connecting/live; the page hides the manual
-   *  question so the displayed question matches what Vapi is asking. */
+  /** True while a voice call is connecting/live; the page hides the manual card. */
   onActiveChange?: (active: boolean) => void;
+  /** Called once the post-call report is ready. */
+  onComplete?: (report: VoiceReport) => void;
 }) {
   const configured = !!(WEB_KEY && ASSISTANT_ID);
 
   const [status, setStatus] = useState<VoiceStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
-  // The ordered question set from bootstrap is the single source of truth.
   const [questions, setQuestions] = useState<Question[]>([]);
-  // Which question Vapi is currently asking (-1 before the first is recognised).
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [muted, setMuted] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const vapiRef = useRef<VapiLike | null>(null);
   const startedRef = useRef(false);
-  const completedRef = useRef(false);
+  const initRef = useRef(false);
   const jdTextRef = useRef(jdText);
   jdTextRef.current = jdText;
-  // Refs mirror the state so the (once-bound) message listener reads live values.
   const questionsRef = useRef<Question[]>([]);
   const currentIndexRef = useRef(-1);
+  const sessionIdRef = useRef<string | null>(null);
+  const reportTokenRef = useRef<string | null>(null);
+  const pollCancelRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
-  // Tell the page whether a voice call is active so it can hide the manual card.
   useEffect(() => {
     const active =
       status === "connecting" || status === "listening" || status === "speaking";
@@ -107,6 +165,7 @@ export default function VoiceInterview({
   }, [status, onActiveChange]);
 
   const teardown = useCallback(() => {
+    pollCancelRef.current = true;
     const vapi = vapiRef.current;
     vapiRef.current = null;
     try {
@@ -121,25 +180,84 @@ export default function VoiceInterview({
     }
   }, []);
 
+  // Poll the report status endpoint until done/failed, or a local timeout.
+  const pollReport = useCallback(async () => {
+    const sessionId = sessionIdRef.current;
+    const token = reportTokenRef.current;
+    if (!sessionId || !token) {
+      setStatus("failed");
+      setError("Missing report credentials for this session.");
+      return;
+    }
+    pollCancelRef.current = false;
+    const startedAt = Date.now();
+    for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+      if (pollCancelRef.current) return;
+      if (Date.now() - startedAt > POLL_MAX_MS) break;
+      try {
+        const res = await fetch(`/api/behavioural/report/${encodeURIComponent(sessionId)}`, {
+          headers: { "x-report-token": token },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            reportStatus: string;
+            report?: VoiceReport | null;
+            reportError?: string | null;
+          };
+          if (data.reportStatus === "done" && data.report) {
+            clearPending();
+            setStatus("done");
+            onCompleteRef.current?.(data.report);
+            return;
+          }
+          if (data.reportStatus === "failed") {
+            clearPending();
+            setStatus("failed");
+            setError(data.reportError || "We couldn't generate your report.");
+            return;
+          }
+          // pending / processing → keep polling
+        }
+        // 404 (expired/invalid) → keep trying until the time budget runs out
+      } catch {
+        /* transient network error — retry */
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+    // Exhausted budget with no terminal server state — a LOCAL timeout, which is
+    // distinct from an authoritative server failure.
+    setStatus("failed");
+    setError("Timed out waiting for your report — it may still be processing.");
+  }, []);
+
+  const beginPostCall = useCallback(() => {
+    setStatus("processing");
+    void pollReport();
+  }, [pollReport]);
+
   const start = useCallback(async () => {
     if (!configured || startedRef.current) return;
     startedRef.current = true;
-    completedRef.current = false;
     setError(null);
     setStatus("connecting");
+    setTranscript([]);
     setCurrentIndex(-1);
     currentIndexRef.current = -1;
 
     try {
-      // 1) Create the server-side voice session (Redis-backed).
       const res = await fetch("/api/vapi/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ module: "behavioural", jdText: jdTextRef.current ?? "" }),
+        body: JSON.stringify({
+          module: "behavioural",
+          jdText: jdTextRef.current ?? "",
+        }),
       });
       if (!res.ok) throw new Error("Could not start the interview session.");
       const bootstrap = (await res.json()) as {
         sessionId?: string;
+        reportToken?: string;
+        firstQuestion?: Question | null;
         questions?: Question[];
         questionList?: string;
         candidateName?: string | null;
@@ -147,46 +265,52 @@ export default function VoiceInterview({
         companyName?: string | null;
       };
       const sessionId = bootstrap.sessionId;
-      if (!sessionId) throw new Error("The interview session did not initialise.");
+      const reportToken = bootstrap.reportToken;
+      if (!sessionId || !reportToken) throw new Error("The interview session did not initialise.");
+      sessionIdRef.current = sessionId;
+      reportTokenRef.current = reportToken;
+      writePending({ sessionId, reportToken, createdAt: Date.now() });
 
       const qs = Array.isArray(bootstrap.questions) ? bootstrap.questions : [];
       questionsRef.current = qs;
       setQuestions(qs);
+      // currentIndex stays -1 (Q1 unconfirmed) for MATCHING; the render shows Q1
+      // immediately via a separate display index, before the assistant speaks.
 
       const questionList = bootstrap.questionList ?? "";
-      // Safe diagnostic — counts/lengths ONLY, never answer text or question text.
-      // Confirms questionList is non-empty, carries the full question count, and is
-      // what we hand to Vapi via variableValues below.
+      const firstQuestion = bootstrap.firstQuestion?.question ?? qs[0]?.question ?? "";
+      // Safe diagnostic — counts/lengths only, never question or answer text.
       console.info("[voice] bootstrap", {
         questionCount: qs.length,
         questionListLines: questionList ? questionList.split("\n").length : 0,
-        questionListChars: questionList.length,
         questionListNonEmpty: questionList.trim().length > 0,
+        firstQuestionNonEmpty: firstQuestion.trim().length > 0,
         passedToVapiViaVariableValues: true,
       });
 
-      // 2) Launch the Vapi Web SDK (client-only import; avoids SSR).
       const mod = await import("@vapi-ai/web");
       const Vapi = mod.default as unknown as new (key: string) => VapiLike;
       const vapi = new Vapi(WEB_KEY!);
       vapiRef.current = vapi;
 
-      vapi.on("call-start", () => setStatus((s) => (completedRef.current ? s : "listening")));
-      vapi.on("speech-start", () => setStatus((s) => (completedRef.current ? s : "speaking")));
-      vapi.on("speech-end", () => setStatus((s) => (completedRef.current ? s : "listening")));
+      vapi.on("call-start", () => setStatus((s) => (s === "connecting" ? "listening" : s)));
+      vapi.on("speech-start", () =>
+        setStatus((s) => (s === "listening" || s === "speaking" ? "speaking" : s)),
+      );
+      vapi.on("speech-end", () =>
+        setStatus((s) => (s === "listening" || s === "speaking" ? "listening" : s)),
+      );
       vapi.on("call-end", () => {
-        // Vapi owns the conversation and ends the call after the final listed
-        // question; the interview concludes here (no transcript-content trigger).
-        setStatus("complete");
+        // Vapi ended the call; the transcript is scored post-call. Begin polling.
+        beginPostCall();
       });
       vapi.on("error", () => {
         setError("Voice connection error — you can still type your answers below.");
         setStatus("error");
       });
 
-      // Safe UI sync: match each FINAL assistant line to the ordered question list
-      // and advance the displayed question. Never inspects/logs answer (user) text;
-      // never ends the call from transcript content.
+      // Safe UI sync + live transcript, from FINAL transcripts only. Never logs
+      // transcript/answer text; never ends the call from transcript content.
       vapi.on("message", (message) => {
         const m = message as {
           type?: string;
@@ -195,27 +319,32 @@ export default function VoiceInterview({
           transcript?: string;
         } | null;
         if (!m || m.type !== "transcript" || m.transcriptType !== "final") return;
-        if (m.role !== "assistant") return; // ignore candidate/answer transcripts
-        const spoken = typeof m.transcript === "string" ? m.transcript : "";
+        const spoken = typeof m.transcript === "string" ? m.transcript.trim() : "";
         if (!spoken) return;
-        const idx = matchQuestionIndex(spoken, questionsRef.current, currentIndexRef.current);
-        if (idx > currentIndexRef.current) {
-          currentIndexRef.current = idx;
-          setCurrentIndex(idx);
-          // Diagnostic: position only, never text.
-          console.info("[voice] question", { number: idx + 1, of: questionsRef.current.length });
+        const role: "assistant" | "user" | null =
+          m.role === "assistant" ? "assistant" : m.role === "user" ? "user" : null;
+        if (!role) return;
+
+        setTranscript((prev) => {
+          const next = [...prev, { role, text: spoken }];
+          return next.length > TRANSCRIPT_CAP ? next.slice(next.length - TRANSCRIPT_CAP) : next;
+        });
+
+        if (role === "assistant") {
+          const idx = nextQuestionIndex(spoken, questionsRef.current, currentIndexRef.current);
+          if (idx > currentIndexRef.current) {
+            currentIndexRef.current = idx;
+            setCurrentIndex(idx);
+            console.info("[voice] question", { number: idx + 1, of: questionsRef.current.length });
+          }
         }
       });
 
-      // 3) Hand the assistant the full ordered question list + context. The name
-      // `questionList` must exactly match the {{questionList}} prompt variable so
-      // the assistant asks every core question in order and concludes only after
-      // the last one. `sessionId` is carried for post-call scoring.
       await vapi.start(ASSISTANT_ID!, {
         variableValues: {
           sessionId,
           questionList,
-          candidateName: bootstrap.candidateName ?? "",
+          firstQuestion,
           targetRole: bootstrap.targetRole ?? "",
           companyName: bootstrap.companyName ?? "",
         },
@@ -227,27 +356,49 @@ export default function VoiceInterview({
       setError(e instanceof Error ? e.message : "Could not start the voice interview.");
       setStatus("error");
     }
-  }, [configured, teardown]);
+  }, [configured, teardown, beginPostCall]);
 
-  const end = useCallback(() => {
-    completedRef.current = true;
+  const endCall = useCallback(() => {
+    // Stop the mic/call; the end-of-call-report still fires, so score post-call.
     teardown();
-    setStatus("complete");
-  }, [teardown]);
+    beginPostCall();
+  }, [teardown, beginPostCall]);
+
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      const next = !m;
+      try {
+        vapiRef.current?.setMuted?.(next);
+      } catch {
+        /* no-op */
+      }
+      return next;
+    });
+  }, []);
 
   const restart = useCallback(() => {
+    clearPending();
     startedRef.current = false;
+    setError(null);
     void start();
   }, [start]);
 
-  // Auto-start the voice conversation on mount; tear the call down on unmount.
+  // Init once: resume polling a pending report (refresh recovery), else auto-start.
   useEffect(() => {
-    if (!configured) return;
-    void start();
+    if (!configured || initRef.current) return;
+    initRef.current = true;
+    const pending = readPending();
+    if (pending) {
+      sessionIdRef.current = pending.sessionId;
+      reportTokenRef.current = pending.reportToken;
+      setStatus("processing");
+      void pollReport();
+    } else {
+      void start();
+    }
     return teardown;
-  }, [configured, start, teardown]);
+  }, [configured, start, teardown, pollReport]);
 
-  // Never alter the page where voice isn't set up.
   if (!configured) return null;
 
   const active = status === "listening" || status === "speaking";
@@ -258,21 +409,29 @@ export default function VoiceInterview({
         ? "Interviewer is speaking…"
         : status === "listening"
           ? "Listening — go ahead"
-          : status === "complete"
-            ? "Voice interview complete"
-            : "Voice interview unavailable";
+          : status === "processing"
+            ? "Generating your report…"
+            : status === "done"
+              ? "Report ready"
+              : status === "failed"
+                ? "Report unavailable"
+                : "Voice interview unavailable";
   const dotColor =
     status === "speaking"
       ? "var(--secondary)"
       : status === "listening"
         ? "var(--success)"
-        : status === "error"
-          ? "var(--gap)"
-          : "var(--ink-4)";
+        : status === "processing"
+          ? "var(--partial)"
+          : status === "error" || status === "failed"
+            ? "var(--gap)"
+            : "var(--ink-4)";
 
-  const currentQuestion = currentIndex >= 0 ? questions[currentIndex] : undefined;
-  const showQuestion =
-    !!currentQuestion && (status === "listening" || status === "speaking");
+  const inCall = status === "connecting" || status === "listening" || status === "speaking";
+  // Show Q1 immediately (displayIndex 0) even before it's confirmed by transcript.
+  const displayIndex = questions.length > 0 ? Math.max(0, currentIndex) : -1;
+  const currentQuestion = displayIndex >= 0 ? questions[displayIndex] : undefined;
+  const showQuestion = !!currentQuestion && inCall;
 
   return (
     <div
@@ -314,8 +473,8 @@ export default function VoiceInterview({
             }}
           >
             VOICE INTERVIEW
-            {currentQuestion && questions.length > 0
-              ? ` · Q${currentIndex + 1} OF ${questions.length}`
+            {currentQuestion && questions.length > 0 && inCall
+              ? ` · Q${displayIndex + 1} OF ${questions.length}`
               : ""}
           </span>
           <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", lineHeight: 1.3 }}>
@@ -324,21 +483,24 @@ export default function VoiceInterview({
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {(status === "listening" || status === "speaking" || status === "connecting") && (
-            <button type="button" onClick={end} style={btn("ghost")}>
-              End interview
-            </button>
+          {inCall && (
+            <>
+              <button type="button" onClick={toggleMute} style={btn("ghost")}>
+                {muted ? "Unmute" : "Mute"}
+              </button>
+              <button type="button" onClick={endCall} style={btn("ghost")}>
+                End interview
+              </button>
+            </>
           )}
-          {(status === "complete" || status === "error") && (
+          {(status === "done" || status === "failed" || status === "error") && (
             <button type="button" onClick={restart} style={btn("solid")}>
-              {status === "error" ? "Try again" : "Restart"}
+              {status === "done" ? "New interview" : "Try again"}
             </button>
           )}
         </div>
       </div>
 
-      {/* The question Vapi is currently asking — the single displayed question
-          while voice is active, kept in sync from the ordered bootstrap list. */}
       {showQuestion && (
         <div
           style={{
@@ -363,6 +525,62 @@ export default function VoiceInterview({
           <p style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, margin: 0, color: "var(--ink)" }}>
             {currentQuestion!.question}
           </p>
+        </div>
+      )}
+
+      {transcript.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowTranscript((v) => !v)}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "var(--ink-3)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: ".06em",
+              fontWeight: 600,
+              cursor: "pointer",
+              padding: 0,
+            }}
+            aria-expanded={showTranscript}
+          >
+            {showTranscript ? "▾ HIDE TRANSCRIPT" : "▸ SHOW TRANSCRIPT"} ({transcript.length})
+          </button>
+          {showTranscript && (
+            <div
+              style={{
+                marginTop: 8,
+                maxHeight: 220,
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                background: "var(--surface-2)",
+                border: "1px solid var(--line)",
+                borderRadius: 11,
+                padding: "12px 14px",
+              }}
+            >
+              {transcript.map((line, i) => (
+                <div key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      color: line.role === "assistant" ? "var(--secondary)" : "var(--success)",
+                      marginRight: 6,
+                    }}
+                  >
+                    {line.role === "assistant" ? "INTERVIEWER" : "YOU"}
+                  </span>
+                  <span style={{ color: "var(--ink-2)" }}>{line.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

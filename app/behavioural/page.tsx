@@ -9,7 +9,7 @@ import type {
   BehaviouralSession,
 } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
-import VoiceInterview from "@/components/VoiceInterview";
+import VoiceInterview, { type VoiceReport } from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
@@ -71,6 +71,20 @@ export default function BehaviouralPage() {
   // True while a Vapi voice call is connecting/live — hide the manual question so
   // the only question shown matches the one the assistant is currently asking.
   const [voiceActive, setVoiceActive] = useState(false);
+  // The post-call voice report (same shape as the manual summary) once ready.
+  const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
+
+  const handleVoiceComplete = useCallback(
+    (report: VoiceReport) => {
+      setVoiceSummary(report);
+      setModule("behavioural", {
+        status: "done",
+        score: to100(report.overall),
+        statusLine: `${report.answered} answer${report.answered === 1 ? "" : "s"} scored`,
+      });
+    },
+    [setModule],
+  );
 
   const current = questions[idx];
   const currentResult = current ? results[current.id] : undefined;
@@ -155,15 +169,19 @@ export default function BehaviouralPage() {
       </Link>
 
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
-      <VoiceInterview jdText={state.target.jdText} onActiveChange={setVoiceActive} />
+      <VoiceInterview
+        jdText={state.target.jdText}
+        onActiveChange={setVoiceActive}
+        onComplete={handleVoiceComplete}
+      />
 
       {starting ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
           <Spinner />
           <div style={{ fontSize: 14, color: "var(--ink-3)" }}>Preparing your questions…</div>
         </div>
-      ) : summary ? (
-        <SummaryView summary={summary} onDone={() => router.push("/dashboard")} />
+      ) : summary || voiceSummary ? (
+        <SummaryView summary={(summary ?? voiceSummary)!} onDone={() => router.push("/dashboard")} />
       ) : voiceActive ? (
         <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 26px", boxShadow: "var(--shadow-sm)", textAlign: "center", color: "var(--ink-3)", fontSize: 14, lineHeight: 1.6 }}>
           Voice interview in progress — answer out loud. The question above is the
