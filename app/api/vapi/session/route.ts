@@ -78,9 +78,18 @@ export async function POST(req: NextRequest) {
     };
     await saveSession(sessionId, record);
 
+    // Numbered, ordered list handed to Vapi as the {{questionList}} variable so the
+    // assistant asks every core question in order (post-call scoring owns grading).
+    const questionList = started.questions
+      .map((q, i) => `${i + 1}. ${q.question}`)
+      .join("\n");
+
     return NextResponse.json({
       sessionId,
       firstQuestion: started.questions[0] ?? null,
+      // Complete ordered question set (stable ids + text) + the numbered string.
+      questions: started.questions.map((q) => ({ id: q.id, question: q.question })),
+      questionList,
       candidateName: candidateName ?? null,
       targetRole: targetRole ?? started.jd?.role_title ?? null,
       companyName: companyName ?? started.jd?.company ?? null,

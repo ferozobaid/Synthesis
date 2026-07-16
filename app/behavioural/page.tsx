@@ -9,6 +9,7 @@ import type {
   BehaviouralSession,
 } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
+import VoiceInterview from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
@@ -149,6 +150,9 @@ export default function BehaviouralPage() {
       <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--ink-3)", textDecoration: "none", marginBottom: 22 }}>
         ← Dashboard
       </Link>
+
+      {/* Hands-free voice interview (renders only when Vapi is configured). */}
+      <VoiceInterview jdText={state.target.jdText} />
 
       {starting ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
