@@ -68,6 +68,9 @@ export default function BehaviouralPage() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(true);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
+  // True while a Vapi voice call is connecting/live — hide the manual question so
+  // the only question shown matches the one the assistant is currently asking.
+  const [voiceActive, setVoiceActive] = useState(false);
 
   const current = questions[idx];
   const currentResult = current ? results[current.id] : undefined;
@@ -152,7 +155,7 @@ export default function BehaviouralPage() {
       </Link>
 
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
-      <VoiceInterview jdText={state.target.jdText} />
+      <VoiceInterview jdText={state.target.jdText} onActiveChange={setVoiceActive} />
 
       {starting ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
@@ -161,6 +164,12 @@ export default function BehaviouralPage() {
         </div>
       ) : summary ? (
         <SummaryView summary={summary} onDone={() => router.push("/dashboard")} />
+      ) : voiceActive ? (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 26px", boxShadow: "var(--shadow-sm)", textAlign: "center", color: "var(--ink-3)", fontSize: 14, lineHeight: 1.6 }}>
+          Voice interview in progress — answer out loud. The question above is the
+          one your interviewer is currently asking; your report is generated after
+          the call.
+        </div>
       ) : current ? (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>

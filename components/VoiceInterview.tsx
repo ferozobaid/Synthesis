@@ -1,21 +1,27 @@
 "use client";
 
 /**
- * Behavioural voice interview — wires the existing Vapi backend into a hands-free
- * voice experience, without changing the on-screen typed flow.
+ * Behavioural voice interview — hands-free voice layer over the existing
+ * behavioural flow. Vapi owns the live conversation; Synthesis scores the
+ * transcript AFTER the call (post-call scoring is a later step). There is no
+ * per-turn tool call and no transcript-content trigger that ends the call.
  *
- * Flow: POST /api/vapi/session (module: "behavioural") to create a server-side
- * session in Redis, then launch the Vapi Web SDK with that sessionId passed as an
- * assistant variable so every `submit_behavioural_answer` tool call carries it.
- * The interview ends when a tool result reports complete: true (or the call ends).
+ * Flow: POST /api/vapi/session (module: "behavioural") creates a server-side
+ * session and returns the ordered `questions` array + a numbered `questionList`
+ * string. We launch the Vapi Web SDK, hand the assistant `questionList` (and
+ * context) via variableValues, and use the SAME ordered `questions` array as the
+ * single source of truth for what to display. A safe message listener matches
+ * each spoken assistant question to that ordered list to keep the on-screen
+ * question in sync. The call ends only on Vapi's own `call-end` event.
  *
  * Progressive enhancement: when the public Vapi env vars are absent the component
  * renders nothing, so the page is unchanged wherever voice isn't configured.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { containment } from "@/lib/text";
 
 // Public, browser-safe config. The server-only VAPI_WEBHOOK_SECRET / Redis creds
-// are never referenced here — the tool webhook auth stays entirely server-side.
+// are never referenced here — the webhook auth stays entirely server-side.
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_BEHAVIOURAL_ASSISTANT_ID;
 
@@ -34,18 +40,71 @@ type VoiceStatus =
   | "complete"
   | "error";
 
-export default function VoiceInterview({ jdText }: { jdText?: string }) {
+interface Question {
+  id: string;
+  question: string;
+}
+
+/** A spoken assistant line must contain at least this fraction of a question's
+ *  salient tokens to be treated as "the assistant is now asking that question". */
+const QUESTION_MATCH_THRESHOLD = 0.6;
+
+/**
+ * Best match of a spoken assistant line to the ordered question list, considering
+ * only the current question and those after it (never jumps backwards). Returns
+ * the matched index, or -1 when nothing clears the threshold. Ties keep the
+ * earliest question (strict `>` update).
+ */
+function matchQuestionIndex(
+  spoken: string,
+  questions: Question[],
+  fromIndex: number,
+): number {
+  let best = -1;
+  let bestScore = 0;
+  for (let i = Math.max(0, fromIndex); i < questions.length; i++) {
+    const score = containment(questions[i].question, spoken);
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  return bestScore >= QUESTION_MATCH_THRESHOLD ? best : -1;
+}
+
+export default function VoiceInterview({
+  jdText,
+  onActiveChange,
+}: {
+  jdText?: string;
+  /** True while a voice call is connecting/live; the page hides the manual
+   *  question so the displayed question matches what Vapi is asking. */
+  onActiveChange?: (active: boolean) => void;
+}) {
   const configured = !!(WEB_KEY && ASSISTANT_ID);
 
   const [status, setStatus] = useState<VoiceStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
+  // The ordered question set from bootstrap is the single source of truth.
+  const [questions, setQuestions] = useState<Question[]>([]);
+  // Which question Vapi is currently asking (-1 before the first is recognised).
+  const [currentIndex, setCurrentIndex] = useState(-1);
 
   const vapiRef = useRef<VapiLike | null>(null);
   const startedRef = useRef(false);
   const completedRef = useRef(false);
-  // Keep the latest jdText without forcing the start effect to re-run.
   const jdTextRef = useRef(jdText);
   jdTextRef.current = jdText;
+  // Refs mirror the state so the (once-bound) message listener reads live values.
+  const questionsRef = useRef<Question[]>([]);
+  const currentIndexRef = useRef(-1);
+
+  // Tell the page whether a voice call is active so it can hide the manual card.
+  useEffect(() => {
+    const active =
+      status === "connecting" || status === "listening" || status === "speaking";
+    onActiveChange?.(active);
+  }, [status, onActiveChange]);
 
   const teardown = useCallback(() => {
     const vapi = vapiRef.current;
@@ -68,6 +127,8 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
     completedRef.current = false;
     setError(null);
     setStatus("connecting");
+    setCurrentIndex(-1);
+    currentIndexRef.current = -1;
 
     try {
       // 1) Create the server-side voice session (Redis-backed).
@@ -79,6 +140,7 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
       if (!res.ok) throw new Error("Could not start the interview session.");
       const bootstrap = (await res.json()) as {
         sessionId?: string;
+        questions?: Question[];
         questionList?: string;
         candidateName?: string | null;
         targetRole?: string | null;
@@ -86,6 +148,22 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
       };
       const sessionId = bootstrap.sessionId;
       if (!sessionId) throw new Error("The interview session did not initialise.");
+
+      const qs = Array.isArray(bootstrap.questions) ? bootstrap.questions : [];
+      questionsRef.current = qs;
+      setQuestions(qs);
+
+      const questionList = bootstrap.questionList ?? "";
+      // Safe diagnostic — counts/lengths ONLY, never answer text or question text.
+      // Confirms questionList is non-empty, carries the full question count, and is
+      // what we hand to Vapi via variableValues below.
+      console.info("[voice] bootstrap", {
+        questionCount: qs.length,
+        questionListLines: questionList ? questionList.split("\n").length : 0,
+        questionListChars: questionList.length,
+        questionListNonEmpty: questionList.trim().length > 0,
+        passedToVapiViaVariableValues: true,
+      });
 
       // 2) Launch the Vapi Web SDK (client-only import; avoids SSR).
       const mod = await import("@vapi-ai/web");
@@ -106,6 +184,29 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
         setStatus("error");
       });
 
+      // Safe UI sync: match each FINAL assistant line to the ordered question list
+      // and advance the displayed question. Never inspects/logs answer (user) text;
+      // never ends the call from transcript content.
+      vapi.on("message", (message) => {
+        const m = message as {
+          type?: string;
+          role?: string;
+          transcriptType?: string;
+          transcript?: string;
+        } | null;
+        if (!m || m.type !== "transcript" || m.transcriptType !== "final") return;
+        if (m.role !== "assistant") return; // ignore candidate/answer transcripts
+        const spoken = typeof m.transcript === "string" ? m.transcript : "";
+        if (!spoken) return;
+        const idx = matchQuestionIndex(spoken, questionsRef.current, currentIndexRef.current);
+        if (idx > currentIndexRef.current) {
+          currentIndexRef.current = idx;
+          setCurrentIndex(idx);
+          // Diagnostic: position only, never text.
+          console.info("[voice] question", { number: idx + 1, of: questionsRef.current.length });
+        }
+      });
+
       // 3) Hand the assistant the full ordered question list + context. The name
       // `questionList` must exactly match the {{questionList}} prompt variable so
       // the assistant asks every core question in order and concludes only after
@@ -113,7 +214,7 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
       await vapi.start(ASSISTANT_ID!, {
         variableValues: {
           sessionId,
-          questionList: bootstrap.questionList ?? "",
+          questionList,
           candidateName: bootstrap.candidateName ?? "",
           targetRole: bootstrap.targetRole ?? "",
           companyName: bootstrap.companyName ?? "",
@@ -169,13 +270,16 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
           ? "var(--gap)"
           : "var(--ink-4)";
 
+  const currentQuestion = currentIndex >= 0 ? questions[currentIndex] : undefined;
+  const showQuestion =
+    !!currentQuestion && (status === "listening" || status === "speaking");
+
   return (
     <div
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: 12,
-        flexWrap: "wrap",
+        flexDirection: "column",
+        gap: 14,
         background: "var(--surface)",
         border: "1px solid var(--line)",
         borderRadius: 14,
@@ -186,50 +290,84 @@ export default function VoiceInterview({ jdText }: { jdText?: string }) {
       role="status"
       aria-live="polite"
     >
-      <span
-        aria-hidden="true"
-        style={{
-          display: "inline-block",
-          width: 10,
-          height: 10,
-          borderRadius: "50%",
-          background: dotColor,
-          animation: active ? "pulseDot 1.2s ease-in-out infinite" : "none",
-          flex: "none",
-        }}
-      />
-      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span
+          aria-hidden="true"
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            letterSpacing: ".08em",
-            color: "var(--secondary)",
-            fontWeight: 600,
+            display: "inline-block",
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: dotColor,
+            animation: active ? "pulseDot 1.2s ease-in-out infinite" : "none",
+            flex: "none",
+          }}
+        />
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: ".08em",
+              color: "var(--secondary)",
+              fontWeight: 600,
+            }}
+          >
+            VOICE INTERVIEW
+            {currentQuestion && questions.length > 0
+              ? ` · Q${currentIndex + 1} OF ${questions.length}`
+              : ""}
+          </span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", lineHeight: 1.3 }}>
+            {label}
+          </span>
+        </div>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(status === "listening" || status === "speaking" || status === "connecting") && (
+            <button type="button" onClick={end} style={btn("ghost")}>
+              End interview
+            </button>
+          )}
+          {(status === "complete" || status === "error") && (
+            <button type="button" onClick={restart} style={btn("solid")}>
+              {status === "error" ? "Try again" : "Restart"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* The question Vapi is currently asking — the single displayed question
+          while voice is active, kept in sync from the ordered bootstrap list. */}
+      {showQuestion && (
+        <div
+          style={{
+            background: "var(--surface-2)",
+            border: "1px solid var(--line)",
+            borderRadius: 11,
+            padding: "12px 14px",
           }}
         >
-          VOICE INTERVIEW
-        </span>
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", lineHeight: 1.3 }}>
-          {label}
-        </span>
-      </div>
-
-      <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {(status === "listening" || status === "speaking" || status === "connecting") && (
-          <button type="button" onClick={end} style={btn("ghost")}>
-            End interview
-          </button>
-        )}
-        {(status === "complete" || status === "error") && (
-          <button type="button" onClick={restart} style={btn("solid")}>
-            {status === "error" ? "Try again" : "Restart"}
-          </button>
-        )}
-      </div>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 9.5,
+              letterSpacing: ".06em",
+              color: "var(--secondary)",
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            CURRENT QUESTION
+          </div>
+          <p style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, margin: 0, color: "var(--ink)" }}>
+            {currentQuestion!.question}
+          </p>
+        </div>
+      )}
 
       {error && (
-        <p role="alert" style={{ flexBasis: "100%", margin: "4px 0 0", fontSize: 12, color: "var(--gap)" }}>
+        <p role="alert" style={{ margin: 0, fontSize: 12, color: "var(--gap)" }}>
           {error}
         </p>
       )}
