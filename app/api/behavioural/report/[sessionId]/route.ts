@@ -34,9 +34,9 @@ export async function GET(
   if (!tokenMatches(token, record.reportTokenHash)) return notFound();
 
   const reportStatus = record.reportStatus ?? "pending";
-  // Project to the candidate-facing aggregate ONLY. The stored BehaviouralSummary
-  // embeds `session` (question text + per-answer scores); we never return that,
-  // the raw transcript, the captured context, or any token material.
+  // Project to the candidate-facing report only. The stored BehaviouralSummary
+  // embeds `session` (per-answer numeric scores); we never return that, the raw
+  // transcript, the captured context, or any token material.
   const r = reportStatus === "done" ? record.report : null;
   // Partial calls (max-duration / early end) are scored over whatever completed;
   // expose total + unanswered so the report can mark the rest as not answered.
@@ -49,6 +49,7 @@ export async function GET(
         total,
         unanswered: Math.max(0, total - r.answered),
         feedback: r.feedback,
+        qualitative: r.qualitative ?? null,
       }
     : null;
 

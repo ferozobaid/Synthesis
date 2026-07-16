@@ -241,11 +241,15 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
       "dimension_averages",
       "feedback",
       "overall",
+      "qualitative",
       "total",
       "unanswered",
     ]);
+    expect(body.report.qualitative.answers).toHaveLength(body.report.answered);
+    expect(body.report.qualitative.top_three_priorities).toHaveLength(3);
     expect(body.report.session).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("questions_asked");
+    expect(JSON.stringify(body)).not.toContain("My answer to question");
     expect(JSON.stringify(body)).not.toContain(reportToken);
   });
 
@@ -268,6 +272,32 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
     expect(body.report.answered).toBe(5);
     expect(body.report.total).toBe(qs.length);
     expect(body.report.unanswered).toBe(qs.length - 5);
+    expect(body.report.qualitative.partial_warning).toContain("not representative");
+    expect(body.report.qualitative.answers).toHaveLength(5);
+  });
+
+  it("does not expose raw transcript answer text in the polling response", async () => {
+    const { sessionId, reportToken } = await bootstrapBehavioural();
+    const qs = stored(sessionId).questions;
+    const rawSentinel = "RAW_TRANSCRIPT_SENTINEL_DO_NOT_RETURN_9f3a";
+    await reportPOST(
+      makeReq(
+        reportPayload(sessionId, "call_raw", [
+          { role: "bot", message: `1) ${qs[0].question}` },
+          {
+            role: "user",
+            message: `During a project I used ${rawSentinel} and delivered an outcome.`,
+          },
+        ]),
+        authHeader,
+      ) as never,
+    );
+
+    const res = await reportGET(getReq(reportToken) as never, { params: { sessionId } });
+    const body = await res.json();
+    expect(body.reportStatus).toBe("done");
+    expect(JSON.stringify(body)).not.toContain(rawSentinel);
+    expect(JSON.stringify(body)).not.toContain("During a project I used");
   });
 
   it("reports pending before the webhook has run", async () => {

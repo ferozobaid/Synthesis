@@ -20,6 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { containment } from "@/lib/text";
+import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_BEHAVIOURAL_ASSISTANT_ID;
@@ -57,6 +58,7 @@ export interface VoiceReport {
   total?: number;
   unanswered?: number;
   feedback: { summary: string; next_focus: string[] };
+  qualitative?: BehaviouralQualitativeReport | null;
 }
 
 interface TranscriptLine {

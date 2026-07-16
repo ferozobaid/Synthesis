@@ -19,6 +19,7 @@
 import { containment } from "@/lib/text";
 import { retrieveAnswer } from "@/lib/rag";
 import { evaluateBehavioural } from "@/lib/behavioural/evaluator";
+import { buildBehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 import {
   summarizeBehavioural,
   DEFAULT_USER_ID,
@@ -220,5 +221,11 @@ export async function scoreTranscript(
   };
 
   const report = summarizeBehavioural(session);
-  return { session: report.session, report, mapping };
+  const qualitative = buildBehaviouralQualitativeReport({
+    mapping,
+    scores,
+    dimensionAverages: report.dimension_averages,
+    totalQuestions: questions.length,
+  });
+  return { session: report.session, report: { ...report, qualitative }, mapping };
 }

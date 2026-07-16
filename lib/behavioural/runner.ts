@@ -21,6 +21,7 @@ import type {
   BehaviouralScore,
   BehaviouralSession,
 } from "@/lib/types";
+import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 
 export const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -50,6 +51,8 @@ export interface BehaviouralSummary {
   dimension_averages: { dimension: string; average: number }[];
   answered: number;
   feedback: { summary: string; next_focus: string[] };
+  /** Voice post-call coaching detail; optional so existing numeric/manual contracts stay stable. */
+  qualitative?: BehaviouralQualitativeReport | null;
 }
 
 function round1(x: number): number {

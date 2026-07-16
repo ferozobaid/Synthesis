@@ -16,6 +16,7 @@ import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
+import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 
 interface StartResult {
   session: BehaviouralSession;
@@ -38,6 +39,7 @@ interface SummaryResult {
   total?: number;
   unanswered?: number;
   feedback: { summary: string; next_focus: string[] };
+  qualitative?: BehaviouralQualitativeReport | null;
 }
 
 async function postBehavioural<T>(body: unknown): Promise<T> {
@@ -377,6 +379,8 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </div>
       </div>
 
+      {summary.qualitative ? <QualitativeReportView qualitative={summary.qualitative} /> : null}
+
       <div style={{ background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
           <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>{nextFocus ? "Focus next on" : "Report complete"}</SectionLabel>
@@ -389,6 +393,107 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </button>
       </div>
     </div>
+  );
+}
+
+function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualitativeReport }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 18 }}>
+      {qualitative.partial_warning ? (
+        <div style={{ background: "var(--partial-tint)", border: "1px solid var(--partial)", borderRadius: 12, padding: "14px 16px", color: "var(--ink-2)", fontSize: 12.5, lineHeight: 1.5 }}>
+          <strong style={{ color: "var(--ink)" }}>Partial interview warning:</strong>{" "}
+          {qualitative.partial_warning}
+        </div>
+      ) : null}
+
+      <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)" }}>
+        <SectionLabel style={{ marginBottom: 14 }}>Qualitative coaching</SectionLabel>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 18 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>Overall patterns</div>
+            <BulletList items={qualitative.overall_patterns} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>Top three priorities</div>
+            <BulletList items={qualitative.top_three_priorities} />
+          </div>
+        </div>
+      </div>
+
+      {qualitative.answers.map((answer) => (
+        <div key={answer.question_id} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 22px", boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ minWidth: 0, flex: "1 1 320px" }}>
+              <SectionLabel style={{ marginBottom: 6 }}>Question {answer.question_number}</SectionLabel>
+              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, color: "var(--ink)" }}>{answer.question}</div>
+            </div>
+            <span style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: ".06em",
+              fontWeight: 700,
+              color: answer.addressed_question === "yes" ? "var(--success)" : answer.addressed_question === "partially" ? "var(--partial)" : "var(--gap)",
+              background: "var(--surface-2)",
+              border: "1px solid var(--line)",
+              borderRadius: 999,
+              padding: "6px 9px",
+              whiteSpace: "nowrap",
+            }}>
+              ADDRESSED: {answer.addressed_question.toUpperCase()}
+            </span>
+          </div>
+
+          <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
+            {answer.addressed_rationale}
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn title="Strengths" items={answer.strengths} color="var(--success)" emptyLabel="No substantive strengths to credit." />
+            <FeedbackColumn title="Weaknesses" items={answer.weaknesses} color="var(--gap)" />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn
+              title="Missing STAR"
+              items={answer.missing_star_elements.length ? answer.missing_star_elements.map((x) => x[0].toUpperCase() + x.slice(1)) : ["No major STAR element missing."]}
+              color="var(--partial)"
+            />
+            <FeedbackColumn
+              title="Absent evidence or impact"
+              items={answer.absent_evidence_or_impact.length ? answer.absent_evidence_or_impact : ["No major evidence gap detected."]}
+              color="var(--partial)"
+            />
+          </div>
+
+          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px" }}>
+            <SectionLabel style={{ marginBottom: 7, fontSize: 9.5 }}>Improved answer outline</SectionLabel>
+            <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-2)" }}>{answer.improved_answer_outline}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FeedbackColumn({ title, items, color, emptyLabel }: { title: string; items: string[]; color: string; emptyLabel?: string }) {
+  return (
+    <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px" }}>
+      <SectionLabel color={color} style={{ marginBottom: 8, fontSize: 9.5 }}>{title}</SectionLabel>
+      <BulletList items={items} emptyLabel={emptyLabel} />
+    </div>
+  );
+}
+
+function BulletList({ items, emptyLabel }: { items: string[]; emptyLabel?: string }) {
+  const displayItems = items.length ? items : emptyLabel ? [emptyLabel] : [];
+  return (
+    <ul style={{ margin: 0, paddingLeft: 17, display: "flex", flexDirection: "column", gap: 6 }}>
+      {displayItems.map((item, i) => (
+        <li key={i} style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--ink-2)", paddingLeft: 2 }}>
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 

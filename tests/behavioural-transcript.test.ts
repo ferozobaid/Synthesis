@@ -5,6 +5,7 @@ import {
   type OrderedQuestion,
   type TranscriptMessage,
 } from "@/lib/behavioural/transcript";
+import { summarizeBehavioural } from "@/lib/behavioural/runner";
 import { mockAnswerBank } from "@/lib/__mocks__/fixtures";
 import realReport from "./fixtures/end-of-call-report.redacted.json";
 
@@ -126,6 +127,65 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
 
     const { report } = await scoreTranscript(QUESTIONS, messages, mockAnswerBank());
     expect(report.answered).toBe(3); // partial report over completed questions only
+    expect(report.qualitative?.partial_warning).toContain("not representative");
+    expect(report.qualitative?.answers).toHaveLength(3);
+    expect(report.qualitative?.answers[0]).toMatchObject({
+      question_id: "q1",
+      question_number: 1,
+      question: QUESTIONS[0].question,
+    });
+    expect(report.qualitative?.answers[0].missing_star_elements).toContain("task");
+    expect(report.qualitative?.answers[0].improved_answer_outline).toContain("S:");
+  });
+
+  it("marks whether an answer did or did not address the question", async () => {
+    const qs: OrderedQuestion[] = [
+      { id: "role", question: "Why are you interested in the Data Analyst role?" },
+      { id: "conflict", question: "Tell me about a time you had a conflict with a teammate and how you resolved it." },
+    ];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Why are you interested in the Data Analyst role?" },
+      { role: "user", message: "I am interested in the data analyst role because I like using data to solve business problems." },
+      { role: "bot", message: "2) Tell me about a time you had a conflict with a teammate and how you resolved it." },
+      { role: "user", message: "I don't know." },
+    ];
+
+    const { report } = await scoreTranscript(qs, messages, mockAnswerBank());
+    expect(report.qualitative?.answers[0].addressed_question).toBe("yes");
+    expect(report.qualitative?.answers[1].addressed_question).toBe("no");
+    expect(report.qualitative?.answers[1].addressed_rationale).toContain("non-answer");
+  });
+
+  it("identifies missing STAR elements for thin answers", async () => {
+    const qs: OrderedQuestion[] = [{ id: "data", question: "Tell me about a time you used data to make a decision." }];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about a time you used data to make a decision." },
+      { role: "user", message: "I analyzed data." },
+    ];
+
+    const { report } = await scoreTranscript(qs, messages, mockAnswerBank());
+    expect(report.qualitative?.answers[0].missing_star_elements).toEqual(
+      expect.arrayContaining(["situation", "task", "result"]),
+    );
+    expect(report.qualitative?.answers[0].absent_evidence_or_impact).toContain(
+      "No concrete result or impact was stated.",
+    );
+  });
+
+  it("does not praise non-answers or fabricate specific improvement evidence", async () => {
+    const qs: OrderedQuestion[] = [{ id: "deadline", question: "Tell me about a time you delivered high-quality work under a tight deadline." }];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about a time you delivered high-quality work under a tight deadline." },
+      { role: "user", message: "I don't know." },
+    ];
+
+    const { report } = await scoreTranscript(qs, messages, mockAnswerBank());
+    const feedback = report.qualitative?.answers[0];
+    expect(feedback?.addressed_question).toBe("no");
+    expect(feedback?.strengths).toEqual([]);
+    expect(feedback?.weaknesses.join(" ")).toContain("non-answer");
+    expect(feedback?.improved_answer_outline).not.toContain("I don't know");
+    expect(feedback?.improved_answer_outline).not.toContain("SQL");
   });
 
   it("does not positional-fallback a short partial call with a skipped early question", () => {
@@ -181,5 +241,26 @@ describe("scoreTranscript — reuses the existing engine", () => {
     expect(typeof report.overall).toBe("number");
     expect(report.overall).toBeGreaterThanOrEqual(0);
     expect(report.dimension_averages.length).toBeGreaterThan(0);
+    expect(report.qualitative?.partial_warning).toBeNull();
+    expect(report.qualitative?.answers).toHaveLength(14);
+    expect(report.qualitative?.overall_patterns.length).toBeGreaterThan(0);
+    expect(report.qualitative?.top_three_priorities).toHaveLength(3);
+    expect(report.qualitative?.answers[0].addressed_question).toMatch(/yes|partially|no/);
+  });
+
+  it("keeps numeric summary calculations identical with qualitative feedback attached", async () => {
+    const { session, report } = await scoreTranscript(
+      QUESTIONS,
+      REAL_MESSAGES,
+      mockAnswerBank(),
+      { sessionId: "test-session" },
+    );
+    const baseline = summarizeBehavioural(session);
+
+    expect(report.qualitative).toBeTruthy();
+    expect(report.overall).toBe(baseline.overall);
+    expect(report.answered).toBe(baseline.answered);
+    expect(report.dimension_averages).toEqual(baseline.dimension_averages);
+    expect(report.feedback).toEqual(baseline.feedback);
   });
 });
