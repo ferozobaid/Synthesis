@@ -246,10 +246,14 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
       "unanswered",
     ]);
     expect(body.report.qualitative.answers).toHaveLength(body.report.answered);
+    expect(body.report.qualitative.qualitative_backend).toBe("deterministic_fallback");
     expect(body.report.qualitative.top_three_priorities).toHaveLength(3);
     expect(body.report.qualitative.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
+    expect(body.report.qualitative.answers[0].assessment_confidence).toMatch(/high|medium|low/);
+    expect(body.report.qualitative.answers[0].confidence).toBeUndefined();
     expect(body.report.session).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("questions_asked");
+    expect(JSON.stringify(body)).not.toContain("mapping_confidence");
     expect(JSON.stringify(body)).not.toContain(reportToken);
   });
 

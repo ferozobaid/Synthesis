@@ -21,6 +21,7 @@ export type BehaviouralQualitativeQuestionType =
 export type AddressedQuestionStatus = "yes" | "partially" | "no";
 export type QualitativeRating = "strong" | "acceptable" | "weak" | "insufficient_evidence";
 export type QualitativeConfidence = "high" | "medium" | "low";
+export type QualitativeBackend = "haiku" | "deterministic_fallback";
 export type StarElement = "situation" | "task" | "action" | "result";
 
 export interface QualitativeDimensionFeedback {
@@ -47,10 +48,11 @@ export interface BehaviouralAnswerQualitativeFeedback {
   improved_answer_outline: string;
   insufficient_evidence: boolean;
   insufficient_evidence_reason: string | null;
-  confidence: QualitativeConfidence;
+  assessment_confidence: QualitativeConfidence;
 }
 
 export interface BehaviouralQualitativeReport {
+  qualitative_backend: QualitativeBackend;
   partial_warning: string | null;
   overall_patterns: string[];
   top_three_priorities: string[];
@@ -78,7 +80,7 @@ interface ModelAnswerFeedback {
   improved_answer_outline?: unknown;
   insufficient_evidence?: unknown;
   insufficient_evidence_reason?: unknown;
-  confidence?: unknown;
+  assessment_confidence?: unknown;
 }
 
 interface ModelQualitativeReport {
@@ -380,6 +382,13 @@ function fallbackDimensionFeedback(answer: string, addressed: AddressedQuestionS
   return { professionalism, interview_engagement, clarity_relevance };
 }
 
+function fallbackAssessmentConfidence(answer: string, addressed: AddressedQuestionStatus): QualitativeConfidence {
+  const f = extractFeatures(answer);
+  if (addressed === "no" || f.words < 12) return "low";
+  if (addressed === "partially" || f.words < 25) return "medium";
+  return "high";
+}
+
 function fallbackStrengths(
   score: BehaviouralScore,
   questionType: BehaviouralQualitativeQuestionType,
@@ -454,7 +463,7 @@ function fallbackAnswer(input: BaseAnswerInput): BehaviouralAnswerQualitativeFee
     improved_answer_outline: improvedOutline(input.mapped.question, input.question_type, missing),
     insufficient_evidence: insufficient,
     insufficient_evidence_reason: insufficient ? "The response is too brief or non-substantive for confident qualitative assessment." : null,
-    confidence: insufficient ? "low" : input.mapped.confidence === "high" ? "medium" : "low",
+    assessment_confidence: fallbackAssessmentConfidence(input.mapped.answer, addressed.status),
   };
 }
 
@@ -518,6 +527,7 @@ function deterministicReport(
 ): BehaviouralQualitativeReport {
   const answers = baseAnswers.map(fallbackAnswer);
   return {
+    qualitative_backend: "deterministic_fallback",
     partial_warning: partialWarning(answers.length, totalQuestions),
     overall_patterns: fallbackOverallPatterns(answers, dimensionAverages),
     top_three_priorities: fallbackTopPriorities(answers, dimensionAverages),
@@ -606,7 +616,7 @@ function coerceModelAnswer(
       insufficient
         ? sanitizeModelText(raw?.insufficient_evidence_reason, fallback.insufficient_evidence_reason ?? "Insufficient evidence for confident qualitative assessment.", 220)
         : null,
-    confidence: enumValue(raw?.confidence, ["high", "medium", "low"] as const, fallback.confidence),
+    assessment_confidence: enumValue(raw?.assessment_confidence, ["high", "medium", "low"] as const, fallback.assessment_confidence),
     // Server-owned fields; never trust model output for these.
     question_id: base.mapped.questionId,
     question_number: base.question_number,
@@ -636,6 +646,7 @@ function coerceModelReport(
     return coerceModelAnswer(byId.get(base.mapped.questionId), base, fb);
   });
   return {
+    qualitative_backend: "haiku",
     partial_warning: partialWarning(answers.length, totalQuestions),
     overall_patterns: arrayOfStrings(model.overall_patterns, fallbackOverallPatterns(answers, dimensionAverages), 5),
     top_three_priorities: arrayOfStrings(model.top_three_priorities, fallbackTopPriorities(answers, dimensionAverages), 3).slice(0, 3),
@@ -691,6 +702,8 @@ function qualitativePrompt(baseAnswers: BaseAnswerInput[], totalQuestions: numbe
       "Do not apply STAR criticism to introduction, motivation_role_fit, or company_fit questions.",
       "Assess interview_engagement only from observable effort, relevance, responsiveness, and interview-appropriate language.",
       "Do not invent or rewrite candidate_excerpt. Do not return candidate_excerpt at all; the server will attach it.",
+      "mapping_confidence is input-only transcript alignment context. Do not return mapping_confidence.",
+      "Return assessment_confidence for your qualitative assessment confidence only.",
       "Do not include full answer text in any field. Use concise derived feedback.",
       "Do not alter or mention numeric score changes.",
     ],
@@ -714,7 +727,7 @@ function qualitativePrompt(baseAnswers: BaseAnswerInput[], totalQuestions: numbe
     "improved_answer_outline": string,
     "insufficient_evidence": boolean,
     "insufficient_evidence_reason": string | null,
-    "confidence": "high" | "medium" | "low"
+    "assessment_confidence": "high" | "medium" | "low"
   }]
 }`,
     "",

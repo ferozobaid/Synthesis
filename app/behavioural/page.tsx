@@ -407,7 +407,12 @@ function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualit
       ) : null}
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)" }}>
-        <SectionLabel style={{ marginBottom: 14 }}>Qualitative coaching</SectionLabel>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <SectionLabel>Qualitative coaching</SectionLabel>
+          <Pill tone={qualitative.qualitative_backend === "haiku" ? "success" : "partial"}>
+            BACKEND: {backendLabel(qualitative.qualitative_backend)}
+          </Pill>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 18 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>Overall patterns</div>
@@ -432,8 +437,8 @@ function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualit
               <Pill tone={answer.addressed_question === "yes" ? "success" : answer.addressed_question === "partially" ? "partial" : "gap"}>
                 ADDRESSED: {answer.addressed_question.toUpperCase()}
               </Pill>
-              <Pill tone={answer.confidence === "high" ? "success" : answer.confidence === "medium" ? "partial" : "gap"}>
-                CONFIDENCE: {answer.confidence.toUpperCase()}
+              <Pill tone={answer.assessment_confidence === "high" ? "success" : answer.assessment_confidence === "medium" ? "partial" : "gap"}>
+                ASSESSMENT CONFIDENCE: {answer.assessment_confidence.toUpperCase()}
               </Pill>
             </div>
           </div>
@@ -531,6 +536,10 @@ function ratingColor(rating: string): string {
   if (rating === "strong") return "var(--success)";
   if (rating === "acceptable") return "var(--partial)";
   return "var(--gap)";
+}
+
+function backendLabel(backend: BehaviouralQualitativeReport["qualitative_backend"]): string {
+  return backend === "haiku" ? "HAIKU" : "DETERMINISTIC FALLBACK";
 }
 
 function FeedbackColumn({ title, items, color, emptyLabel }: { title: string; items: string[]; color: string; emptyLabel?: string }) {

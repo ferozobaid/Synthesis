@@ -128,6 +128,7 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
 
     const { report } = await scoreTranscript(QUESTIONS, messages, mockAnswerBank());
     expect(report.answered).toBe(3); // partial report over completed questions only
+    expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
     expect(report.qualitative?.partial_warning).toContain("not representative");
     expect(report.qualitative?.answers).toHaveLength(3);
     expect(report.qualitative?.answers[0]).toMatchObject({
@@ -137,6 +138,7 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
       question_type: "introduction",
     });
     expect(report.qualitative?.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
+    expect(report.qualitative?.answers[0].assessment_confidence).toMatch(/high|medium|low/);
     expect(report.qualitative?.answers[0].missing_star_elements).toEqual([]);
     expect(report.qualitative?.answers[0].improved_answer_outline).toContain("background");
   });
@@ -219,6 +221,7 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
     expect(feedback?.strengths).toEqual([]);
     expect(feedback?.interview_engagement.rating).toBe("insufficient_evidence");
     expect(feedback?.insufficient_evidence).toBe(true);
+    expect(feedback?.assessment_confidence).toBe("low");
     expect(feedback?.weaknesses.join(" ")).toContain("non-answer");
     expect(feedback?.improved_answer_outline).not.toContain("I don't know");
     expect(feedback?.improved_answer_outline).not.toContain("SQL");
@@ -278,6 +281,7 @@ describe("scoreTranscript — reuses the existing engine", () => {
     expect(report.overall).toBeGreaterThanOrEqual(0);
     expect(report.dimension_averages.length).toBeGreaterThan(0);
     expect(report.qualitative?.partial_warning).toBeNull();
+    expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
     expect(report.qualitative?.answers).toHaveLength(14);
     expect(report.qualitative?.overall_patterns.length).toBeGreaterThan(0);
     expect(report.qualitative?.top_three_priorities).toHaveLength(3);
@@ -324,6 +328,7 @@ describe("scoreTranscript — reuses the existing engine", () => {
 
       expect(report.qualitative?.answers[0].question_type).toBe("motivation_role_fit");
       expect(report.qualitative?.answers[0].candidate_excerpt).toContain("data analyst role");
+      expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
       expect(report.overall).toBe(baseline.overall);
       expect(report.dimension_averages).toEqual(baseline.dimension_averages);
     } finally {

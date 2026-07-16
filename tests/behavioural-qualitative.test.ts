@@ -69,10 +69,13 @@ describe("buildBehaviouralQualitativeReport", () => {
     });
 
     expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(report.qualitative_backend).toBe("deterministic_fallback");
     expect(report.answers[0].question_type).toBe("motivation_role_fit");
+    expect(report.answers[0].assessment_confidence).toMatch(/high|medium|low/);
     expect(report.answers[0].candidate_excerpt).toContain("data analyst role");
     expect(report.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
     expect(report.answers[0].missing_star_elements).toEqual([]);
+    expect(JSON.stringify(report)).not.toContain("mapping_confidence");
   });
 
   it("keeps excerpts and question types server-owned and strips STAR criticism from fit questions", async () => {
@@ -95,7 +98,7 @@ describe("buildBehaviouralQualitativeReport", () => {
           improved_answer_outline: "Use STAR with a clear Situation, Task, Action, and Result.",
           insufficient_evidence: false,
           insufficient_evidence_reason: null,
-          confidence: "high",
+          assessment_confidence: "high",
         },
       ],
     }));
@@ -109,9 +112,13 @@ describe("buildBehaviouralQualitativeReport", () => {
     const answer = report.answers[0];
 
     expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({ model: "claude-haiku-4-5" });
+    expect(report.qualitative_backend).toBe("haiku");
     expect(answer.question_type).toBe("motivation_role_fit");
     expect(answer.candidate_excerpt).not.toBe("Invented model excerpt.");
     expect(answer.candidate_excerpt).toContain("interested in this role");
+    expect(answer.assessment_confidence).toBe("high");
+    expect((answer as unknown as { confidence?: unknown }).confidence).toBeUndefined();
     expect(answer.missing_star_elements).toEqual([]);
     expect(answer.addressed_rationale).not.toMatch(/\bSTAR|Situation|Task|Action|Result\b/);
     expect(answer.weaknesses.join(" ")).not.toMatch(/\bSTAR|Situation|Task|Action|Result\b/);
