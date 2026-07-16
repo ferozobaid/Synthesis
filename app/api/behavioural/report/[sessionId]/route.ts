@@ -38,11 +38,16 @@ export async function GET(
   // embeds `session` (question text + per-answer scores); we never return that,
   // the raw transcript, the captured context, or any token material.
   const r = reportStatus === "done" ? record.report : null;
+  // Partial calls (max-duration / early end) are scored over whatever completed;
+  // expose total + unanswered so the report can mark the rest as not answered.
+  const total = record.questions?.length ?? r?.answered ?? 0;
   const report = r
     ? {
         overall: r.overall,
         dimension_averages: r.dimension_averages,
         answered: r.answered,
+        total,
+        unanswered: Math.max(0, total - r.answered),
         feedback: r.feedback,
       }
     : null;

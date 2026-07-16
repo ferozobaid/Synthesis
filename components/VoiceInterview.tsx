@@ -39,6 +39,7 @@ type VoiceStatus =
   | "speaking"
   | "processing"
   | "done"
+  | "timeout"
   | "failed"
   | "error";
 
@@ -52,6 +53,9 @@ export interface VoiceReport {
   overall: number;
   dimension_averages: { dimension: string; average: number }[];
   answered: number;
+  /** Total questions in the interview + how many went unanswered (partial calls). */
+  total?: number;
+  unanswered?: number;
   feedback: { summary: string; next_focus: string[] };
 }
 
@@ -62,9 +66,12 @@ interface TranscriptLine {
 
 const QUESTION_MATCH_THRESHOLD = 0.6;
 const QUESTION_SKIP_THRESHOLD = 0.8;
-const POLL_INTERVAL_MS = 2500;
-const POLL_MAX_ATTEMPTS = 48;
-const POLL_MAX_MS = 150_000;
+// Post-call scoring can be many sequential model calls; poll a realistic window.
+// Bounded by both attempts and elapsed time; a local timeout is NOT a server
+// failure — it preserves the pending capability so the user can resume polling.
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_ATTEMPTS = 200;
+const POLL_MAX_MS = 360_000; // ~6 minutes
 const TRANSCRIPT_CAP = 200;
 
 const PENDING_KEY = "synthesis.voice.behavioural.pending.v1";
@@ -130,7 +137,7 @@ export default function VoiceInterview({
   onComplete,
 }: {
   jdText?: string;
-  /** True while a voice call is connecting/live; the page hides the manual card. */
+  /** True while the configured voice flow owns the screen. */
   onActiveChange?: (active: boolean) => void;
   /** Called once the post-call report is ready. */
   onComplete?: (report: VoiceReport) => void;
@@ -159,10 +166,21 @@ export default function VoiceInterview({
   onCompleteRef.current = onComplete;
 
   useEffect(() => {
-    const active =
-      status === "connecting" || status === "listening" || status === "speaking";
-    onActiveChange?.(active);
-  }, [status, onActiveChange]);
+    if (!configured) {
+      onActiveChange?.(false);
+      return;
+    }
+    // "Engaged" = the voice flow owns the screen: the live call AND the post-call
+    // processing/timeout states. While engaged the page must NOT reveal the manual
+    // text form (the report replaces it when done).
+    const engaged =
+      status === "connecting" ||
+      status === "listening" ||
+      status === "speaking" ||
+      status === "processing" ||
+      status === "timeout";
+    onActiveChange?.(engaged);
+  }, [configured, status, onActiveChange]);
 
   const teardown = useCallback(() => {
     pollCancelRef.current = true;
@@ -224,10 +242,11 @@ export default function VoiceInterview({
       }
       await sleep(POLL_INTERVAL_MS);
     }
-    // Exhausted budget with no terminal server state — a LOCAL timeout, which is
-    // distinct from an authoritative server failure.
-    setStatus("failed");
-    setError("Timed out waiting for your report — it may still be processing.");
+    // Exhausted budget with no terminal server state — a LOCAL timeout, distinct
+    // from an authoritative server failure. Keep the pending capability so the
+    // user can resume polling (do NOT clearPending here).
+    setStatus("timeout");
+    setError(null);
   }, []);
 
   const beginPostCall = useCallback(() => {
@@ -411,17 +430,19 @@ export default function VoiceInterview({
           ? "Listening — go ahead"
           : status === "processing"
             ? "Generating your report…"
-            : status === "done"
-              ? "Report ready"
-              : status === "failed"
-                ? "Report unavailable"
-                : "Voice interview unavailable";
+            : status === "timeout"
+              ? "Still generating your report…"
+              : status === "done"
+                ? "Report ready"
+                : status === "failed"
+                  ? "Report unavailable"
+                  : "Voice interview unavailable";
   const dotColor =
     status === "speaking"
       ? "var(--secondary)"
       : status === "listening"
         ? "var(--success)"
-        : status === "processing"
+        : status === "processing" || status === "timeout"
           ? "var(--partial)"
           : status === "error" || status === "failed"
             ? "var(--gap)"
@@ -490,6 +511,16 @@ export default function VoiceInterview({
               </button>
               <button type="button" onClick={endCall} style={btn("ghost")}>
                 End interview
+              </button>
+            </>
+          )}
+          {status === "timeout" && (
+            <>
+              <button type="button" onClick={beginPostCall} style={btn("solid")}>
+                Keep checking
+              </button>
+              <button type="button" onClick={restart} style={btn("ghost")}>
+                Start over
               </button>
             </>
           )}
@@ -582,6 +613,13 @@ export default function VoiceInterview({
             </div>
           )}
         </div>
+      )}
+
+      {status === "timeout" && (
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ink-3)" }}>
+          This is taking longer than usual — your report may still be processing.
+          Keep checking or start over; your progress is saved.
+        </p>
       )}
 
       {error && (

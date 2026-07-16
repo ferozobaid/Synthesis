@@ -12,8 +12,9 @@
  *    the NEXT-or-later question above threshold — acknowledgements, repeats of the
  *    current question, and clarifications do NOT advance;
  *  - candidate turns accumulate to the current question;
- *  - a positional fallback (lower confidence) is used only when too few boundaries
- *    match; it never overstates confidence and always reports unanswered ids.
+ *  - a positional fallback (lower confidence) is used only when no question
+ *    boundary is recognised at all; partial calls must stay partial rather than
+ *    being treated as failed full-session mappings.
  */
 import { containment } from "@/lib/text";
 import { retrieveAnswer } from "@/lib/rag";
@@ -131,15 +132,17 @@ export function mapTranscriptToQuestions(
     }
   }
 
-  // Positional fallback only when lexical matching recognised too few questions.
+  // Positional fallback only when lexical matching recognised no question
+  // boundary. A short early-ended call may legitimately match only the first few
+  // questions; falling back there can fabricate answers for skipped questions.
   let usedPositionalFallback = false;
-  if (matched.size < Math.ceil(questions.length / 2)) {
+  const userTexts = messages
+    .filter((m) => roleKind(m.role) === "user")
+    .map(textOf)
+    .filter(Boolean);
+  if (matched.size === 0 && userTexts.length > 0) {
     usedPositionalFallback = true;
     for (let i = 0; i < buffers.length; i++) buffers[i] = [];
-    const userTexts = messages
-      .filter((m) => roleKind(m.role) === "user")
-      .map(textOf)
-      .filter(Boolean);
     for (let i = 0; i < userTexts.length && i < questions.length; i++) {
       buffers[i].push(userTexts[i]);
     }

@@ -34,6 +34,9 @@ interface SummaryResult {
   overall: number;
   dimension_averages: { dimension: string; average: number }[];
   answered: number;
+  /** Present for voice reports; partial (max-duration/early-end) calls set these. */
+  total?: number;
+  unanswered?: number;
   feedback: { summary: string; next_focus: string[] };
 }
 
@@ -68,8 +71,8 @@ export default function BehaviouralPage() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(true);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
-  // True while a Vapi voice call is connecting/live — hide the manual question so
-  // the only question shown matches the one the assistant is currently asking.
+  // True while the Vapi voice flow owns the screen — hide the manual question
+  // during the live call and post-call report processing.
   const [voiceActive, setVoiceActive] = useState(false);
   // The post-call voice report (same shape as the manual summary) once ready.
   const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
@@ -183,11 +186,11 @@ export default function BehaviouralPage() {
       ) : summary || voiceSummary ? (
         <SummaryView summary={(summary ?? voiceSummary)!} onDone={() => router.push("/dashboard")} />
       ) : voiceActive ? (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 26px", boxShadow: "var(--shadow-sm)", textAlign: "center", color: "var(--ink-3)", fontSize: 14, lineHeight: 1.6 }}>
-          Voice interview in progress — answer out loud. The question above is the
-          one your interviewer is currently asking; your report is generated after
-          the call.
-        </div>
+        // Voice flow owns the screen (live call or post-call processing). The voice
+        // panel above shows the current question / processing state / transcript;
+        // the manual text form stays hidden until the report is shown or the user
+        // starts over.
+        null
       ) : current ? (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -352,6 +355,14 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         bandTint={band.tintBg}
         verdict={summary.feedback.summary}
       />
+
+      {summary.unanswered && summary.unanswered > 0 ? (
+        <p style={{ margin: "-6px 0 16px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
+          Partial interview — scored on {summary.answered} of {summary.total} questions.{" "}
+          {summary.unanswered} question{summary.unanswered === 1 ? " was" : "s were"} not
+          answered and left unscored.
+        </p>
+      ) : null}
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 }}>
         <SectionLabel style={{ marginBottom: 16 }}>Across all {summary.answered} answer{summary.answered === 1 ? "" : "s"}</SectionLabel>

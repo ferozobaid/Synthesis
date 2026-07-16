@@ -72,8 +72,8 @@ export async function POST(req: NextRequest) {
 
   // Serialize concurrent duplicate deliveries of the same call.
   const lockKey = `lock:report:${sessionId}:${callId}`;
-  const locked = await acquireLock(lockKey, LOCK_LEASE_SECONDS).catch(() => false);
-  if (!locked) return ack();
+  const lockToken = await acquireLock(lockKey, LOCK_LEASE_SECONDS).catch(() => null);
+  if (!lockToken) return ack();
 
   try {
     const record = await loadSession(sessionId);
@@ -87,7 +87,12 @@ export async function POST(req: NextRequest) {
       if (Number.isFinite(age) && age >= 0 && age < STALE_PROCESSING_MS) return ack();
     }
 
-    // Claim processing (durable) BEFORE scoring, so a scoring timeout is recoverable.
+    // Persist the processing CLAIM (status + lease) before scoring. NOTE: we do
+    // NOT persist or queue the transcript itself — the raw transcript is not stored
+    // (PII minimisation). A crashed/timed-out attempt is only reprocessed if Vapi
+    // redelivers the end-of-call-report (whose payload carries the transcript) to
+    // the stale-lease reclaim above; the claim here is not a durability guarantee
+    // for the transcript.
     const claimed: BehaviouralVoiceSession = {
       ...record,
       reportStatus: "processing",
@@ -125,6 +130,6 @@ export async function POST(req: NextRequest) {
 
     return ack();
   } finally {
-    await releaseLock(lockKey).catch(() => {});
+    await releaseLock(lockKey, lockToken).catch(() => {});
   }
 }

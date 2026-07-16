@@ -8,6 +8,7 @@
  * Server (live) plane only. The Redis credentials are read from server-only
  * environment variables and are never exposed to client code.
  */
+import { randomBytes } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import type { VoiceSession } from "@/lib/voice/types";
 
@@ -103,16 +104,26 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 /**
- * Atomic mutual-exclusion lock (Redis SET NX EX). Returns true if this caller
- * acquired the lock, false if another holder has it. Used to make end-of-call
- * report processing concurrency-safe against duplicate webhook deliveries.
+ * Atomic mutual-exclusion lock (Redis SET NX EX). Returns a unique owner token on
+ * success, or null if another holder has the lock. Pass the token to releaseLock
+ * so we only ever delete our OWN lock. Used to make end-of-call report processing
+ * concurrency-safe against duplicate webhook deliveries.
  */
-export async function acquireLock(key: string, leaseSeconds: number): Promise<boolean> {
-  const res = await getRedis().set(key, "1", { nx: true, ex: leaseSeconds });
-  return res === "OK";
+export async function acquireLock(key: string, leaseSeconds: number): Promise<string | null> {
+  const token = randomBytes(16).toString("hex");
+  const res = await getRedis().set(key, token, { nx: true, ex: leaseSeconds });
+  return res === "OK" ? token : null;
 }
 
-/** Release a lock acquired with acquireLock (best-effort; the lease also expires). */
-export async function releaseLock(key: string): Promise<void> {
-  await getRedis().del(key);
+/**
+ * Atomic compare-and-delete: release the lock ONLY if we still own it. If our
+ * lease expired and another worker re-acquired the key, this is a no-op — it must
+ * never delete a lock a different worker now holds. Best-effort; the lease also
+ * expires the key on its own.
+ */
+const RELEASE_IF_OWNER =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+
+export async function releaseLock(key: string, token: string): Promise<void> {
+  await getRedis().eval(RELEASE_IF_OWNER, [key], [token]);
 }

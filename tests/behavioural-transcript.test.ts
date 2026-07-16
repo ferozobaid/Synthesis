@@ -108,12 +108,48 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
     expect(r.mapped.every((m) => m.confidence !== "high")).toBe(true);
   });
 
+  it("scores a partial (early-ended / max-duration) call and marks the rest unanswered", async () => {
+    // Only the first 3 of 14 questions were reached before the call ended.
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about yourself." },
+      { role: "user", message: "I build data tools." },
+      { role: "bot", message: "2) Why are you interested in the Data Analyst role?" },
+      { role: "user", message: "I love working with data." },
+      { role: "bot", message: "3) Why do you want to work at Tenazx Inc?" },
+      { role: "user", message: "Strong team and mission." },
+    ];
+    const mapping = mapTranscriptToQuestions(QUESTIONS, messages);
+    expect(mapping.usedPositionalFallback).toBe(false);
+    expect(mapping.mapped.filter((m) => m.answer)).toHaveLength(3);
+    expect(mapping.unansweredQuestionIds).toHaveLength(11);
+    expect(mapping.unansweredQuestionIds).toEqual(QUESTIONS.slice(3).map((q) => q.id));
+
+    const { report } = await scoreTranscript(QUESTIONS, messages, mockAnswerBank());
+    expect(report.answered).toBe(3); // partial report over completed questions only
+  });
+
+  it("does not positional-fallback a short partial call with a skipped early question", () => {
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about yourself." },
+      { role: "user", message: "I build data tools." },
+      { role: "bot", message: "3) Why do you want to work at Tenazx Inc?" },
+      { role: "user", message: "Strong team and mission." },
+    ];
+    const mapping = mapTranscriptToQuestions(QUESTIONS, messages);
+    expect(mapping.usedPositionalFallback).toBe(false);
+    expect(mapping.mapped[0].answer).toContain("data tools");
+    expect(mapping.mapped[1].answer).toBe("");
+    expect(mapping.mapped[2].answer).toContain("Strong team");
+    expect(mapping.unansweredQuestionIds).toContain("q2");
+  });
+
   it("handles an empty transcript without crashing", () => {
     const qs: OrderedQuestion[] = [{ id: "a", question: "Tell me about yourself." }];
     const r = mapTranscriptToQuestions(qs, []);
     expect(r.mapped).toHaveLength(1);
     expect(r.mapped[0].answer).toBe("");
     expect(r.unansweredQuestionIds).toEqual(["a"]);
+    expect(r.usedPositionalFallback).toBe(false);
   });
 
   it("ignores non-conversational (system) turns", () => {

@@ -8,7 +8,8 @@ const { redisStore } = vi.hoisted(() => ({
 
 vi.mock("@upstash/redis", () => ({
   Redis: class {
-    async set(key: string, value: unknown, opts?: { ex?: number }) {
+    async set(key: string, value: unknown, opts?: { ex?: number; nx?: boolean }) {
+      if (opts?.nx && redisStore.has(key)) return null;
       redisStore.set(key, { value, ex: opts?.ex });
       return "OK";
     }
@@ -18,6 +19,16 @@ vi.mock("@upstash/redis", () => ({
     async del(key: string) {
       redisStore.delete(key);
     }
+    async eval(_script: string, keys: string[], args: unknown[]) {
+      const key = keys[0];
+      const token = args[0];
+      const entry = redisStore.get(key);
+      if (entry && entry.value === token) {
+        redisStore.delete(key);
+        return 1;
+      }
+      return 0;
+    }
   },
 }));
 
@@ -25,8 +36,10 @@ import {
   VOICE_SESSION_TTL_SECONDS,
   VoiceSessionMissingError,
   VoiceSessionStoreError,
+  acquireLock,
   deleteSession,
   loadSession,
+  releaseLock,
   saveSession,
   updateSession,
 } from "@/lib/voice/session-store";
@@ -102,6 +115,19 @@ describe("voice session store", () => {
     await saveSession("abc", sampleRecord());
     await deleteSession("abc");
     expect(await loadSession("abc")).toBeNull();
+  });
+
+  it("acquires a lock once and releases it only with the owner token", async () => {
+    const token = await acquireLock("lock:report:s:c", 30);
+    expect(typeof token).toBe("string");
+    expect(redisStore.get("lock:report:s:c")?.ex).toBe(30);
+    expect(await acquireLock("lock:report:s:c", 30)).toBeNull();
+
+    await releaseLock("lock:report:s:c", "wrong-token");
+    expect(redisStore.has("lock:report:s:c")).toBe(true);
+
+    await releaseLock("lock:report:s:c", token!);
+    expect(redisStore.has("lock:report:s:c")).toBe(false);
   });
 
   it("throws a typed error when Redis credentials are missing", async () => {

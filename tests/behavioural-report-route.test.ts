@@ -18,6 +18,17 @@ vi.mock("@upstash/redis", () => ({
     async del(key: string) {
       redisStore.delete(key);
     }
+    // Atomic compare-and-delete used by releaseLock (owner-token CAS).
+    async eval(_script: string, keys: string[], args: unknown[]) {
+      const key = keys[0];
+      const token = args[0];
+      const entry = redisStore.get(key);
+      if (entry && entry.value === token) {
+        redisStore.delete(key);
+        return 1;
+      }
+      return 0;
+    }
   },
 }));
 
@@ -230,6 +241,8 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
       "dimension_averages",
       "feedback",
       "overall",
+      "total",
+      "unanswered",
     ]);
     expect(body.report.session).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("questions_asked");
@@ -240,6 +253,21 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
     const { sessionId } = await completeReport();
     expect((await reportGET(getReq("wrong-token") as never, { params: { sessionId } })).status).toBe(404);
     expect((await reportGET(getReq(undefined) as never, { params: { sessionId } })).status).toBe(404);
+  });
+
+  it("returns total + unanswered for a partial (early-ended) call", async () => {
+    const { sessionId, reportToken } = await bootstrapBehavioural();
+    const qs = stored(sessionId).questions;
+    // Only the first 5 questions were asked/answered before the call ended.
+    await reportPOST(
+      makeReq(reportPayload(sessionId, "call_p", messagesFor(qs.slice(0, 5))), authHeader) as never,
+    );
+    const res = await reportGET(getReq(reportToken) as never, { params: { sessionId } });
+    const body = await res.json();
+    expect(body.reportStatus).toBe("done");
+    expect(body.report.answered).toBe(5);
+    expect(body.report.total).toBe(qs.length);
+    expect(body.report.unanswered).toBe(qs.length - 5);
   });
 
   it("reports pending before the webhook has run", async () => {
