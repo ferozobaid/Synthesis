@@ -6,6 +6,7 @@ import {
   type TranscriptMessage,
 } from "@/lib/behavioural/transcript";
 import { summarizeBehavioural } from "@/lib/behavioural/runner";
+import { classifyBehaviouralQuestion } from "@/lib/behavioural/qualitative";
 import { mockAnswerBank } from "@/lib/__mocks__/fixtures";
 import realReport from "./fixtures/end-of-call-report.redacted.json";
 
@@ -133,9 +134,42 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
       question_id: "q1",
       question_number: 1,
       question: QUESTIONS[0].question,
+      question_type: "introduction",
     });
-    expect(report.qualitative?.answers[0].missing_star_elements).toContain("task");
-    expect(report.qualitative?.answers[0].improved_answer_outline).toContain("S:");
+    expect(report.qualitative?.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
+    expect(report.qualitative?.answers[0].missing_star_elements).toEqual([]);
+    expect(report.qualitative?.answers[0].improved_answer_outline).toContain("background");
+  });
+
+  it("classifies known backend question types deterministically", () => {
+    expect(classifyBehaviouralQuestion({ id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" })).toBe("introduction");
+    expect(classifyBehaviouralQuestion({ id: "why_this_role", question: "Why are you interested in this role?", type: "motivation" })).toBe("motivation_role_fit");
+    expect(classifyBehaviouralQuestion({ id: "why_this_company", question: "Why do you want to work at Revature?", type: "motivation", source: "parsed JD company name" })).toBe("company_fit");
+    expect(classifyBehaviouralQuestion({ id: "leadership", question: "Tell me about a time you led a team.", type: "star" })).toBe("competency_star");
+  });
+
+  it("does not apply STAR criticism to intro, role-interest, or company-interest questions", async () => {
+    const qs: OrderedQuestion[] = [
+      { id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" },
+      { id: "why_this_role", question: "Why are you interested in this role?", type: "motivation" },
+      { id: "why_this_company", question: "Why do you want to work at Revature?", type: "motivation", source: "parsed JD company name" },
+    ];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about yourself." },
+      { role: "user", message: "I am a data analyst with dashboard and client project experience, and I am targeting analytics roles." },
+      { role: "bot", message: "2) Why are you interested in this role?" },
+      { role: "user", message: "I am interested in this role because it combines data analysis, business problem solving, and stakeholder communication." },
+      { role: "bot", message: "3) Why do you want to work at Revature?" },
+      { role: "user", message: "Revature interests me because the company develops technical talent and works with clients on practical technology problems." },
+    ];
+
+    const { report } = await scoreTranscript(qs, messages, mockAnswerBank());
+    for (const answer of report.qualitative?.answers ?? []) {
+      expect(answer.question_type).not.toBe("competency_star");
+      expect(answer.missing_star_elements).toEqual([]);
+      expect(answer.missing_elements.join(" ")).not.toMatch(/\bSTAR|Situation|Task|Action|Result\b/);
+      expect(answer.weaknesses.join(" ")).not.toMatch(/\bSTAR|Situation|Task|Action|Result\b/);
+    }
   });
 
   it("marks whether an answer did or did not address the question", async () => {
@@ -167,8 +201,8 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
     expect(report.qualitative?.answers[0].missing_star_elements).toEqual(
       expect.arrayContaining(["situation", "task", "result"]),
     );
-    expect(report.qualitative?.answers[0].absent_evidence_or_impact).toContain(
-      "No concrete result or impact was stated.",
+    expect(report.qualitative?.answers[0].missing_elements).toContain(
+      "A concrete result or impact.",
     );
   });
 
@@ -183,6 +217,8 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
     const feedback = report.qualitative?.answers[0];
     expect(feedback?.addressed_question).toBe("no");
     expect(feedback?.strengths).toEqual([]);
+    expect(feedback?.interview_engagement.rating).toBe("insufficient_evidence");
+    expect(feedback?.insufficient_evidence).toBe(true);
     expect(feedback?.weaknesses.join(" ")).toContain("non-answer");
     expect(feedback?.improved_answer_outline).not.toContain("I don't know");
     expect(feedback?.improved_answer_outline).not.toContain("SQL");
@@ -262,5 +298,43 @@ describe("scoreTranscript — reuses the existing engine", () => {
     expect(report.answered).toBe(baseline.answered);
     expect(report.dimension_averages).toEqual(baseline.dimension_averages);
     expect(report.feedback).toEqual(baseline.feedback);
+  });
+
+  it("gracefully falls back when real-mode qualitative generation cannot call Claude", async () => {
+    const prevUseMocks = process.env.SYNTHESIS_USE_MOCKS;
+    const prevAnthropic = process.env.ANTHROPIC_API_KEY;
+    const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const prevSupabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    try {
+      const messages: TranscriptMessage[] = [
+        { role: "bot", message: "1) Why are you interested in the Data Analyst role?" },
+        { role: "user", message: "I am interested in the data analyst role because I enjoy using data to solve business problems." },
+      ];
+      const { session, report } = await scoreTranscript(
+        [{ id: "why_this_role", question: "Why are you interested in the Data Analyst role?", type: "motivation" }],
+        messages,
+        mockAnswerBank(),
+      );
+      const baseline = summarizeBehavioural(session);
+
+      expect(report.qualitative?.answers[0].question_type).toBe("motivation_role_fit");
+      expect(report.qualitative?.answers[0].candidate_excerpt).toContain("data analyst role");
+      expect(report.overall).toBe(baseline.overall);
+      expect(report.dimension_averages).toEqual(baseline.dimension_averages);
+    } finally {
+      if (prevUseMocks === undefined) delete process.env.SYNTHESIS_USE_MOCKS;
+      else process.env.SYNTHESIS_USE_MOCKS = prevUseMocks;
+      if (prevAnthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prevAnthropic;
+      if (prevSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prevSupabaseUrl;
+      if (prevSupabaseAnon === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = prevSupabaseAnon;
+    }
   });
 });

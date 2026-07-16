@@ -105,7 +105,14 @@ export async function POST(req: NextRequest) {
     try {
       const messages = resolveMessages(message);
       const { report } = await scoreTranscript(
-        record.questions.map((q) => ({ id: q.id, question: q.question })),
+        record.questions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          competency: q.competency,
+          type: q.type,
+          source: q.source,
+          fallback_company: q.fallback_company,
+        })),
         messages,
         mockAnswerBank(),
         { sessionId, userId: record.session.user_id },

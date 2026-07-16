@@ -39,6 +39,10 @@ export interface TranscriptMessage {
 export interface OrderedQuestion {
   id: string;
   question: string;
+  competency?: string;
+  type?: string;
+  source?: string;
+  fallback_company?: string;
 }
 
 export type MappingConfidence = "high" | "low" | "none";
@@ -48,6 +52,10 @@ export interface MappedAnswer {
   question: string;
   answer: string;
   confidence: MappingConfidence;
+  competency?: string;
+  type?: string;
+  source?: string;
+  fallback_company?: string;
 }
 
 export interface TranscriptMapping {
@@ -158,7 +166,16 @@ export function mapTranscriptToQuestions(
         : matched.has(i)
           ? "high"
           : "low";
-    return { questionId: q.id, question: q.question, answer, confidence };
+    return {
+      questionId: q.id,
+      question: q.question,
+      answer,
+      confidence,
+      competency: q.competency,
+      type: q.type,
+      source: q.source,
+      fallback_company: q.fallback_company,
+    };
   });
 
   const unansweredQuestionIds = mapped.filter((a) => !a.answer).map((a) => a.questionId);
@@ -221,7 +238,7 @@ export async function scoreTranscript(
   };
 
   const report = summarizeBehavioural(session);
-  const qualitative = buildBehaviouralQualitativeReport({
+  const qualitative = await buildBehaviouralQualitativeReport({
     mapping,
     scores,
     dimensionAverages: report.dimension_averages,

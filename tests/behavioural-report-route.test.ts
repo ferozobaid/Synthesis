@@ -247,9 +247,9 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
     ]);
     expect(body.report.qualitative.answers).toHaveLength(body.report.answered);
     expect(body.report.qualitative.top_three_priorities).toHaveLength(3);
+    expect(body.report.qualitative.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
     expect(body.report.session).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("questions_asked");
-    expect(JSON.stringify(body)).not.toContain("My answer to question");
     expect(JSON.stringify(body)).not.toContain(reportToken);
   });
 
@@ -280,13 +280,16 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
     const { sessionId, reportToken } = await bootstrapBehavioural();
     const qs = stored(sessionId).questions;
     const rawSentinel = "RAW_TRANSCRIPT_SENTINEL_DO_NOT_RETURN_9f3a";
+    const longRawAnswer =
+      "During a complex analytics project I worked with the operations team to define the problem, gather requirements, build a dashboard prototype, test the output with stakeholders, and present the result clearly before adding this private tail marker " +
+      rawSentinel;
     await reportPOST(
       makeReq(
         reportPayload(sessionId, "call_raw", [
           { role: "bot", message: `1) ${qs[0].question}` },
           {
             role: "user",
-            message: `During a project I used ${rawSentinel} and delivered an outcome.`,
+            message: longRawAnswer,
           },
         ]),
         authHeader,
@@ -296,8 +299,11 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
     const res = await reportGET(getReq(reportToken) as never, { params: { sessionId } });
     const body = await res.json();
     expect(body.reportStatus).toBe("done");
+    const excerpt = body.report.qualitative.answers[0].candidate_excerpt;
+    expect(excerpt.length).toBeLessThanOrEqual(220);
+    expect(longRawAnswer.length).toBeGreaterThan(220);
     expect(JSON.stringify(body)).not.toContain(rawSentinel);
-    expect(JSON.stringify(body)).not.toContain("During a project I used");
+    expect(JSON.stringify(body)).not.toContain(longRawAnswer);
   });
 
   it("reports pending before the webhook has run", async () => {

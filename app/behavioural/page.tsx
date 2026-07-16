@@ -427,25 +427,34 @@ function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualit
               <SectionLabel style={{ marginBottom: 6 }}>Question {answer.question_number}</SectionLabel>
               <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, color: "var(--ink)" }}>{answer.question}</div>
             </div>
-            <span style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              letterSpacing: ".06em",
-              fontWeight: 700,
-              color: answer.addressed_question === "yes" ? "var(--success)" : answer.addressed_question === "partially" ? "var(--partial)" : "var(--gap)",
-              background: "var(--surface-2)",
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              padding: "6px 9px",
-              whiteSpace: "nowrap",
-            }}>
-              ADDRESSED: {answer.addressed_question.toUpperCase()}
-            </span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <Pill tone="neutral">{answer.question_type.replace(/_/g, " ").toUpperCase()}</Pill>
+              <Pill tone={answer.addressed_question === "yes" ? "success" : answer.addressed_question === "partially" ? "partial" : "gap"}>
+                ADDRESSED: {answer.addressed_question.toUpperCase()}
+              </Pill>
+              <Pill tone={answer.confidence === "high" ? "success" : answer.confidence === "medium" ? "partial" : "gap"}>
+                CONFIDENCE: {answer.confidence.toUpperCase()}
+              </Pill>
+            </div>
+          </div>
+
+          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+            <SectionLabel style={{ marginBottom: 6, fontSize: 9.5 }}>Candidate excerpt</SectionLabel>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)", fontStyle: "italic" }}>
+              {answer.candidate_excerpt || "No substantive answer captured."}
+            </div>
           </div>
 
           <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
             {answer.addressed_rationale}
           </p>
+
+          {answer.insufficient_evidence ? (
+            <div style={{ background: "var(--gap-tint)", border: "1px solid var(--gap)", borderRadius: 12, padding: "12px 14px", marginBottom: 16, fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+              <strong style={{ color: "var(--ink)" }}>Insufficient evidence:</strong>{" "}
+              {answer.insufficient_evidence_reason ?? "The answer was too brief for confident qualitative assessment."}
+            </div>
+          ) : null}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
             <FeedbackColumn title="Strengths" items={answer.strengths} color="var(--success)" emptyLabel="No substantive strengths to credit." />
@@ -454,13 +463,31 @@ function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualit
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
             <FeedbackColumn
-              title="Missing STAR"
-              items={answer.missing_star_elements.length ? answer.missing_star_elements.map((x) => x[0].toUpperCase() + x.slice(1)) : ["No major STAR element missing."]}
+              title="Professionalism"
+              items={[`${ratingLabel(answer.professionalism.rating)} — ${answer.professionalism.rationale}`]}
+              color={ratingColor(answer.professionalism.rating)}
+            />
+            <FeedbackColumn
+              title="Interview engagement"
+              items={[`${ratingLabel(answer.interview_engagement.rating)} — ${answer.interview_engagement.rationale}`]}
+              color={ratingColor(answer.interview_engagement.rating)}
+            />
+            <FeedbackColumn
+              title="Clarity and relevance"
+              items={[`${ratingLabel(answer.clarity_relevance.rating)} — ${answer.clarity_relevance.rationale}`]}
+              color={ratingColor(answer.clarity_relevance.rating)}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn
+              title="Missing elements"
+              items={answer.missing_elements.length ? answer.missing_elements : ["No major missing element detected."]}
               color="var(--partial)"
             />
             <FeedbackColumn
-              title="Absent evidence or impact"
-              items={answer.absent_evidence_or_impact.length ? answer.absent_evidence_or_impact : ["No major evidence gap detected."]}
+              title="STAR gaps"
+              items={answer.missing_star_elements.length ? answer.missing_star_elements.map((x) => x[0].toUpperCase() + x.slice(1)) : ["Not applicable or no major STAR gap detected."]}
               color="var(--partial)"
             />
           </div>
@@ -473,6 +500,37 @@ function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualit
       ))}
     </div>
   );
+}
+
+function Pill({ tone, children }: { tone: "success" | "partial" | "gap" | "neutral"; children: React.ReactNode }) {
+  const color =
+    tone === "success" ? "var(--success)" : tone === "partial" ? "var(--partial)" : tone === "gap" ? "var(--gap)" : "var(--ink-3)";
+  return (
+    <span style={{
+      fontFamily: "var(--font-mono)",
+      fontSize: 10,
+      letterSpacing: ".06em",
+      fontWeight: 700,
+      color,
+      background: "var(--surface-2)",
+      border: "1px solid var(--line)",
+      borderRadius: 999,
+      padding: "6px 9px",
+      whiteSpace: "nowrap",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function ratingLabel(rating: string): string {
+  return rating.replace(/_/g, " ").toUpperCase();
+}
+
+function ratingColor(rating: string): string {
+  if (rating === "strong") return "var(--success)";
+  if (rating === "acceptable") return "var(--partial)";
+  return "var(--gap)";
 }
 
 function FeedbackColumn({ title, items, color, emptyLabel }: { title: string; items: string[]; color: string; emptyLabel?: string }) {
