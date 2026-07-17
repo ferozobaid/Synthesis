@@ -25,6 +25,8 @@ import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/type
 const MAX_JD_LENGTH = 20_000;
 const MAX_NAME_LENGTH = 200;
 const MAX_CASE_ID_LENGTH = 100;
+const CASE_INTERVIEWER_INTRODUCTION =
+  "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Ready whenever you are? Let’s begin.";
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
@@ -142,6 +144,7 @@ export async function POST(req: NextRequest) {
     }
 
     const started = await startCase(c, MOCK_USER_ID);
+    const openingText = `${CASE_INTERVIEWER_INTRODUCTION}\n\n${started.interviewer.text}`;
     const now = new Date().toISOString();
     const sessionId = newSessionId();
     const projectionToken = randomBytes(32).toString("hex");
@@ -150,10 +153,13 @@ export async function POST(req: NextRequest) {
       module: "case",
       session: started.session,
       caseId,
+      openingText,
       callId: null,
       turnSeq: 0,
       score: null,
       processedToolCalls: {},
+      processedModelRequests: {},
+      projectedTurns: [],
       projectionTokenHash,
       invalidRetries: 0,
       createdAt: now,
@@ -164,7 +170,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       sessionId,
       projectionToken,
-      openingPrompt: started.interviewer.text,
+      openingPrompt: openingText,
       caseTitle: c.title,
       stage: started.stage,
       stageIndex: CASE_STATES.indexOf(started.stage),

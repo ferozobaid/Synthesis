@@ -3,12 +3,10 @@ import {
   CASE_VOICE_PENDING_KEY,
   CASE_VOICE_PENDING_TTL_MS,
   CaseProjectionUnavailableError,
-  appendCaseVoiceTranscript,
   caseVoiceControls,
   caseVoiceStartOverrides,
-  caseVoiceToolError,
+  caseVoiceTranscript,
   fetchCaseVoiceProjection,
-  mergeCaseVoiceTranscript,
   readCaseVoicePending,
   shouldApplyCaseProjection,
   uniqueCaseExhibits,
@@ -53,6 +51,7 @@ function projection(overrides: Partial<CaseVoiceProjection> = {}): CaseVoiceProj
   return {
     caseId: "beautify",
     caseTitle: "Beautify - Virtual Beauty Advisors",
+    openingText: "Opening prompt",
     stage: "intro",
     stageIndex: 0,
     complete: false,
@@ -60,7 +59,7 @@ function projection(overrides: Partial<CaseVoiceProjection> = {}): CaseVoiceProj
     lastAction: null,
     score: null,
     exhibits: [],
-    messages: [],
+    turns: [],
     updatedAt: "2026-07-17T12:00:00.000Z",
     ...overrides,
   };
@@ -163,32 +162,44 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
   });
 
   it("keeps repeated projection events from duplicating live transcript lines", () => {
-    const live = [
-      { role: "assistant" as const, text: "Opening prompt" },
-      { role: "user" as const, text: "My answer" },
-    ];
-    const messages = [
-      { role: "candidate" as const, stage: "intro" as const, text: "My answer", action: null },
+    const turns = [
       {
-        role: "interviewer" as const,
+        turnSeq: 1,
+        candidateText: "My answer",
+        interviewerText: "What would you clarify?",
         stage: "clarification" as const,
-        text: "What would you clarify?",
         action: "advance",
+        exhibit: null,
+        timestamp: "2026-07-17T12:00:00.000Z",
+      },
+      {
+        turnSeq: 1,
+        candidateText: "My answer",
+        interviewerText: "What would you clarify?",
+        stage: "clarification" as const,
+        action: "advance",
+        exhibit: null,
+        timestamp: "2026-07-17T12:00:00.000Z",
       },
     ];
 
-    expect(mergeCaseVoiceTranscript(live, messages)).toEqual([
-      { role: "assistant", text: "Opening prompt" },
-      { role: "user", text: "My answer" },
-      { role: "assistant", text: "What would you clarify?" },
+    expect(caseVoiceTranscript("Opening prompt", turns)).toEqual([
+      { role: "assistant", text: "Opening prompt", turnSeq: 0, action: null },
+      { role: "user", text: "My answer", turnSeq: 1, action: null },
+      {
+        role: "assistant",
+        text: "What would you clarify?",
+        turnSeq: 1,
+        action: "advance",
+      },
     ]);
   });
 
-  it("does not duplicate the seeded opening when Vapi emits the same final transcript", () => {
-    const opening = { role: "assistant" as const, text: "Opening prompt" };
+  it("uses only the backend projection for permanent assistant speech", () => {
+    const transcript = caseVoiceTranscript("Opening prompt", []);
 
-    expect(appendCaseVoiceTranscript([opening], { ...opening, text: "  Opening   prompt " })).toEqual([
-      opening,
+    expect(transcript).toEqual([
+      { role: "assistant", text: "Opening prompt", turnSeq: 0, action: null },
     ]);
   });
 
@@ -242,15 +253,11 @@ describe("CaseVoiceInterview refresh recovery", () => {
     expect(values.has(CASE_VOICE_PENDING_KEY)).toBe(false);
   });
 
-  it("surfaces backend tool failures without reading stage data from the transcript", () => {
-    const message = {
-      type: "tool-calls-result",
-      toolCallResult: {
-        result: JSON.stringify({ error: "turn_in_progress", stage: "analysis" }),
-      },
-    };
-
-    expect(caseVoiceToolError(message)).toBe("turn_in_progress");
-    expect(caseVoiceToolError({ type: "transcript", transcript: "stage: scoring" })).toBeNull();
+  it("does not expose mute until the Vapi SDK instance is ready", () => {
+    expect(caseVoiceControls("connecting", true, false)).toEqual({
+      start: false,
+      mute: false,
+      end: true,
+    });
   });
 });

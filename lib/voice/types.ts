@@ -1,11 +1,10 @@
 /**
  * Voice (Vapi) session records.
  *
- * Vapi drives a live voice call and reaches the server through small tool-call
- * webhooks — it cannot ferry the full session object the way the browser does
- * (see app/behavioural/page.tsx / app/case/page.tsx). So the server owns the
- * session, keyed by id in Redis, and these records wrap the *existing* live-plane
- * session types unchanged. Server (live) plane only; never imported by client code.
+ * Vapi drives a live voice call while the server owns the durable interview
+ * session, keyed by id in Redis. Behavioural uses post-call reporting; Case uses
+ * a custom-LLM turn loop. These records wrap the existing live-plane session
+ * types unchanged. Server (live) plane only; never imported by client code.
  */
 import type {
   CaseAction,
@@ -71,11 +70,35 @@ export interface CaseVoiceToolResponse {
   maxRetries?: number;
 }
 
+/** One durable Case exchange. Candidate and interviewer text are committed together. */
+export interface CaseVoiceProjectedTurn {
+  turnSeq: number;
+  candidateText: string;
+  interviewerText: string;
+  stage: CaseState;
+  action: CaseAction;
+  exhibit: CaseExhibit | null;
+  timestamp: string;
+}
+
+/** Cached backend result for one OpenAI-compatible custom-LLM request. */
+export interface CaseVoiceModelResponse {
+  spokenText: string;
+  stage: CaseState;
+  action: CaseAction;
+  exhibit: CaseExhibit | null;
+  complete: boolean;
+  score: CaseScore | null;
+  turnSeq: number;
+}
+
 export interface CaseVoiceSession {
   module: "case";
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Exact introduction plus authored case prompt spoken before the first answer. */
+  openingText?: string;
   /** Bound to the first valid Vapi call id that successfully advances the session. */
   callId?: string | null;
   /** Monotonic sequence for backend-authored interviewer turns returned to Vapi. */
@@ -84,6 +107,10 @@ export interface CaseVoiceSession {
   score?: CaseScore | null;
   /** Cached Vapi tool-call results keyed by `${callId}:${toolCallId}`. */
   processedToolCalls?: Record<string, CaseVoiceToolResponse>;
+  /** Cached custom-LLM results keyed by a stable call/message-history digest. */
+  processedModelRequests?: Record<string, CaseVoiceModelResponse>;
+  /** Permanent browser transcript source, ordered by turnSeq. */
+  projectedTurns?: CaseVoiceProjectedTurn[];
   /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */
   projectionTokenHash?: string;
   /** Invalid answer retries returned to Vapi without mutating the Case FSM session. */

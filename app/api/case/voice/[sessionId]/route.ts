@@ -35,24 +35,26 @@ export async function GET(
   const exhibits = record.session.exhibits_revealed
     .map((id) => c.exhibits.find((e) => e.id === id) ?? null)
     .filter(Boolean);
-  const lastInterviewer = [...record.session.history].reverse().find((t) => t.role === "interviewer");
+  const turnsBySequence = new Map(
+    [...(record.projectedTurns ?? [])]
+      .sort((a, b) => a.turnSeq - b.turnSeq)
+      .map((turn) => [turn.turnSeq, turn]),
+  );
+  const turns = [...turnsBySequence.values()];
+  const lastTurn = turns[turns.length - 1];
 
   return NextResponse.json({
     caseId: record.caseId,
     caseTitle: c.title,
+    openingText: record.openingText ?? c.prompt ?? "Let's begin.",
     stage,
     stageIndex: CASE_STATES.indexOf(stage),
     complete: record.session.complete,
     turnSeq: record.turnSeq ?? 0,
-    lastAction: lastInterviewer?.action ?? null,
+    lastAction: lastTurn?.action ?? null,
     score: record.score ?? null,
     exhibits,
-    messages: record.session.history.map((t) => ({
-      role: t.role,
-      stage: t.stage,
-      text: t.text,
-      action: t.action ?? null,
-    })),
+    turns,
     updatedAt: record.updatedAt,
   });
 }
