@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CASE_STATES, type CaseScore, type CaseState } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
+import CaseVoiceInterview from "@/components/CaseVoiceInterview";
 import { StageTracker } from "@/components/ui/StageTracker";
 import { ChatBubble } from "@/components/ui/ChatBubble";
 import { ExhibitCard } from "@/components/ui/ExhibitCard";
@@ -62,6 +63,8 @@ export default function CasePage() {
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [score, setScore] = useState<CaseScore | null>(null);
+  const [interviewMode, setInterviewMode] = useState<"manual" | "voice">("manual");
+  const [voiceScore, setVoiceScore] = useState<CaseScore | null>(null);
 
   const caseTitle = CASES.find((c) => c.id === caseId)?.title ?? "Case";
   const currentIdx = CASE_STATES.indexOf(stage);
@@ -86,6 +89,15 @@ export default function CasePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function completeVoiceInterview(finalScore: CaseScore) {
+    setVoiceScore(finalScore);
+    setModule("case", {
+      status: "done",
+      score: to100(finalScore.overall),
+      statusLine: "1 voice case · full report",
+    });
   }
 
   async function send() {
@@ -128,17 +140,23 @@ export default function CasePage() {
         ← Dashboard
       </Link>
 
-      {!started ? (
-        <div style={{ maxWidth: 520, margin: "10px auto 0" }}>
+      {voiceScore ? (
+        <CaseReport score={voiceScore} onDone={() => router.push("/dashboard")} />
+      ) : !started ? (
+        <div style={{ maxWidth: interviewMode === "voice" ? 1120 : 520, margin: "10px auto 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--neutral-tint)", color: "var(--ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◆</div>
             <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 24, letterSpacing: "-.025em", margin: 0, color: "var(--ink)" }}>Case Coach</h1>
           </div>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 22, boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ maxWidth: 520, margin: "0 auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 22, boxShadow: "var(--shadow-sm)" }}>
             <SectionLabel style={{ marginBottom: 10 }}>Choose a case</SectionLabel>
             <select
               value={caseId}
-              onChange={(e) => setCaseId(e.target.value)}
+              onChange={(e) => {
+                const nextCaseId = e.target.value;
+                setCaseId(nextCaseId);
+                if (nextCaseId !== "beautify") setInterviewMode("manual");
+              }}
               aria-label="Choose a case"
               style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 12px", fontSize: 14, color: "var(--ink)", background: "var(--surface-2)", outline: "none" }}
             >
@@ -146,14 +164,47 @@ export default function CasePage() {
                 <option key={c.id} value={c.id}>{c.title}</option>
               ))}
             </select>
-            <button
-              onClick={start}
-              disabled={loading}
-              style={{ marginTop: 16, border: "none", background: "var(--accent)", color: "#fff", fontSize: 15, fontWeight: 600, padding: "13px 24px", borderRadius: 11, cursor: "pointer", boxShadow: "0 6px 18px rgba(75,70,201,.26)" }}
+
+            <SectionLabel style={{ margin: "18px 0 10px" }}>Interview format</SectionLabel>
+            <div
+              role="group"
+              aria-label="Interview format"
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, padding: 4, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-2)" }}
             >
-              {loading ? "Starting…" : "Start case"}
-            </button>
+              <button
+                type="button"
+                onClick={() => setInterviewMode("manual")}
+                aria-pressed={interviewMode === "manual"}
+                style={modeButton(interviewMode === "manual")}
+              >
+                Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => setInterviewMode("voice")}
+                disabled={caseId !== "beautify"}
+                aria-pressed={interviewMode === "voice"}
+                title={caseId === "beautify" ? "" : "Live voice is available for Beautify only"}
+                style={modeButton(interviewMode === "voice", caseId !== "beautify")}
+              >
+                Live voice
+              </button>
+            </div>
+
+            {interviewMode === "manual" && (
+              <button
+                onClick={start}
+                disabled={loading}
+                style={{ marginTop: 16, border: "none", background: "var(--accent)", color: "#fff", fontSize: 15, fontWeight: 600, padding: "13px 24px", borderRadius: 11, cursor: "pointer", boxShadow: "0 6px 18px rgba(75,70,201,.26)" }}
+              >
+                {loading ? "Starting…" : "Start case"}
+              </button>
+            )}
           </div>
+
+          {interviewMode === "voice" && (
+            <CaseVoiceInterview caseId={caseId} onComplete={completeVoiceInterview} />
+          )}
         </div>
       ) : complete && score ? (
         <CaseReport score={score} onDone={() => router.push("/dashboard")} />
@@ -244,6 +295,21 @@ export default function CasePage() {
       )}
     </div>
   );
+}
+
+function modeButton(selected: boolean, disabled = false): React.CSSProperties {
+  return {
+    border: "none",
+    borderRadius: 7,
+    background: selected ? "var(--surface)" : "transparent",
+    color: selected ? "var(--ink)" : "var(--ink-3)",
+    boxShadow: selected ? "var(--shadow-sm)" : "none",
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "9px 12px",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.45 : 1,
+  };
 }
 
 function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void }) {

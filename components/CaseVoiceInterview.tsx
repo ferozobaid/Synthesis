@@ -1,0 +1,833 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CASE_STATES, type CaseExhibit, type CaseScore, type CaseState } from "@/lib/types";
+import { ChatBubble } from "@/components/ui/ChatBubble";
+import { ExhibitCard } from "@/components/ui/ExhibitCard";
+import { StageTracker } from "@/components/ui/StageTracker";
+import { SectionLabel } from "@/components/ui/primitives";
+import { to100 } from "@/components/ui/verdict";
+
+const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
+const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_CASE_ASSISTANT_ID;
+
+const POLL_INTERVAL_MS = 1_000;
+const ENDED_POLL_GRACE_MS = 10_000;
+const PROJECTION_404_GRACE_MS = 3_000;
+const TRANSCRIPT_CAP = 200;
+export const CASE_VOICE_PENDING_TTL_MS = 115 * 60 * 1_000;
+export const CASE_VOICE_PENDING_KEY = "synthesis.voice.case.beautify.pending.v1";
+
+const STAGE_LABEL: Record<CaseState, string> = {
+  intro: "Intro",
+  clarification: "Clarify",
+  framework: "Framework",
+  analysis: "Analysis",
+  data_reveal: "Data",
+  pressure_test: "Pressure",
+  recommendation: "Recommend",
+  scoring: "Score",
+};
+
+const ACTION_LABEL: Record<string, string> = {
+  reveal: "New exhibit",
+  hint: "Hint",
+  pressure_test: "Pressure test",
+};
+
+interface VapiLike {
+  on(event: string, cb: (payload?: unknown) => void): void;
+  removeAllListeners?: () => void;
+  start(assistant: string, overrides?: unknown): Promise<unknown>;
+  stop(): void;
+  setMuted?(muted: boolean): void;
+}
+
+export type CaseVoiceStatus =
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "speaking"
+  | "recovering"
+  | "ended"
+  | "completed"
+  | "expired"
+  | "error";
+
+export interface CaseVoiceTranscriptLine {
+  role: "assistant" | "user";
+  text: string;
+}
+
+export interface CaseVoiceProjectionMessage {
+  role: "interviewer" | "candidate";
+  stage: CaseState;
+  text: string;
+  action: string | null;
+}
+
+export interface CaseVoiceProjection {
+  caseId: "beautify";
+  caseTitle: string;
+  stage: CaseState;
+  stageIndex: number;
+  complete: boolean;
+  turnSeq: number;
+  lastAction: string | null;
+  score: CaseScore | null;
+  exhibits: CaseExhibit[];
+  messages: CaseVoiceProjectionMessage[];
+  updatedAt: string;
+}
+
+export interface PendingCaseVoiceCapability {
+  sessionId: string;
+  projectionToken: string;
+  caseId: "beautify";
+  caseTitle: string;
+  openingPrompt: string;
+  createdAt: number;
+}
+
+export interface PendingCaseVoiceReadResult {
+  pending: PendingCaseVoiceCapability | null;
+  expired: boolean;
+}
+
+interface CaseBootstrap {
+  sessionId: string;
+  projectionToken: string;
+  openingPrompt: string;
+  caseTitle: string;
+}
+
+export class CaseProjectionUnavailableError extends Error {
+  constructor() {
+    super("Case voice session not found or projection token rejected.");
+    this.name = "CaseProjectionUnavailableError";
+  }
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function isCaseVoicePendingExpired(
+  pending: Partial<PendingCaseVoiceCapability> | null,
+  now = Date.now(),
+): boolean {
+  return (
+    !pending ||
+    typeof pending.createdAt !== "number" ||
+    !Number.isFinite(pending.createdAt) ||
+    now - pending.createdAt >= CASE_VOICE_PENDING_TTL_MS
+  );
+}
+
+export function clearCaseVoicePending(storage = browserStorage()): void {
+  try {
+    storage?.removeItem(CASE_VOICE_PENDING_KEY);
+  } catch {
+    /* local recovery is best-effort */
+  }
+}
+
+export function writeCaseVoicePending(
+  pending: PendingCaseVoiceCapability,
+  storage = browserStorage(),
+): void {
+  try {
+    storage?.setItem(CASE_VOICE_PENDING_KEY, JSON.stringify(pending));
+  } catch {
+    /* local recovery is best-effort */
+  }
+}
+
+export function readCaseVoicePending(
+  now = Date.now(),
+  storage = browserStorage(),
+): PendingCaseVoiceReadResult {
+  try {
+    const raw = storage?.getItem(CASE_VOICE_PENDING_KEY);
+    if (!raw) return { pending: null, expired: false };
+    const value = JSON.parse(raw) as Partial<PendingCaseVoiceCapability>;
+    const valid =
+      value.caseId === "beautify" &&
+      typeof value.sessionId === "string" &&
+      value.sessionId.length > 0 &&
+      typeof value.projectionToken === "string" &&
+      value.projectionToken.length > 0 &&
+      typeof value.caseTitle === "string" &&
+      typeof value.openingPrompt === "string" &&
+      typeof value.createdAt === "number";
+    if (!valid || isCaseVoicePendingExpired(value, now)) {
+      clearCaseVoicePending(storage);
+      return { pending: null, expired: true };
+    }
+    return { pending: value as PendingCaseVoiceCapability, expired: false };
+  } catch {
+    clearCaseVoicePending(storage);
+    return { pending: null, expired: true };
+  }
+}
+
+export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
+  return {
+    variableValues: {
+      sessionId: bootstrap.sessionId,
+      openingPrompt: bootstrap.openingPrompt,
+      caseTitle: bootstrap.caseTitle,
+    },
+    metadata: { sessionId: bootstrap.sessionId, caseId: "beautify" },
+  };
+}
+
+export function caseVoiceControls(status: CaseVoiceStatus, callActive: boolean) {
+  return {
+    start:
+      !callActive &&
+      (status === "idle" || status === "ended" || status === "expired" || status === "error"),
+    mute: callActive,
+    end: callActive,
+  };
+}
+
+export function uniqueCaseExhibits(exhibits: CaseExhibit[]): CaseExhibit[] {
+  const seen = new Set<string>();
+  return exhibits.filter((exhibit) => {
+    if (!exhibit?.id || seen.has(exhibit.id)) return false;
+    seen.add(exhibit.id);
+    return true;
+  });
+}
+
+export function shouldApplyCaseProjection(
+  current: CaseVoiceProjection | null,
+  next: CaseVoiceProjection,
+): boolean {
+  if (!current) return true;
+  if (next.turnSeq !== current.turnSeq) return next.turnSeq > current.turnSeq;
+  if (!current.complete && next.complete) return true;
+  if (!current.score && next.score) return true;
+  if (next.messages.length > current.messages.length) return true;
+  if (next.exhibits.length > current.exhibits.length) return true;
+  return false;
+}
+
+function lineKey(line: CaseVoiceTranscriptLine): string {
+  return `${line.role}:${line.text.trim().replace(/\s+/g, " ").toLowerCase()}`;
+}
+
+export function mergeCaseVoiceTranscript(
+  live: CaseVoiceTranscriptLine[],
+  projectionMessages: CaseVoiceProjectionMessage[],
+): CaseVoiceTranscriptLine[] {
+  const merged = live.slice();
+  const available = new Map<string, number>();
+  for (const line of live) {
+    const key = lineKey(line);
+    available.set(key, (available.get(key) ?? 0) + 1);
+  }
+  for (const message of projectionMessages) {
+    const line: CaseVoiceTranscriptLine = {
+      role: message.role === "interviewer" ? "assistant" : "user",
+      text: message.text,
+    };
+    const key = lineKey(line);
+    const count = available.get(key) ?? 0;
+    if (count > 0) {
+      available.set(key, count - 1);
+    } else {
+      merged.push(line);
+    }
+  }
+  return merged.length > TRANSCRIPT_CAP ? merged.slice(-TRANSCRIPT_CAP) : merged;
+}
+
+export function appendCaseVoiceTranscript(
+  current: CaseVoiceTranscriptLine[],
+  line: CaseVoiceTranscriptLine,
+): CaseVoiceTranscriptLine[] {
+  const last = current[current.length - 1];
+  if (last && lineKey(last) === lineKey(line)) return current;
+  const next = [...current, line];
+  return next.length > TRANSCRIPT_CAP ? next.slice(-TRANSCRIPT_CAP) : next;
+}
+
+function isCaseState(value: unknown): value is CaseState {
+  return typeof value === "string" && (CASE_STATES as readonly string[]).includes(value);
+}
+
+function parseProjection(value: unknown): CaseVoiceProjection {
+  const projection = value as Partial<CaseVoiceProjection> | null;
+  if (
+    !projection ||
+    projection.caseId !== "beautify" ||
+    typeof projection.caseTitle !== "string" ||
+    !isCaseState(projection.stage) ||
+    typeof projection.complete !== "boolean" ||
+    typeof projection.turnSeq !== "number" ||
+    !Array.isArray(projection.exhibits) ||
+    !Array.isArray(projection.messages) ||
+    typeof projection.updatedAt !== "string"
+  ) {
+    throw new Error("The Case projection response was invalid.");
+  }
+  return {
+    ...projection,
+    stageIndex: CASE_STATES.indexOf(projection.stage),
+    lastAction: typeof projection.lastAction === "string" ? projection.lastAction : null,
+    score: projection.score ?? null,
+    exhibits: uniqueCaseExhibits(projection.exhibits as CaseExhibit[]),
+    messages: projection.messages as CaseVoiceProjectionMessage[],
+  } as CaseVoiceProjection;
+}
+
+export async function fetchCaseVoiceProjection(
+  pending: Pick<PendingCaseVoiceCapability, "sessionId" | "projectionToken">,
+  fetcher: typeof fetch = fetch,
+): Promise<CaseVoiceProjection> {
+  const response = await fetcher(
+    `/api/case/voice/${encodeURIComponent(pending.sessionId)}`,
+    { headers: { "x-case-voice-token": pending.projectionToken } },
+  );
+  if (response.status === 404) throw new CaseProjectionUnavailableError();
+  if (!response.ok) throw new Error("Could not synchronize the Case interview.");
+  return parseProjection(await response.json());
+}
+
+function nestedToolError(value: unknown, depth = 0): string | null {
+  if (depth > 5 || value == null) return null;
+  if (typeof value === "string") {
+    try {
+      return nestedToolError(JSON.parse(value), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = nestedToolError(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  const object = value as Record<string, unknown>;
+  if (typeof object.error === "string" && object.error) return object.error;
+  for (const key of ["toolCallResult", "result", "results"]) {
+    const found = nestedToolError(object[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function caseVoiceToolError(message: unknown): string | null {
+  const value = message as { type?: unknown } | null;
+  if (!value || value.type !== "tool-calls-result") return null;
+  return nestedToolError(message);
+}
+
+function toolErrorMessage(code: string): string {
+  if (code === "invalid_answer") return "The interviewer could not capture that answer. Please try again.";
+  if (code === "turn_in_progress") return "The interviewer is still processing your last answer.";
+  if (code === "session_not_found") return "This Case voice session expired. Start a new interview.";
+  if (code === "call_mismatch") return "This voice call no longer matches the active Case session.";
+  return "The Case backend could not process the last answer.";
+}
+
+function statusLabel(status: CaseVoiceStatus): string {
+  if (status === "connecting") return "Connecting to your interviewer...";
+  if (status === "listening") return "Listening - go ahead";
+  if (status === "speaking") return "Interviewer is speaking...";
+  if (status === "recovering") return "Recovering your Case progress...";
+  if (status === "ended") return "Voice interview ended";
+  if (status === "completed") return "Case complete";
+  if (status === "expired") return "Voice session expired";
+  if (status === "error") return "Voice interview unavailable";
+  return "Voice interview ready";
+}
+
+export default function CaseVoiceInterview({
+  caseId,
+  onComplete,
+}: {
+  caseId: string;
+  onComplete?: (score: CaseScore) => void;
+}) {
+  const configured = Boolean(WEB_KEY && ASSISTANT_ID);
+  const [status, setStatus] = useState<CaseVoiceStatus>("idle");
+  const [muted, setMuted] = useState(false);
+  const [callActive, setCallActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [capability, setCapability] = useState<PendingCaseVoiceCapability | null>(null);
+  const [projection, setProjection] = useState<CaseVoiceProjection | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState<CaseVoiceTranscriptLine[]>([]);
+
+  const vapiRef = useRef<VapiLike | null>(null);
+  const projectionRef = useRef<CaseVoiceProjection | null>(null);
+  const callActiveRef = useRef(false);
+  const statusRef = useRef<CaseVoiceStatus>("idle");
+  const recoveredRef = useRef(false);
+  const endedAtRef = useRef<number | null>(null);
+  const firstNotFoundAtRef = useRef<number | null>(null);
+  const completionReportedRef = useRef(false);
+  const startAttemptRef = useRef(0);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  statusRef.current = status;
+
+  const setCallIsActive = useCallback((active: boolean) => {
+    callActiveRef.current = active;
+    setCallActive(active);
+  }, []);
+
+  const teardown = useCallback(() => {
+    const vapi = vapiRef.current;
+    vapiRef.current = null;
+    try {
+      vapi?.removeAllListeners?.();
+    } catch {
+      /* no-op */
+    }
+    try {
+      vapi?.stop();
+    } catch {
+      /* call already ended */
+    }
+    setCallIsActive(false);
+    setMuted(false);
+  }, [setCallIsActive]);
+
+  const reportCompletion = useCallback((score: CaseScore) => {
+    if (completionReportedRef.current) return;
+    completionReportedRef.current = true;
+    clearCaseVoicePending();
+    onCompleteRef.current?.(score);
+  }, []);
+
+  const expireSession = useCallback(() => {
+    startAttemptRef.current += 1;
+    teardown();
+    clearCaseVoicePending();
+    setCapability(null);
+    setStatus("expired");
+    setError("This Case voice session expired or its projection token is no longer valid.");
+  }, [teardown]);
+
+  const handleCallEnd = useCallback(() => {
+    startAttemptRef.current += 1;
+    setCallIsActive(false);
+    setMuted(false);
+    endedAtRef.current = Date.now();
+    const latest = projectionRef.current;
+    if (latest?.complete && latest.score) {
+      setStatus("completed");
+      reportCompletion(latest.score);
+      return;
+    }
+    setStatus("ended");
+    setError("The call ended before the Case was complete. Your backend progress is preserved.");
+  }, [reportCompletion, setCallIsActive]);
+
+  const start = useCallback(async () => {
+    if (!configured || caseId !== "beautify" || callActiveRef.current) return;
+    teardown();
+    clearCaseVoicePending();
+    completionReportedRef.current = false;
+    recoveredRef.current = false;
+    endedAtRef.current = null;
+    firstNotFoundAtRef.current = null;
+    projectionRef.current = null;
+    setProjection(null);
+    setCapability(null);
+    setLiveTranscript([]);
+    setError(null);
+    setSyncError(null);
+    setStatus("connecting");
+    setCallIsActive(true);
+    const attempt = ++startAttemptRef.current;
+
+    try {
+      const response = await fetch("/api/vapi/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module: "case", caseId: "beautify" }),
+      });
+      if (attempt !== startAttemptRef.current) return;
+      if (!response.ok) throw new Error("Could not start the Beautify voice session.");
+      const bootstrap = (await response.json()) as Partial<CaseBootstrap>;
+      if (attempt !== startAttemptRef.current) return;
+      if (
+        typeof bootstrap.sessionId !== "string" ||
+        typeof bootstrap.projectionToken !== "string" ||
+        typeof bootstrap.openingPrompt !== "string" ||
+        typeof bootstrap.caseTitle !== "string"
+      ) {
+        throw new Error("The Beautify voice session did not initialise.");
+      }
+
+      const pending: PendingCaseVoiceCapability = {
+        sessionId: bootstrap.sessionId,
+        projectionToken: bootstrap.projectionToken,
+        caseId: "beautify",
+        caseTitle: bootstrap.caseTitle,
+        openingPrompt: bootstrap.openingPrompt,
+        createdAt: Date.now(),
+      };
+      writeCaseVoicePending(pending);
+      setCapability(pending);
+      setLiveTranscript([{ role: "assistant", text: bootstrap.openingPrompt }]);
+
+      const module = await import("@vapi-ai/web");
+      if (attempt !== startAttemptRef.current) return;
+      const Vapi = module.default as unknown as new (key: string) => VapiLike;
+      const vapi = new Vapi(WEB_KEY!);
+      vapiRef.current = vapi;
+
+      vapi.on("call-start", () => {
+        setCallIsActive(true);
+        setStatus("listening");
+      });
+      vapi.on("speech-start", () => {
+        setStatus((current) => (current === "completed" ? current : "speaking"));
+      });
+      vapi.on("speech-end", () => {
+        setStatus((current) => (current === "completed" ? current : "listening"));
+      });
+      vapi.on("call-end", handleCallEnd);
+      vapi.on("error", () => {
+        startAttemptRef.current += 1;
+        teardown();
+        setStatus("error");
+        setError("The Vapi connection failed. Start a new voice interview or use manual mode.");
+      });
+      vapi.on("message", (message) => {
+        const toolError = caseVoiceToolError(message);
+        if (toolError) {
+          setError(toolErrorMessage(toolError));
+          if (toolError === "session_not_found" || toolError === "call_mismatch") {
+            teardown();
+            setStatus(toolError === "session_not_found" ? "expired" : "error");
+          }
+          return;
+        }
+
+        const value = message as {
+          type?: string;
+          role?: string;
+          transcriptType?: string;
+          transcript?: string;
+        } | null;
+        if (
+          !value ||
+          (value.type !== "transcript" && value.type !== "transcript[transcriptType='final']") ||
+          value.transcriptType !== "final"
+        ) return;
+        const text = typeof value.transcript === "string" ? value.transcript.trim() : "";
+        const role: CaseVoiceTranscriptLine["role"] | null =
+          value.role === "assistant" ? "assistant" : value.role === "user" ? "user" : null;
+        if (!text || !role) return;
+        setLiveTranscript((current) => appendCaseVoiceTranscript(current, { role, text }));
+      });
+
+      await vapi.start(ASSISTANT_ID!, caseVoiceStartOverrides(bootstrap as CaseBootstrap));
+      if (attempt !== startAttemptRef.current) return;
+      setStatus((current) => (current === "connecting" ? "listening" : current));
+    } catch (cause) {
+      if (attempt !== startAttemptRef.current) return;
+      teardown();
+      clearCaseVoicePending();
+      setCapability(null);
+      setStatus("error");
+      setError(cause instanceof Error ? cause.message : "Could not start the Case voice interview.");
+    }
+  }, [caseId, configured, handleCallEnd, setCallIsActive, teardown]);
+
+  const endCall = useCallback(() => {
+    const latest = projectionRef.current;
+    startAttemptRef.current += 1;
+    teardown();
+    endedAtRef.current = Date.now();
+    if (latest?.complete && latest.score) {
+      setStatus("completed");
+      reportCompletion(latest.score);
+    } else {
+      setStatus("ended");
+      setError("You ended the call before the Case was complete. Your backend progress is preserved.");
+    }
+  }, [reportCompletion, teardown]);
+
+  const toggleMute = useCallback(() => {
+    setMuted((current) => {
+      const next = !current;
+      try {
+        vapiRef.current?.setMuted?.(next);
+      } catch {
+        setError("The microphone state could not be changed.");
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const { pending, expired } = readCaseVoicePending();
+    if (pending) {
+      recoveredRef.current = true;
+      setCapability(pending);
+      setLiveTranscript([{ role: "assistant", text: pending.openingPrompt }]);
+      setStatus("recovering");
+    } else if (expired) {
+      setStatus("expired");
+      setError("The saved Case voice session expired. Start a new interview.");
+    }
+    return () => {
+      startAttemptRef.current += 1;
+      teardown();
+    };
+  }, [teardown]);
+
+  useEffect(() => {
+    if (!capability) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const next = await fetchCaseVoiceProjection(capability);
+        if (cancelled) return;
+        firstNotFoundAtRef.current = null;
+        setSyncError(null);
+        if (shouldApplyCaseProjection(projectionRef.current, next)) {
+          projectionRef.current = next;
+          setProjection(next);
+        }
+
+        if (next.complete && next.score) {
+          setStatus("completed");
+          if (!callActiveRef.current) reportCompletion(next.score);
+          return;
+        }
+        if (recoveredRef.current && statusRef.current === "recovering") {
+          recoveredRef.current = false;
+          endedAtRef.current = Date.now();
+          setStatus("ended");
+          setError("Your Case progress was recovered. The prior voice connection is no longer active.");
+        }
+      } catch (cause) {
+        if (cancelled) return;
+        if (cause instanceof CaseProjectionUnavailableError) {
+          const now = Date.now();
+          if (firstNotFoundAtRef.current === null) firstNotFoundAtRef.current = now;
+          if (now - firstNotFoundAtRef.current >= PROJECTION_404_GRACE_MS) {
+            expireSession();
+            return;
+          }
+          setSyncError("Confirming the Case session...");
+        } else {
+          setSyncError("Live synchronization was interrupted. Retrying...");
+        }
+      }
+
+      const endedAt = endedAtRef.current;
+      if (
+        !cancelled &&
+        !(endedAt !== null && Date.now() - endedAt >= ENDED_POLL_GRACE_MS)
+      ) {
+        timer = setTimeout(poll, POLL_INTERVAL_MS);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [capability, expireSession, reportCompletion]);
+
+  const transcript = useMemo(
+    () => mergeCaseVoiceTranscript(liveTranscript, projection?.messages ?? []),
+    [liveTranscript, projection?.messages],
+  );
+  const exhibits = useMemo(
+    () => uniqueCaseExhibits(projection?.exhibits ?? []),
+    [projection?.exhibits],
+  );
+  const controls = caseVoiceControls(status, callActive);
+  const active = status === "listening" || status === "speaking" || status === "connecting";
+
+  if (caseId !== "beautify") {
+    return (
+      <p role="status" style={{ color: "var(--ink-3)", fontSize: 13, margin: "18px 0 0" }}>
+        Live voice is available for Beautify only in this release.
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          background: "var(--surface)",
+          border: "1px solid var(--line)",
+          borderRadius: 12,
+          padding: "14px 16px",
+          boxShadow: "var(--shadow-sm)",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: active ? "var(--success)" : status === "error" || status === "expired" ? "var(--gap)" : "var(--ink-4)",
+            animation: active ? "pulseDot 1.2s ease-in-out infinite" : "none",
+          }}
+        />
+        <div style={{ minWidth: 0 }} role="status" aria-live="polite">
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--secondary)", fontWeight: 600 }}>
+            BEAUTIFY LIVE VOICE
+          </div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
+            {statusLabel(status)}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {controls.start && (
+            <button type="button" onClick={start} disabled={!configured} style={buttonStyle("solid", !configured)}>
+              {status === "idle" ? "Start voice interview" : "Start new interview"}
+            </button>
+          )}
+          {controls.mute && (
+            <button type="button" onClick={toggleMute} style={buttonStyle("ghost")} aria-pressed={muted}>
+              {muted ? "Unmute" : "Mute"}
+            </button>
+          )}
+          {controls.end && (
+            <button type="button" onClick={endCall} style={buttonStyle("danger")}>
+              End interview
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!configured && (
+        <p role="alert" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--gap)" }}>
+          Case voice is not configured for this Preview deployment.
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--gap)" }}>
+          {error}
+        </p>
+      )}
+      {syncError && (
+        <p role="status" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--partial)" }}>
+          {syncError}
+        </p>
+      )}
+
+      {projection && (
+        <>
+          <div style={{ marginTop: 14, padding: "14px 16px", borderBottom: "1px solid var(--line)", overflowX: "auto" }}>
+            <StageTracker
+              stages={CASE_STATES.map((stage) => STAGE_LABEL[stage])}
+              currentIdx={projection.stageIndex}
+              complete={projection.complete}
+            />
+          </div>
+
+          <div className="case-grid" style={{ marginTop: 16 }}>
+            <div style={{ border: "1px solid var(--line)", borderRadius: 12, background: "var(--surface)", minWidth: 0 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+                <SectionLabel>Live transcript</SectionLabel>
+              </div>
+              <div
+                style={{
+                  height: 480,
+                  overflowY: "auto",
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+                aria-live="polite"
+              >
+                {transcript.map((line, index) => {
+                  const projected = projection.messages.find(
+                    (message) =>
+                      message.text === line.text &&
+                      (message.role === "interviewer" ? "assistant" : "user") === line.role,
+                  );
+                  return (
+                    <ChatBubble
+                      key={`${line.role}-${index}-${line.text.slice(0, 24)}`}
+                      role={line.role === "assistant" ? "interviewer" : "candidate"}
+                      text={line.text}
+                      label={projected?.action ? ACTION_LABEL[projected.action] : undefined}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <SectionLabel style={{ marginBottom: 10 }}>Exhibits</SectionLabel>
+              {exhibits.length === 0 ? (
+                <div style={{ border: "1.5px dashed var(--line)", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "var(--surface-2)" }}>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.5 }}>
+                    Exhibits will appear here when the backend interviewer reveals them.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {exhibits.map((exhibit, index) => (
+                    <ExhibitCard key={exhibit.id} exhibit={exhibit} index={index} />
+                  ))}
+                </div>
+              )}
+
+              {projection.complete && projection.score && (
+                <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 16 }}>
+                  <SectionLabel style={{ marginBottom: 6 }}>Final Case score</SectionLabel>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 30, fontWeight: 600, color: "var(--success)" }}>
+                      {to100(projection.score.overall)}
+                    </span>
+                    <span style={{ fontSize: 12, color: "var(--ink-3)" }}>of 100</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function buttonStyle(kind: "solid" | "ghost" | "danger", disabled = false): React.CSSProperties {
+  const solid = kind === "solid";
+  const danger = kind === "danger";
+  return {
+    border: solid ? "none" : `1px solid ${danger ? "var(--gap)" : "var(--line)"}`,
+    background: solid ? "var(--secondary)" : danger ? "var(--gap-tint)" : "var(--surface-2)",
+    color: solid ? "#fff" : danger ? "var(--gap)" : "var(--ink-2)",
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "9px 14px",
+    borderRadius: 8,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
+  };
+}

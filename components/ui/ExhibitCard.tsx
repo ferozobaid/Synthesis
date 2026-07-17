@@ -7,7 +7,6 @@ interface Exhibit {
   synthesized?: boolean;
   insights?: string[];
   data?: unknown;
-  [k: string]: unknown;
 }
 
 /**
