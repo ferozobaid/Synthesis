@@ -1,5 +1,5 @@
 /**
- * Vapi webhook plumbing shared by the behavioural and case tool routes:
+ * Vapi webhook plumbing for the behavioural voice tool route:
  * bearer authentication, tool-call extraction, and the results envelope.
  *
  * Follows Vapi's current documented server event: message.toolCallList entries

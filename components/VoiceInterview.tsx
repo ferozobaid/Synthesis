@@ -34,7 +34,8 @@ interface VapiLike {
   setMuted?(muted: boolean): void;
 }
 
-type VoiceStatus =
+export type VoiceStatus =
+  | "idle"
   | "connecting"
   | "listening"
   | "speaking"
@@ -74,29 +75,71 @@ const QUESTION_SKIP_THRESHOLD = 0.8;
 const POLL_INTERVAL_MS = 3000;
 const POLL_MAX_ATTEMPTS = 200;
 const POLL_MAX_MS = 360_000; // ~6 minutes
+export const PENDING_CLIENT_TTL_MS = 115 * 60 * 1000; // Redis TTL is 2h; expire locally just before.
+export const POLL_404_GRACE_MS = 12_000;
 const TRANSCRIPT_CAP = 200;
+export const EXPIRED_REPORT_MESSAGE =
+  "This report session expired. Start a new interview or continue in text mode.";
 
-const PENDING_KEY = "synthesis.voice.behavioural.pending.v1";
-interface PendingCapability {
+export const PENDING_KEY = "synthesis.voice.behavioural.pending.v1";
+export interface PendingCapability {
   sessionId: string;
   reportToken: string;
   createdAt: number;
 }
 
-function readPending(): PendingCapability | null {
+export interface PendingReadResult {
+  pending: PendingCapability | null;
+  expired: boolean;
+}
+
+export function isPendingExpired(p: Partial<PendingCapability> | null, now = Date.now()): boolean {
+  if (!p || typeof p.createdAt !== "number" || !Number.isFinite(p.createdAt)) return true;
+  return now - p.createdAt >= PENDING_CLIENT_TTL_MS;
+}
+
+export function shouldExpireRepeated404(firstNotFoundAt: number | null, now = Date.now()): boolean {
+  return firstNotFoundAt !== null && now - firstNotFoundAt >= POLL_404_GRACE_MS;
+}
+
+export function voiceOwnsManualMode(configured: boolean, status: VoiceStatus): boolean {
+  if (!configured) return false;
+  return (
+    status === "connecting" ||
+    status === "listening" ||
+    status === "speaking" ||
+    status === "processing" ||
+    status === "timeout"
+  );
+}
+
+export function readPending(now = Date.now()): PendingReadResult {
   try {
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(PENDING_KEY) : null;
-    if (!raw) return null;
+    if (!raw) return { pending: null, expired: false };
     const p = JSON.parse(raw);
-    if (p && typeof p.sessionId === "string" && typeof p.reportToken === "string") return p;
+    if (
+      p &&
+      typeof p.sessionId === "string" &&
+      typeof p.reportToken === "string" &&
+      typeof p.createdAt === "number"
+    ) {
+      if (isPendingExpired(p, now)) {
+        clearPending();
+        return { pending: null, expired: true };
+      }
+      return { pending: p, expired: false };
+    }
+    clearPending();
+    return { pending: null, expired: true };
   } catch {
-    /* ignore */
+    clearPending();
+    return { pending: null, expired: true };
   }
-  return null;
 }
 function writePending(p: PendingCapability): void {
   try {
-    window.localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+    window.localStorage.setItem(PENDING_KEY, JSON.stringify({ ...p, createdAt: p.createdAt ?? Date.now() }));
   } catch {
     /* ignore */
   }
@@ -175,13 +218,7 @@ export default function VoiceInterview({
     // "Engaged" = the voice flow owns the screen: the live call AND the post-call
     // processing/timeout states. While engaged the page must NOT reveal the manual
     // text form (the report replaces it when done).
-    const engaged =
-      status === "connecting" ||
-      status === "listening" ||
-      status === "speaking" ||
-      status === "processing" ||
-      status === "timeout";
-    onActiveChange?.(engaged);
+    onActiveChange?.(voiceOwnsManualMode(configured, status));
   }, [configured, status, onActiveChange]);
 
   const teardown = useCallback(() => {
@@ -200,6 +237,16 @@ export default function VoiceInterview({
     }
   }, []);
 
+  const expireReportSession = useCallback(() => {
+    clearPending();
+    sessionIdRef.current = null;
+    reportTokenRef.current = null;
+    startedRef.current = false;
+    pollCancelRef.current = true;
+    setStatus("idle");
+    setError(EXPIRED_REPORT_MESSAGE);
+  }, []);
+
   // Poll the report status endpoint until done/failed, or a local timeout.
   const pollReport = useCallback(async () => {
     const sessionId = sessionIdRef.current;
@@ -211,6 +258,7 @@ export default function VoiceInterview({
     }
     pollCancelRef.current = false;
     const startedAt = Date.now();
+    let firstNotFoundAt: number | null = null;
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
       if (pollCancelRef.current) return;
       if (Date.now() - startedAt > POLL_MAX_MS) break;
@@ -219,6 +267,7 @@ export default function VoiceInterview({
           headers: { "x-report-token": token },
         });
         if (res.ok) {
+          firstNotFoundAt = null;
           const data = (await res.json()) as {
             reportStatus: string;
             report?: VoiceReport | null;
@@ -237,8 +286,14 @@ export default function VoiceInterview({
             return;
           }
           // pending / processing → keep polling
+        } else if (res.status === 404) {
+          const now = Date.now();
+          if (firstNotFoundAt === null) firstNotFoundAt = now;
+          if (shouldExpireRepeated404(firstNotFoundAt, now)) {
+            expireReportSession();
+            return;
+          }
         }
-        // 404 (expired/invalid) → keep trying until the time budget runs out
       } catch {
         /* transient network error — retry */
       }
@@ -249,7 +304,7 @@ export default function VoiceInterview({
     // user can resume polling (do NOT clearPending here).
     setStatus("timeout");
     setError(null);
-  }, []);
+  }, [expireReportSession]);
 
   const beginPostCall = useCallback(() => {
     setStatus("processing");
@@ -288,9 +343,10 @@ export default function VoiceInterview({
       const sessionId = bootstrap.sessionId;
       const reportToken = bootstrap.reportToken;
       if (!sessionId || !reportToken) throw new Error("The interview session did not initialise.");
+      const pendingCreatedAt = Date.now();
       sessionIdRef.current = sessionId;
       reportTokenRef.current = reportToken;
-      writePending({ sessionId, reportToken, createdAt: Date.now() });
+      writePending({ sessionId, reportToken, createdAt: pendingCreatedAt });
 
       const qs = Array.isArray(bootstrap.questions) ? bootstrap.questions : [];
       questionsRef.current = qs;
@@ -408,17 +464,19 @@ export default function VoiceInterview({
   useEffect(() => {
     if (!configured || initRef.current) return;
     initRef.current = true;
-    const pending = readPending();
+    const { pending, expired } = readPending();
     if (pending) {
       sessionIdRef.current = pending.sessionId;
       reportTokenRef.current = pending.reportToken;
       setStatus("processing");
       void pollReport();
+    } else if (expired) {
+      expireReportSession();
     } else {
       void start();
     }
     return teardown;
-  }, [configured, start, teardown, pollReport]);
+  }, [configured, start, teardown, pollReport, expireReportSession]);
 
   if (!configured) return null;
 
@@ -426,6 +484,8 @@ export default function VoiceInterview({
   const label =
     status === "connecting"
       ? "Connecting to your interviewer…"
+      : status === "idle"
+        ? "Voice interview ready"
       : status === "speaking"
         ? "Interviewer is speaking…"
         : status === "listening"
@@ -446,9 +506,11 @@ export default function VoiceInterview({
         ? "var(--success)"
         : status === "processing" || status === "timeout"
           ? "var(--partial)"
-          : status === "error" || status === "failed"
-            ? "var(--gap)"
-            : "var(--ink-4)";
+        : status === "error" || status === "failed"
+          ? "var(--gap)"
+          : status === "idle"
+            ? "var(--ink-4)"
+          : "var(--ink-4)";
 
   const inCall = status === "connecting" || status === "listening" || status === "speaking";
   // Show Q1 immediately (displayIndex 0) even before it's confirmed by transcript.
@@ -506,6 +568,11 @@ export default function VoiceInterview({
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {status === "idle" && (
+            <button type="button" onClick={start} style={btn("solid")}>
+              Start voice interview
+            </button>
+          )}
           {inCall && (
             <>
               <button type="button" onClick={toggleMute} style={btn("ghost")}>
