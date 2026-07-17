@@ -89,6 +89,7 @@ beforeEach(() => {
   process.env.UPSTASH_REDIS_REST_KV_REST_API_URL = "https://example.upstash.io";
   process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN = "test-token";
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
+  process.env.SYNTHESIS_USE_MOCKS = "true";
   delete process.env.VAPI_AUTH_DEBUG;
 });
 
@@ -246,7 +247,12 @@ describe("GET /api/behavioural/report/[sessionId] (status poll)", () => {
       "unanswered",
     ]);
     expect(body.report.qualitative.answers).toHaveLength(body.report.answered);
+    expect(body.report.qualitative.qualitative_attempted).toBe(false);
+    expect(body.report.qualitative.selected_model).toBe("claude-haiku-4-5");
     expect(body.report.qualitative.qualitative_backend).toBe("deterministic_fallback");
+    expect(body.report.qualitative.fallback_reason).toBe("mock_mode");
+    expect(body.report.qualitative.anthropic_error_status).toBeNull();
+    expect(body.report.qualitative.anthropic_error_type).toBeNull();
     expect(body.report.qualitative.top_three_priorities).toHaveLength(3);
     expect(body.report.qualitative.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
     expect(body.report.qualitative.answers[0].assessment_confidence).toMatch(/high|medium|low/);

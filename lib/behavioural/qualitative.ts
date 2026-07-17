@@ -8,7 +8,7 @@
  * never complete raw transcript answers.
  */
 import { complete, extractJSON } from "@/lib/claude";
-import { useMocks } from "@/lib/config";
+import { hasAnthropic, useMocks } from "@/lib/config";
 import { extractFeatures } from "@/lib/behavioural/evaluator";
 import { MODEL_IDS, type BehaviouralScore } from "@/lib/types";
 import type { MappedAnswer, TranscriptMapping } from "@/lib/behavioural/transcript";
@@ -22,6 +22,13 @@ export type AddressedQuestionStatus = "yes" | "partially" | "no";
 export type QualitativeRating = "strong" | "acceptable" | "weak" | "insufficient_evidence";
 export type QualitativeConfidence = "high" | "medium" | "low";
 export type QualitativeBackend = "haiku" | "deterministic_fallback";
+export type QualitativeFallbackReason =
+  | "mock_mode"
+  | "missing_key"
+  | "api_error"
+  | "timeout"
+  | "invalid_json"
+  | "schema_validation";
 export type StarElement = "situation" | "task" | "action" | "result";
 
 export interface QualitativeDimensionFeedback {
@@ -52,7 +59,12 @@ export interface BehaviouralAnswerQualitativeFeedback {
 }
 
 export interface BehaviouralQualitativeReport {
+  qualitative_attempted: boolean;
+  selected_model: string;
   qualitative_backend: QualitativeBackend;
+  fallback_reason: QualitativeFallbackReason | null;
+  anthropic_error_status: number | null;
+  anthropic_error_type: string | null;
   partial_warning: string | null;
   overall_patterns: string[];
   top_three_priorities: string[];
@@ -89,10 +101,39 @@ interface ModelQualitativeReport {
   answers?: unknown;
 }
 
+interface QualitativeObservability {
+  qualitative_attempted: boolean;
+  selected_model: string;
+  qualitative_backend: QualitativeBackend;
+  fallback_reason: QualitativeFallbackReason | null;
+  anthropic_error_status: number | null;
+  anthropic_error_type: string | null;
+}
+
+class QualitativeFallbackError extends Error {
+  reason: QualitativeFallbackReason;
+  anthropic_error_status: number | null;
+  anthropic_error_type: string | null;
+
+  constructor(
+    reason: QualitativeFallbackReason,
+    anthropic: Pick<QualitativeObservability, "anthropic_error_status" | "anthropic_error_type"> = {
+      anthropic_error_status: null,
+      anthropic_error_type: null,
+    },
+  ) {
+    super(reason);
+    this.reason = reason;
+    this.anthropic_error_status = anthropic.anthropic_error_status;
+    this.anthropic_error_type = anthropic.anthropic_error_type;
+  }
+}
+
 const EXCERPT_MAX_CHARS = 220;
 const MODEL_ANSWER_MAX_CHARS = 1200;
 const MODEL_TOTAL_ANSWER_CHARS = 18_000;
 const QUALITATIVE_TIMEOUT_MS = 18_000;
+const QUALITATIVE_MODEL = MODEL_IDS.default;
 
 const STAR_LABEL: Record<StarElement, string> = {
   situation: "Situation",
@@ -131,6 +172,78 @@ const STOPWORDS = new Set([
 
 function unique(items: string[]): string[] {
   return [...new Set(items.map((x) => x.trim()).filter(Boolean))];
+}
+
+function observability(
+  qualitative_backend: QualitativeBackend,
+  fallback_reason: QualitativeFallbackReason | null,
+  attempted: boolean,
+  anthropic: Pick<QualitativeObservability, "anthropic_error_status" | "anthropic_error_type"> = {
+    anthropic_error_status: null,
+    anthropic_error_type: null,
+  },
+): QualitativeObservability {
+  return {
+    qualitative_attempted: attempted,
+    selected_model: QUALITATIVE_MODEL,
+    qualitative_backend,
+    fallback_reason,
+    anthropic_error_status: anthropic.anthropic_error_status,
+    anthropic_error_type: anthropic.anthropic_error_type,
+  };
+}
+
+function withObservability(
+  report: Omit<BehaviouralQualitativeReport, keyof QualitativeObservability>,
+  obs: QualitativeObservability,
+): BehaviouralQualitativeReport {
+  return { ...obs, ...report };
+}
+
+function safeErrorType(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const sanitized = value.replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 80);
+  return sanitized || null;
+}
+
+function anthropicErrorDetails(error: unknown): Pick<QualitativeObservability, "anthropic_error_status" | "anthropic_error_type"> {
+  const rec = (error ?? {}) as Record<string, unknown>;
+  const nested = (rec.error ?? {}) as Record<string, unknown>;
+  const status = typeof rec.status === "number"
+    ? rec.status
+    : typeof rec.statusCode === "number"
+      ? rec.statusCode
+      : null;
+  const type = safeErrorType(rec.type) ?? safeErrorType(nested.type) ?? safeErrorType(rec.name);
+  return {
+    anthropic_error_status: status,
+    anthropic_error_type: type,
+  };
+}
+
+function fallbackError(reason: QualitativeFallbackReason, error?: unknown): QualitativeFallbackError {
+  return new QualitativeFallbackError(
+    reason,
+    reason === "api_error" ? anthropicErrorDetails(error) : undefined,
+  );
+}
+
+function classifyFallbackError(error: unknown): QualitativeFallbackError {
+  if (error instanceof QualitativeFallbackError) return error;
+  return fallbackError("api_error", error);
+}
+
+function recordQualitativeObservability(obs: QualitativeObservability): void {
+  if (process.env.NODE_ENV === "test") return;
+  const safe: QualitativeObservability = {
+    qualitative_attempted: obs.qualitative_attempted,
+    selected_model: obs.selected_model,
+    qualitative_backend: obs.qualitative_backend,
+    fallback_reason: obs.fallback_reason,
+    anthropic_error_status: obs.anthropic_error_status,
+    anthropic_error_type: obs.anthropic_error_type,
+  };
+  console.info("[synthesis qualitative]", JSON.stringify(safe));
 }
 
 function words(s: string): string[] {
@@ -524,10 +637,9 @@ function deterministicReport(
   baseAnswers: BaseAnswerInput[],
   dimensionAverages: { dimension: string; average: number }[],
   totalQuestions: number,
-): BehaviouralQualitativeReport {
+): Omit<BehaviouralQualitativeReport, keyof QualitativeObservability> {
   const answers = baseAnswers.map(fallbackAnswer);
   return {
-    qualitative_backend: "deterministic_fallback",
     partial_warning: partialWarning(answers.length, totalQuestions),
     overall_patterns: fallbackOverallPatterns(answers, dimensionAverages),
     top_three_priorities: fallbackTopPriorities(answers, dimensionAverages),
@@ -629,12 +741,12 @@ function coerceModelAnswer(
 function coerceModelReport(
   raw: unknown,
   baseAnswers: BaseAnswerInput[],
-  fallback: BehaviouralQualitativeReport,
+  fallback: Omit<BehaviouralQualitativeReport, keyof QualitativeObservability>,
   dimensionAverages: { dimension: string; average: number }[],
   totalQuestions: number,
 ): BehaviouralQualitativeReport {
   const model = raw as ModelQualitativeReport | null;
-  if (!model || !Array.isArray(model.answers)) throw new Error("qualitative_json_invalid");
+  if (!model || !Array.isArray(model.answers)) throw fallbackError("schema_validation");
   const byId = new Map<string, ModelAnswerFeedback>();
   for (const item of model.answers) {
     const a = item as ModelAnswerFeedback;
@@ -645,13 +757,12 @@ function coerceModelReport(
     const fb = fallbackById.get(base.mapped.questionId) ?? fallbackAnswer(base);
     return coerceModelAnswer(byId.get(base.mapped.questionId), base, fb);
   });
-  return {
-    qualitative_backend: "haiku",
+  return withObservability({
     partial_warning: partialWarning(answers.length, totalQuestions),
     overall_patterns: arrayOfStrings(model.overall_patterns, fallbackOverallPatterns(answers, dimensionAverages), 5),
     top_three_priorities: arrayOfStrings(model.top_three_priorities, fallbackTopPriorities(answers, dimensionAverages), 3).slice(0, 3),
     answers,
-  };
+  }, observability("haiku", null, true));
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -744,23 +855,39 @@ function qualitativePrompt(baseAnswers: BaseAnswerInput[], totalQuestions: numbe
 
 async function modelQualitativeReport(
   baseAnswers: BaseAnswerInput[],
-  fallback: BehaviouralQualitativeReport,
+  fallback: Omit<BehaviouralQualitativeReport, keyof QualitativeObservability>,
   dimensionAverages: { dimension: string; average: number }[],
   totalQuestions: number,
 ): Promise<BehaviouralQualitativeReport> {
   const system =
     "You are an interview coach generating qualitative feedback after a completed voice interview. " +
     "Be concrete and evidence-grounded. Use only observable language and effort. Return valid JSON only.";
-  const text = await withTimeout(
-    complete(qualitativePrompt(baseAnswers, totalQuestions), {
-      system,
-      temperature: 0,
-      maxTokens: 3500,
-      model: MODEL_IDS.default,
-    }),
-    QUALITATIVE_TIMEOUT_MS,
-  );
-  return coerceModelReport(extractJSON(text), baseAnswers, fallback, dimensionAverages, totalQuestions);
+  let text: string;
+  try {
+    text = await withTimeout(
+      complete(qualitativePrompt(baseAnswers, totalQuestions), {
+        system,
+        temperature: 0,
+        maxTokens: 6000,
+        model: QUALITATIVE_MODEL,
+      }),
+      QUALITATIVE_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === "qualitative_timeout") {
+      throw fallbackError("timeout");
+    }
+    throw fallbackError("api_error", error);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = extractJSON(text);
+  } catch {
+    throw fallbackError("invalid_json");
+  }
+
+  return coerceModelReport(parsed, baseAnswers, fallback, dimensionAverages, totalQuestions);
 }
 
 function buildBaseAnswers(mapping: TranscriptMapping, scores: Record<string, BehaviouralScore>): BaseAnswerInput[] {
@@ -794,10 +921,35 @@ export async function buildBehaviouralQualitativeReport(opts: {
 }): Promise<BehaviouralQualitativeReport> {
   const baseAnswers = buildBaseAnswers(opts.mapping, opts.scores);
   const fallback = deterministicReport(baseAnswers, opts.dimensionAverages, opts.totalQuestions);
-  if (useMocks() || baseAnswers.length === 0) return fallback;
+  if (useMocks()) {
+    const report = withObservability(fallback, observability("deterministic_fallback", "mock_mode", false));
+    recordQualitativeObservability(report);
+    return report;
+  }
+  if (!hasAnthropic()) {
+    const report = withObservability(fallback, observability("deterministic_fallback", "missing_key", false));
+    recordQualitativeObservability(report);
+    return report;
+  }
+  if (baseAnswers.length === 0) {
+    const report = withObservability(fallback, observability("deterministic_fallback", "schema_validation", false));
+    recordQualitativeObservability(report);
+    return report;
+  }
   try {
-    return await modelQualitativeReport(baseAnswers, fallback, opts.dimensionAverages, opts.totalQuestions);
-  } catch {
-    return fallback;
+    const report = await modelQualitativeReport(baseAnswers, fallback, opts.dimensionAverages, opts.totalQuestions);
+    recordQualitativeObservability(report);
+    return report;
+  } catch (error) {
+    const classified = classifyFallbackError(error);
+    const report = withObservability(
+      fallback,
+      observability("deterministic_fallback", classified.reason, true, {
+        anthropic_error_status: classified.anthropic_error_status,
+        anthropic_error_type: classified.anthropic_error_type,
+      }),
+    );
+    recordQualitativeObservability(report);
+    return report;
   }
 }

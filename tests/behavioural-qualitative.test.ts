@@ -58,6 +58,41 @@ beforeEach(() => {
 });
 
 describe("buildBehaviouralQualitativeReport", () => {
+  it("records mock-mode fallback without attempting the qualitative Claude call", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "true";
+
+    const report = await buildBehaviouralQualitativeReport({
+      mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+      scores: { why_this_role: score },
+      dimensionAverages: [{ dimension: "Impact", average: 2 }],
+      totalQuestions: 1,
+    });
+
+    expect(completeMock).not.toHaveBeenCalled();
+    expect(report.qualitative_attempted).toBe(false);
+    expect(report.selected_model).toBe("claude-haiku-4-5");
+    expect(report.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.fallback_reason).toBe("mock_mode");
+    expect(report.anthropic_error_status).toBeNull();
+    expect(report.anthropic_error_type).toBeNull();
+  });
+
+  it("records missing-key fallback without attempting the qualitative Claude call", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+
+    const report = await buildBehaviouralQualitativeReport({
+      mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+      scores: { why_this_role: score },
+      dimensionAverages: [{ dimension: "Impact", average: 2 }],
+      totalQuestions: 1,
+    });
+
+    expect(completeMock).not.toHaveBeenCalled();
+    expect(report.qualitative_attempted).toBe(false);
+    expect(report.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.fallback_reason).toBe("missing_key");
+  });
+
   it("falls back deterministically when the structured-output response is invalid JSON", async () => {
     completeMock.mockResolvedValue("not json");
 
@@ -69,13 +104,82 @@ describe("buildBehaviouralQualitativeReport", () => {
     });
 
     expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(report.qualitative_attempted).toBe(true);
+    expect(report.selected_model).toBe("claude-haiku-4-5");
     expect(report.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.fallback_reason).toBe("invalid_json");
+    expect(report.anthropic_error_status).toBeNull();
+    expect(report.anthropic_error_type).toBeNull();
     expect(report.answers[0].question_type).toBe("motivation_role_fit");
     expect(report.answers[0].assessment_confidence).toMatch(/high|medium|low/);
     expect(report.answers[0].candidate_excerpt).toContain("data analyst role");
     expect(report.answers[0].candidate_excerpt.length).toBeLessThanOrEqual(220);
     expect(report.answers[0].missing_star_elements).toEqual([]);
     expect(JSON.stringify(report)).not.toContain("mapping_confidence");
+  });
+
+  it("records Anthropic status and type for qualitative API errors without response content", async () => {
+    completeMock.mockRejectedValue({
+      status: 429,
+      type: "rate_limit_error",
+      message: "sensitive provider response body",
+    });
+
+    const report = await buildBehaviouralQualitativeReport({
+      mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+      scores: { why_this_role: score },
+      dimensionAverages: [{ dimension: "Impact", average: 2 }],
+      totalQuestions: 1,
+    });
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(report.qualitative_attempted).toBe(true);
+    expect(report.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.fallback_reason).toBe("api_error");
+    expect(report.anthropic_error_status).toBe(429);
+    expect(report.anthropic_error_type).toBe("rate_limit_error");
+    expect(JSON.stringify(report)).not.toContain("sensitive provider response body");
+  });
+
+  it("records timeout when the qualitative Claude call does not return in time", async () => {
+    vi.useFakeTimers();
+    completeMock.mockReturnValue(new Promise(() => {}));
+
+    try {
+      const pending = buildBehaviouralQualitativeReport({
+        mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+        scores: { why_this_role: score },
+        dimensionAverages: [{ dimension: "Impact", average: 2 }],
+        totalQuestions: 1,
+      });
+      await vi.advanceTimersByTimeAsync(18_000);
+      const report = await pending;
+
+      expect(completeMock).toHaveBeenCalledTimes(1);
+      expect(report.qualitative_attempted).toBe(true);
+      expect(report.qualitative_backend).toBe("deterministic_fallback");
+      expect(report.fallback_reason).toBe("timeout");
+      expect(report.anthropic_error_status).toBeNull();
+      expect(report.anthropic_error_type).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records schema-validation fallback when JSON has the wrong shape", async () => {
+    completeMock.mockResolvedValue(JSON.stringify({ overall_patterns: [] }));
+
+    const report = await buildBehaviouralQualitativeReport({
+      mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+      scores: { why_this_role: score },
+      dimensionAverages: [{ dimension: "Impact", average: 2 }],
+      totalQuestions: 1,
+    });
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(report.qualitative_attempted).toBe(true);
+    expect(report.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.fallback_reason).toBe("schema_validation");
   });
 
   it("keeps excerpts and question types server-owned and strips STAR criticism from fit questions", async () => {
@@ -113,7 +217,11 @@ describe("buildBehaviouralQualitativeReport", () => {
 
     expect(completeMock).toHaveBeenCalledTimes(1);
     expect(completeMock.mock.calls[0]?.[1]).toMatchObject({ model: "claude-haiku-4-5" });
+    expect(report.qualitative_attempted).toBe(true);
     expect(report.qualitative_backend).toBe("haiku");
+    expect(report.fallback_reason).toBeNull();
+    expect(report.anthropic_error_status).toBeNull();
+    expect(report.anthropic_error_type).toBeNull();
     expect(answer.question_type).toBe("motivation_role_fit");
     expect(answer.candidate_excerpt).not.toBe("Invented model excerpt.");
     expect(answer.candidate_excerpt).toContain("interested in this role");

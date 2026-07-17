@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   mapTranscriptToQuestions,
   scoreTranscript,
@@ -31,6 +31,10 @@ const QUESTIONS: OrderedQuestion[] = [
 
 const REAL_MESSAGES = (realReport as { message: { artifact: { messages: TranscriptMessage[] } } })
   .message.artifact.messages;
+
+beforeEach(() => {
+  process.env.SYNTHESIS_USE_MOCKS = "true";
+});
 
 describe("mapTranscriptToQuestions — real Vapi call", () => {
   const result = mapTranscriptToQuestions(QUESTIONS, REAL_MESSAGES);
@@ -128,7 +132,10 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
 
     const { report } = await scoreTranscript(QUESTIONS, messages, mockAnswerBank());
     expect(report.answered).toBe(3); // partial report over completed questions only
+    expect(report.qualitative?.qualitative_attempted).toBe(false);
+    expect(report.qualitative?.selected_model).toBe("claude-haiku-4-5");
     expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.qualitative?.fallback_reason).toBe("mock_mode");
     expect(report.qualitative?.partial_warning).toContain("not representative");
     expect(report.qualitative?.answers).toHaveLength(3);
     expect(report.qualitative?.answers[0]).toMatchObject({
@@ -281,7 +288,9 @@ describe("scoreTranscript — reuses the existing engine", () => {
     expect(report.overall).toBeGreaterThanOrEqual(0);
     expect(report.dimension_averages.length).toBeGreaterThan(0);
     expect(report.qualitative?.partial_warning).toBeNull();
+    expect(report.qualitative?.qualitative_attempted).toBe(false);
     expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
+    expect(report.qualitative?.fallback_reason).toBe("mock_mode");
     expect(report.qualitative?.answers).toHaveLength(14);
     expect(report.qualitative?.overall_patterns.length).toBeGreaterThan(0);
     expect(report.qualitative?.top_three_priorities).toHaveLength(3);
@@ -328,7 +337,9 @@ describe("scoreTranscript — reuses the existing engine", () => {
 
       expect(report.qualitative?.answers[0].question_type).toBe("motivation_role_fit");
       expect(report.qualitative?.answers[0].candidate_excerpt).toContain("data analyst role");
+      expect(report.qualitative?.qualitative_attempted).toBe(false);
       expect(report.qualitative?.qualitative_backend).toBe("deterministic_fallback");
+      expect(report.qualitative?.fallback_reason).toBe("missing_key");
       expect(report.overall).toBe(baseline.overall);
       expect(report.dimension_averages).toEqual(baseline.dimension_averages);
     } finally {
