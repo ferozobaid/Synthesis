@@ -10,14 +10,15 @@
 import { complete, extractJSON } from "@/lib/claude";
 import { hasAnthropic, useMocks } from "@/lib/config";
 import { extractFeatures } from "@/lib/behavioural/evaluator";
+import {
+  classifyBehaviouralQuestion,
+  type BehaviouralQuestionType,
+} from "@/lib/behavioural/question-types";
 import { MODEL_IDS, type BehaviouralScore } from "@/lib/types";
 import type { MappedAnswer, TranscriptMapping } from "@/lib/behavioural/transcript";
 
-export type BehaviouralQualitativeQuestionType =
-  | "introduction"
-  | "motivation_role_fit"
-  | "company_fit"
-  | "competency_star";
+export { classifyBehaviouralQuestion };
+export type BehaviouralQualitativeQuestionType = BehaviouralQuestionType;
 export type AddressedQuestionStatus = "yes" | "partially" | "no";
 export type QualitativeRating = "strong" | "acceptable" | "weak" | "insufficient_evidence";
 export type QualitativeConfidence = "high" | "medium" | "low";
@@ -281,35 +282,6 @@ function hasAny(answer: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(answer));
 }
 
-export function classifyBehaviouralQuestion(q: {
-  id: string;
-  question: string;
-  type?: string;
-  competency?: string;
-  source?: string;
-}): BehaviouralQualitativeQuestionType {
-  const id = q.id.toLowerCase();
-  const type = (q.type ?? "").toLowerCase();
-  const text = q.question.toLowerCase();
-  const source = (q.source ?? "").toLowerCase();
-
-  if (id === "tell_me_about_yourself" || type === "intro" || /^tell me about yourself[.?]?$/.test(text)) {
-    return "introduction";
-  }
-  if (id === "why_this_company" || source.includes("company") || /\bwhy\b.*\bwork at\b|\bthis company\b|\btenazx\b|\brevature\b/.test(text)) {
-    return "company_fit";
-  }
-  if (
-    id === "why_this_role" ||
-    id === "why_consulting" ||
-    (type === "motivation" && !source.includes("company")) ||
-    /\bwhy\b.*\b(role|consulting)\b|\binterested\b.*\b(role|consulting)\b/.test(text)
-  ) {
-    return "motivation_role_fit";
-  }
-  return "competency_star";
-}
-
 function expectedQuestionCues(question: string, questionType: BehaviouralQualitativeQuestionType): { label: string; patterns: RegExp[] } | null {
   const q = question.toLowerCase();
   if (questionType === "introduction") {
@@ -326,6 +298,12 @@ function expectedQuestionCues(question: string, questionType: BehaviouralQualita
     return {
       label: "interest in the company",
       patterns: [/\bcompany\b/i, /\bteam\b/i, /\bmission\b/i, /\bculture\b/i, /\bproduct\b/i, /\bclient\b/i, new RegExp(`\\b${company ?? "company"}\\b`, "i")],
+    };
+  }
+  if (questionType === "self_assessment") {
+    return {
+      label: "self-assessment with supporting evidence",
+      patterns: [/\bstrength/i, /\bweakness/i, /\bself\b/i, /\baware/i, /\blearn/i, /\bapplied\b/i, /\bexample\b/i, /\bfeedback\b/i],
     };
   }
   if (/\bstrength/.test(q)) {
@@ -459,6 +437,10 @@ function missingElements(
     if (!/\b(company|team|mission|product|client|culture|industry|market|revature|tenazx)\b/i.test(answer)) gaps.push("Company-specific research or detail.");
     if (!/\bwhy|because|drawn|interested|value|fit|align/i.test(answer)) gaps.push("A clear reason this company is a fit for you.");
     if (f.words < 25) gaps.push("More substance than a generic positive statement about the company.");
+  } else if (questionType === "self_assessment") {
+    if (!/\b(strength|weakness|self|aware|feedback|learn|improve|applied)\b/i.test(answer)) gaps.push("A clear self-assessment statement.");
+    if (f.words < 25 || (f.numbers === 0 && f.namedEntities === 0 && !f.hasSituation)) gaps.push("Supporting evidence or an example showing the trait in practice.");
+    if (!/\b(role|work|team|project|client|analyst|data|business|contribution)\b/i.test(answer)) gaps.push("A clearer link between the trait and role-relevant performance.");
   } else {
     for (const star of missingStarElements(answer, questionType)) gaps.push(`Missing ${STAR_LABEL[star]}.`);
     if (f.numbers === 0) gaps.push("A quantified metric, scale, or before/after measure.");
@@ -533,6 +515,7 @@ function questionFocus(question: string, questionType: BehaviouralQualitativeQue
   if (questionType === "introduction") return "your background, target direction, and role-relevant strengths";
   if (questionType === "motivation_role_fit") return "why this role fits your interests, skills, and career direction";
   if (questionType === "company_fit") return "specific reasons this company fits your goals and values";
+  if (questionType === "self_assessment") return "the trait, a specific example, and why it matters for the role";
   const terms = salientWords(question).slice(0, 4);
   return terms.length ? terms.join(" / ") : "the prompt";
 }
@@ -547,6 +530,9 @@ function improvedOutline(question: string, questionType: BehaviouralQualitativeQ
   }
   if (questionType === "company_fit") {
     return `Name one specific company detail, explain why it matters to you, connect it to your background, and state how you would contribute.`;
+  }
+  if (questionType === "self_assessment") {
+    return `Name the trait directly, give one concise example showing it in action, explain what you learned or delivered, and connect it to the role.`;
   }
   const missingText = missing.length ? ` Prioritize: ${missing.join(", ")}.` : "";
   return `S: name the setting. T: state your responsibility. A: give two specific actions you personally took. R: close with the measured outcome and what it proves.${missingText}`;
@@ -620,6 +606,9 @@ function fallbackTopPriorities(
   }
   if (answers.some((a) => a.question_type === "motivation_role_fit" || a.question_type === "company_fit")) {
     priorities.push("Make fit answers specific: name the role or company detail and connect it to your background.");
+  }
+  if (answers.some((a) => a.question_type === "self_assessment")) {
+    priorities.push("For self-assessment questions, name the trait and support it with a concise example.");
   }
   priorities.push("Keep each answer concise, responsive, and interview-appropriate.");
   priorities.push("Name your personal contribution before describing what the team did.");
@@ -810,7 +799,7 @@ function qualitativePrompt(baseAnswers: BaseAnswerInput[], totalQuestions: numbe
     answered_questions: baseAnswers.length,
     rules: [
       "Question_type is deterministic and immutable; do not reclassify it.",
-      "Do not apply STAR criticism to introduction, motivation_role_fit, or company_fit questions.",
+      "Do not apply STAR criticism to introduction, motivation_role_fit, company_fit, or self_assessment questions.",
       "Assess interview_engagement only from observable effort, relevance, responsiveness, and interview-appropriate language.",
       "Do not invent or rewrite candidate_excerpt. Do not return candidate_excerpt at all; the server will attach it.",
       "mapping_confidence is input-only transcript alignment context. Do not return mapping_confidence.",
@@ -846,6 +835,7 @@ function qualitativePrompt(baseAnswers: BaseAnswerInput[], totalQuestions: numbe
     "- introduction: concise background, role-relevant positioning, target direction.",
     "- motivation_role_fit: role-specific reasons, credible skill/interest link, contribution.",
     "- company_fit: company-specific detail, authentic reason, connection to candidate background.",
+    "- self_assessment: clear trait, supporting example, self-awareness, role relevance.",
     "- competency_star: Situation, Task, Action, Result, evidence, impact.",
     "",
     "Input JSON:",

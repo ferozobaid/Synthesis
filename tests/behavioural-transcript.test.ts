@@ -32,6 +32,9 @@ const QUESTIONS: OrderedQuestion[] = [
 const REAL_MESSAGES = (realReport as { message: { artifact: { messages: TranscriptMessage[] } } })
   .message.artifact.messages;
 
+const STRONG_STAR =
+  "During my final-year consulting project, our team's churn model was unstable before the deadline. As team lead, I was responsible for getting us back on track. I organized a 45-minute reset, reassigned work by strength, and I rebuilt the model with a simpler logistic regression baseline using Python. As a result, we delivered on time and found three churn drivers explaining 62% of at-risk accounts.";
+
 beforeEach(() => {
   process.env.SYNTHESIS_USE_MOCKS = "true";
 });
@@ -154,6 +157,7 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
     expect(classifyBehaviouralQuestion({ id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" })).toBe("introduction");
     expect(classifyBehaviouralQuestion({ id: "why_this_role", question: "Why are you interested in this role?", type: "motivation" })).toBe("motivation_role_fit");
     expect(classifyBehaviouralQuestion({ id: "why_this_company", question: "Why do you want to work at Revature?", type: "motivation", source: "parsed JD company name" })).toBe("company_fit");
+    expect(classifyBehaviouralQuestion({ id: "greatest_strength", question: "What are your greatest strengths, and how have you applied them?", type: "self-assessment" })).toBe("self_assessment");
     expect(classifyBehaviouralQuestion({ id: "leadership", question: "Tell me about a time you led a team.", type: "star" })).toBe("competency_star");
   });
 
@@ -162,6 +166,7 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
       { id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" },
       { id: "why_this_role", question: "Why are you interested in this role?", type: "motivation" },
       { id: "why_this_company", question: "Why do you want to work at Revature?", type: "motivation", source: "parsed JD company name" },
+      { id: "greatest_strength", question: "What are your greatest strengths, and how have you applied them?", type: "self-assessment" },
     ];
     const messages: TranscriptMessage[] = [
       { role: "bot", message: "1) Tell me about yourself." },
@@ -170,6 +175,8 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
       { role: "user", message: "I am interested in this role because it combines data analysis, business problem solving, and stakeholder communication." },
       { role: "bot", message: "3) Why do you want to work at Revature?" },
       { role: "user", message: "Revature interests me because the company develops technical talent and works with clients on practical technology problems." },
+      { role: "bot", message: "4) What are your greatest strengths, and how have you applied them?" },
+      { role: "user", message: "My strength is self-awareness. I use feedback from project reviews to improve how I communicate analysis in team settings." },
     ];
 
     const { report } = await scoreTranscript(qs, messages, mockAnswerBank());
@@ -295,6 +302,40 @@ describe("scoreTranscript — reuses the existing engine", () => {
     expect(report.qualitative?.overall_patterns.length).toBeGreaterThan(0);
     expect(report.qualitative?.top_three_priorities).toHaveLength(3);
     expect(report.qualitative?.answers[0].addressed_question).toMatch(/yes|partially|no/);
+  });
+
+  it("uses question metadata for post-call numeric scoring profiles", async () => {
+    const qs: OrderedQuestion[] = [
+      { id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" },
+      { id: "greatest_strength", question: "What are your greatest strengths, and how have you applied them?", type: "self-assessment" },
+      { id: "leadership", question: "Tell me about a time you led a team through a difficult situation.", type: "star" },
+    ];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "1) Tell me about yourself." },
+      { role: "user", message: "I am a data analyst with SQL dashboard and client reporting experience, targeting analytics roles." },
+      { role: "bot", message: "2) What are your greatest strengths, and how have you applied them?" },
+      { role: "user", message: "My strength is self-awareness. I use feedback from team reviews to improve how I explain analysis." },
+      { role: "bot", message: "3) Tell me about a time you led a team through a difficult situation." },
+      { role: "user", message: STRONG_STAR },
+    ];
+
+    const { session } = await scoreTranscript(qs, messages, mockAnswerBank());
+
+    expect(session.scores?.tell_me_about_yourself?.dimension_scores.map((d) => d.dimension)).toEqual([
+      "Professional positioning",
+      "Relevance",
+      "Specificity",
+      "Clarity",
+      "Concision",
+    ]);
+    expect(session.scores?.greatest_strength?.dimension_scores.map((d) => d.dimension)).toEqual([
+      "Self-awareness",
+      "Supporting evidence",
+      "Role relevance",
+      "Credibility",
+      "Clarity",
+    ]);
+    expect(session.scores?.leadership?.dimension_scores.map((d) => d.dimension)).toContain("STAR structure");
   });
 
   it("keeps numeric summary calculations identical with qualitative feedback attached", async () => {

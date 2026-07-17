@@ -220,7 +220,14 @@ export async function scoreTranscript(
     const matches = await retrieveAnswer(a.question, bank, 1);
     const top = matches[0];
     const prepared = top && top.score >= RELEVANCE_THRESHOLD ? top.item : null;
-    const score = await evaluateBehavioural(a.question, a.answer, prepared);
+    const score = await evaluateBehavioural(a.question, a.answer, prepared, {
+      id: a.questionId,
+      question: a.question,
+      competency: a.competency,
+      type: a.type,
+      source: a.source,
+      fallback_company: a.fallback_company,
+    });
     return [a.questionId, score] as const;
   });
 
@@ -231,7 +238,14 @@ export async function scoreTranscript(
     id: opts?.sessionId ?? "voice-report",
     user_id: opts?.userId ?? DEFAULT_USER_ID,
     jd_id: null,
-    questions_asked: questions.map((q) => ({ question_id: q.id, question: q.question })),
+    questions_asked: questions.map((q) => ({
+      question_id: q.id,
+      question: q.question,
+      competency: q.competency,
+      type: q.type,
+      source: q.source,
+      fallback_company: q.fallback_company,
+    })),
     scores,
     feedback: null,
     created_at: new Date().toISOString(),

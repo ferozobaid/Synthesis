@@ -22,6 +22,11 @@ import { complete, extractJSON } from "@/lib/claude";
 import { useMocks } from "@/lib/config";
 import { containment } from "@/lib/text";
 import { extractCanonicalSkills } from "@/lib/onet";
+import {
+  classifyBehaviouralQuestion,
+  type BehaviouralQuestionClassificationInput,
+  type BehaviouralQuestionType,
+} from "@/lib/behavioural/question-types";
 import type { AnswerBankEntry, BehaviouralScore } from "@/lib/types";
 
 export const BEHAVIOURAL_DIMENSIONS = [
@@ -39,6 +44,199 @@ export const DIM_LABEL: Record<BehaviouralDimension, string> = {
   ownership: "Ownership",
   impact: "Impact / result",
   key_point_coverage: "Key-point coverage",
+};
+
+export interface BehaviouralScoringContext extends BehaviouralQuestionClassificationInput {
+  questionId?: string;
+  fallback_company?: string;
+}
+
+type NonStarQuestionType = Exclude<BehaviouralQuestionType, "competency_star">;
+
+interface NonStarDimensionSpec {
+  label: string;
+  rubric: string;
+  high: string;
+  mid: string;
+  low: string;
+  improvement: string;
+  evidence?: boolean;
+}
+
+const NON_STAR_PROFILES: Record<NonStarQuestionType, readonly NonStarDimensionSpec[]> = {
+  introduction: [
+    {
+      label: "Professional positioning",
+      rubric: "clear current background, target direction, and role-ready identity",
+      high: "Clearly positions the candidate with a role-ready professional identity.",
+      mid: "Gives some professional positioning, but the target direction is partly implicit.",
+      low: "Does not clearly explain who the candidate is professionally.",
+      improvement: "State your current background and the role-relevant direction you are targeting.",
+    },
+    {
+      label: "Relevance",
+      rubric: "links background to the target role or interview context",
+      high: "Connects the background directly to the target role.",
+      mid: "Has some relevant material, but the role connection needs tightening.",
+      low: "The answer does not clearly connect to the target role.",
+      improvement: "Tie the introduction to the role, business problem, or skills the interviewer is evaluating.",
+    },
+    {
+      label: "Specificity",
+      rubric: "uses concrete skills, projects, tools, domains, or measurable facts",
+      high: "Includes concrete skills, projects, tools, or evidence.",
+      mid: "Includes a few specifics, but still reads partly generic.",
+      low: "Stays generic with little concrete evidence.",
+      improvement: "Add one concrete project, skill, tool, domain, or measurable result.",
+      evidence: true,
+    },
+    {
+      label: "Clarity",
+      rubric: "easy to follow, direct, and interview-appropriate",
+      high: "The answer is clear and easy to follow.",
+      mid: "Mostly clear, with some room to tighten the phrasing.",
+      low: "The answer is hard to follow or too thin to assess clearly.",
+      improvement: "Use a simple sequence: background, relevant experience, target direction.",
+    },
+    {
+      label: "Concision",
+      rubric: "complete but not rambling",
+      high: "Gives enough context without rambling.",
+      mid: "Length is workable, but it could be tighter or more complete.",
+      low: "The answer is either too thin or too unfocused.",
+      improvement: "Keep the introduction to a concise, complete 30-90 second arc.",
+    },
+  ],
+  motivation_role_fit: [
+    {
+      label: "Role-specific motivation",
+      rubric: "specific reasons for interest in this role or consulting path",
+      high: "Gives role-specific reasons for the interest.",
+      mid: "Shows some interest, but the role-specific reason needs sharpening.",
+      low: "Motivation sounds generic or unclear.",
+      improvement: "Name why this role specifically interests you, not just the field in general.",
+    },
+    {
+      label: "Skill/experience fit",
+      rubric: "connects motivation to candidate skills, experience, or career direction",
+      high: "Connects the role to concrete skills or experience.",
+      mid: "Mentions fit, but the evidence is thin.",
+      low: "Does not show why the candidate fits the role.",
+      improvement: "Connect the role to one concrete skill, project, or experience from your background.",
+    },
+    {
+      label: "Credibility",
+      rubric: "sounds grounded, authentic, and backed by observable effort",
+      high: "Motivation sounds grounded and credible.",
+      mid: "Generally plausible, but needs more evidence.",
+      low: "The answer gives little reason to believe the motivation is grounded.",
+      improvement: "Add a specific reason or experience that makes the motivation credible.",
+    },
+    {
+      label: "Specificity",
+      rubric: "uses concrete role details, work examples, or domain details",
+      high: "Includes concrete role, work, or domain detail.",
+      mid: "Some detail is present, but it remains partly generic.",
+      low: "Lacks specific detail.",
+      improvement: "Add a concrete role responsibility, skill, client problem, or project detail.",
+      evidence: true,
+    },
+    {
+      label: "Clarity",
+      rubric: "directly answers the why-this-role question",
+      high: "The answer is direct and easy to follow.",
+      mid: "The answer is understandable, but could be structured more directly.",
+      low: "The answer does not clearly answer the role-fit question.",
+      improvement: "Lead with the reason, then support it with one concise example.",
+    },
+  ],
+  company_fit: [
+    {
+      label: "Company knowledge",
+      rubric: "mentions specific company, product, client, market, mission, or culture details",
+      high: "Shows specific knowledge of the company.",
+      mid: "Mentions the company, but the detail is limited.",
+      low: "Does not show company-specific knowledge.",
+      improvement: "Name one specific company, product, client, market, mission, or culture detail.",
+      evidence: true,
+    },
+    {
+      label: "Alignment",
+      rubric: "connects company details to candidate goals, values, or work style",
+      high: "Clearly connects the company to candidate goals or values.",
+      mid: "Shows some fit, but the connection is underdeveloped.",
+      low: "Does not explain why the company is a fit.",
+      improvement: "Explain why that company detail matters to your goals, values, or work style.",
+    },
+    {
+      label: "Specificity",
+      rubric: "avoids generic praise by giving concrete reasons",
+      high: "Uses concrete reasons rather than generic praise.",
+      mid: "Some specificity is present, but parts could apply to many companies.",
+      low: "Relies on generic praise.",
+      improvement: "Replace generic praise with one precise reason this company stands out.",
+      evidence: true,
+    },
+    {
+      label: "Authenticity",
+      rubric: "candidate-owned reason, not a brochure summary",
+      high: "The reason sounds candidate-owned and authentic.",
+      mid: "The answer is plausible, but needs a more personal link.",
+      low: "The answer sounds generic or disconnected from the candidate.",
+      improvement: "Connect the company reason to your own experience, interests, or contribution.",
+    },
+    {
+      label: "Clarity",
+      rubric: "directly answers why this company",
+      high: "Directly and clearly answers why this company.",
+      mid: "Mostly clear, but the reasoning could be more direct.",
+      low: "The answer does not clearly answer the company-fit question.",
+      improvement: "Use a direct because-statement followed by one supporting detail.",
+    },
+  ],
+  self_assessment: [
+    {
+      label: "Self-awareness",
+      rubric: "names a real strength, weakness, or trait with appropriate reflection",
+      high: "Shows clear self-awareness about the trait.",
+      mid: "Names a trait, but reflection is limited.",
+      low: "Does not clearly show self-awareness.",
+      improvement: "Name the trait directly and explain how you know it matters.",
+    },
+    {
+      label: "Supporting evidence",
+      rubric: "uses an example, feedback, result, or observed behavior",
+      high: "Supports the trait with concrete evidence.",
+      mid: "Provides some support, but the example is thin.",
+      low: "Gives little evidence for the self-assessment.",
+      improvement: "Add a concise example, feedback signal, or result that proves the trait.",
+      evidence: true,
+    },
+    {
+      label: "Role relevance",
+      rubric: "connects the trait to role-relevant performance",
+      high: "Connects the trait clearly to role performance.",
+      mid: "The trait is plausible, but the role link needs work.",
+      low: "Does not show why the trait matters for the role.",
+      improvement: "Explain how the trait helps you perform in the target role.",
+    },
+    {
+      label: "Credibility",
+      rubric: "balanced, believable, and not overclaimed",
+      high: "The claim is balanced and credible.",
+      mid: "Generally believable, but needs more grounding.",
+      low: "The claim sounds unsupported or generic.",
+      improvement: "Make the claim more credible with a measured, specific example.",
+    },
+    {
+      label: "Clarity",
+      rubric: "direct, structured, and easy to follow",
+      high: "The self-assessment is clear and easy to follow.",
+      mid: "Understandable, but could be structured more cleanly.",
+      low: "The answer is hard to follow or too thin.",
+      improvement: "Use a clear structure: trait, evidence, role relevance.",
+    },
+  ],
 };
 
 /** One-line example of each STAR element, used in feedback when one is missing. */
@@ -135,6 +333,161 @@ export function extractFeatures(answer: string): Features {
 // --------------------------------------------------------------------------- //
 function clamp15(x: number): number {
   return Math.max(1, Math.min(5, Math.round(x)));
+}
+
+function questionTypeFor(
+  question: string,
+  context?: BehaviouralScoringContext,
+): BehaviouralQuestionType {
+  if (!context) return "competency_star";
+  return classifyBehaviouralQuestion({
+    id: context.id ?? context.questionId,
+    question: context.question ?? question,
+    type: context.type,
+    competency: context.competency,
+    source: context.source,
+  });
+}
+
+function isNonStarQuestionType(type: BehaviouralQuestionType): type is NonStarQuestionType {
+  return type !== "competency_star";
+}
+
+function has(re: RegExp, s: string): boolean {
+  return re.test(s);
+}
+
+function scoreSignals(...signals: boolean[]): number {
+  return clamp15(1 + signals.filter(Boolean).length);
+}
+
+function genericSpecificityScore(f: Features): number {
+  let score = 1;
+  if (f.words >= 20) score += 1;
+  if (f.numbers >= 1 || f.namedEntities >= 1) score += 1;
+  if (f.numbers + f.namedEntities >= 2) score += 1;
+  if (f.words >= 35 && (f.actionVerbs >= 1 || f.outcomeLanguage >= 1)) score += 1;
+  if (f.words < 10) score = Math.min(score, 2);
+  return clamp15(score);
+}
+
+function clarityScore(f: Features, answer: string): number {
+  const sentenceLike = /[.!?]/.test(answer) || f.words <= 35;
+  let score = scoreSignals(
+    f.words >= 12,
+    sentenceLike,
+    f.hedges <= 1,
+    f.words <= 160,
+  );
+  if (f.words < 6) score = 1;
+  return score;
+}
+
+function concisionScore(f: Features): number {
+  if (f.words < 8) return 1;
+  if (f.words < 18) return 2;
+  if (f.words <= 95) return 5;
+  if (f.words <= 130) return 4;
+  if (f.words <= 170) return 3;
+  return 2;
+}
+
+function noSubstantiveAnswer(answer: string, f: Features): boolean {
+  return f.words < 5 || /\b(i do not know|i don't know|not sure|no idea|hmm|literally now)\b/i.test(answer);
+}
+
+function companyNameFromQuestion(question: string): string | null {
+  const match = question.match(/\b(?:at|for|with)\s+([A-Z][A-Za-z0-9&.'-]+)/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function nonStarDimensionScores(
+  question: string,
+  answer: string,
+  questionType: NonStarQuestionType,
+): number[] {
+  const f = extractFeatures(answer);
+  if (noSubstantiveAnswer(answer, f)) return [1, 1, 1, 1, 1];
+
+  const a = answer.toLowerCase();
+  const q = question.toLowerCase();
+  const company = companyNameFromQuestion(question);
+  const hasFirstPerson = has(/\b(i|my|me)\b/i, answer);
+  const hasBecause = has(/\b(because|drawn to|interested in|excited by|motivated by|appeals to|aligns? with|value)\b/i, answer);
+  const roleTerms = has(/\b(role|consulting|consultant|analyst|data|client|business|problem|stakeholder|project|career)\b/i, answer);
+  const companyTerms =
+    has(/\b(company|team|mission|product|client|culture|industry|market|values|technology|talent)\b/i, answer) ||
+    (!!company && a.includes(company));
+  const selfTerms = has(/\b(strength|weakness|self|aware|feedback|learn|improve|applied|trait)\b/i, answer);
+  const evidence = f.numbers >= 1 || f.namedEntities >= 1 || f.hasSituation || f.hasAction;
+  const clarity = clarityScore(f, answer);
+  const specificity = genericSpecificityScore(f);
+
+  if (questionType === "introduction") {
+    const positioning = scoreSignals(
+      has(/\b(data|analyst|consult|business|technical|engineering|student|graduate|professional|background|experience)\b/i, answer),
+      has(/\b(project|internship|role|work|experience|skill|built|led|analy[sz]ed)\b/i, answer),
+      has(/\b(target|looking|interested|goal|career|next|want)\b/i, answer),
+      f.words >= 25,
+    );
+    const relevance = scoreSignals(
+      roleTerms,
+      has(/\b(skill|project|experience|analysis|client|business|technical|data)\b/i, answer),
+      hasFirstPerson,
+      f.words >= 20,
+    );
+    return [positioning, relevance, specificity, clarity, concisionScore(f)];
+  }
+
+  if (questionType === "motivation_role_fit") {
+    const motivation = scoreSignals(
+      hasBecause,
+      roleTerms || /\bconsult/.test(q),
+      has(/\b(solve|build|analy[sz]e|learn|impact|client|business|problem)\b/i, answer),
+      f.words >= 20,
+    );
+    const fit = scoreSignals(
+      hasFirstPerson,
+      has(/\b(skill|experience|project|background|strength|worked|built|analy[sz]ed)\b/i, answer),
+      roleTerms,
+      evidence,
+    );
+    const credibility = scoreSignals(hasFirstPerson, hasBecause, evidence, f.hedges <= 1 && f.words >= 20);
+    return [motivation, fit, credibility, specificity, clarity];
+  }
+
+  if (questionType === "company_fit") {
+    const knowledge = scoreSignals(
+      companyTerms,
+      !!company && a.includes(company),
+      has(/\b(product|client|mission|culture|market|industry|team|technology|talent)\b/i, answer),
+      f.namedEntities >= 1 || f.words >= 30,
+    );
+    const alignment = scoreSignals(
+      hasBecause,
+      hasFirstPerson,
+      has(/\b(goal|values|career|fit|align|contribute|impact|learn|work style)\b/i, answer),
+      f.words >= 20,
+    );
+    const authenticity = scoreSignals(hasFirstPerson, hasBecause, evidence || f.words >= 30, f.hedges <= 1);
+    return [knowledge, alignment, specificity, authenticity, clarity];
+  }
+
+  const selfAwareness = scoreSignals(
+    selfTerms,
+    hasFirstPerson,
+    has(/\b(learn|feedback|improve|aware|because|noticed|developed)\b/i, answer),
+    f.words >= 20,
+  );
+  const supportingEvidence = scoreSignals(evidence, f.words >= 25, f.actionVerbs >= 1, f.outcomeLanguage >= 1 || f.numbers >= 1);
+  const roleRelevance = scoreSignals(
+    roleTerms,
+    has(/\b(work|team|project|client|business|analysis|data|contribution|perform)\b/i, answer),
+    hasFirstPerson,
+    f.words >= 20,
+  );
+  const credibility = scoreSignals(hasFirstPerson, selfTerms, evidence, f.hedges <= 1 && f.words >= 20);
+  return [selfAwareness, supportingEvidence, roleRelevance, credibility, clarity];
 }
 
 export function scoreDimensions(
@@ -303,12 +656,62 @@ function buildScore(
   return { dimension_scores, overall, covered_key_points, missed_key_points, strengths, improvements };
 }
 
+function nonStarJustify(spec: NonStarDimensionSpec, score: number): string {
+  if (score >= 4) return spec.high;
+  if (score >= 3) return spec.mid;
+  return spec.low;
+}
+
+function buildNonStarScore(
+  question: string,
+  answer: string,
+  questionType: NonStarQuestionType,
+): BehaviouralScore {
+  const profile = NON_STAR_PROFILES[questionType];
+  const scores = nonStarDimensionScores(question, answer, questionType);
+  const snippet = answer.trim().replace(/\s+/g, " ").slice(0, 140);
+  const dimension_scores = profile.map((spec, i) => ({
+    dimension: spec.label,
+    score: clamp15(scores[i] ?? 1),
+    justification: nonStarJustify(spec, scores[i] ?? 1),
+    ...(spec.evidence && snippet ? { evidence: snippet } : {}),
+  }));
+  const overall = round1(
+    dimension_scores.reduce((sum, d) => sum + d.score, 0) / dimension_scores.length,
+  );
+  const strengths = dimension_scores
+    .filter((d) => d.score >= 4)
+    .map((d) => `${d.dimension} was comparatively strong.`)
+    .slice(0, 4);
+  const improvements = profile
+    .filter((spec, i) => (scores[i] ?? 1) <= 2)
+    .map((spec) => spec.improvement);
+
+  if (noSubstantiveAnswer(answer, extractFeatures(answer))) {
+    improvements.unshift("Give a substantive answer that directly addresses the question.");
+  }
+
+  return {
+    dimension_scores,
+    overall,
+    covered_key_points: [],
+    missed_key_points: [],
+    strengths,
+    improvements: [...new Set(improvements)],
+  };
+}
+
 /** Deterministic, network-free heuristic evaluation (the mock-mode path). */
 export function heuristicEvaluation(
-  _question: string,
+  question: string,
   answer: string,
   prepared: AnswerBankEntry | null,
+  context?: BehaviouralScoringContext,
 ): BehaviouralScore {
+  const questionType = questionTypeFor(question, context);
+  if (isNonStarQuestionType(questionType)) {
+    return buildNonStarScore(question, answer, questionType);
+  }
   return buildScore(answer, prepared, scoreDimensions(answer, prepared));
 }
 
@@ -322,6 +725,12 @@ const RUBRIC_TEXT = [
   "- Impact / result (1-5): quantified, meaningful outcome vs. none.",
   "- Key-point coverage (1-5): does the answer cover the key points from the candidate's OWN prepared answer (below)? Omit this dimension entirely if no prepared answer is provided.",
 ].join("\n");
+
+function nonStarRubricText(questionType: NonStarQuestionType): string {
+  return NON_STAR_PROFILES[questionType]
+    .map((d) => `- ${d.label} (1-5): ${d.rubric}.`)
+    .join("\n");
+}
 
 function preparedText(p: AnswerBankEntry | null): string {
   if (!p) return "(no prepared answer was retrieved — do not score Key-point coverage)";
@@ -342,7 +751,13 @@ export function coerceScore(
   question: string,
   answer: string,
   prepared: AnswerBankEntry | null,
+  context?: BehaviouralScoringContext,
 ): BehaviouralScore {
+  const questionType = questionTypeFor(question, context);
+  if (isNonStarQuestionType(questionType)) {
+    return coerceNonStarScore(raw, question, answer, questionType);
+  }
+
   const r = raw as Partial<BehaviouralScore> | null;
   const ds = Array.isArray(r?.dimension_scores) ? r!.dimension_scores : [];
   if (ds.length === 0) return heuristicEvaluation(question, answer, prepared); // unusable → heuristic
@@ -384,11 +799,85 @@ export function coerceScore(
   };
 }
 
+function normalizedDimensionLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function noStarLanguage(items: string[]): string[] {
+  return items.filter((x) => !/\b(STAR|Situation|Task|Action|Result)\b/i.test(x));
+}
+
+function coerceNonStarScore(
+  raw: unknown,
+  question: string,
+  answer: string,
+  questionType: NonStarQuestionType,
+): BehaviouralScore {
+  const fallback = buildNonStarScore(question, answer, questionType);
+  const r = raw as Partial<BehaviouralScore> | null;
+  const ds = Array.isArray(r?.dimension_scores) ? r!.dimension_scores : [];
+  if (ds.length === 0) return fallback;
+
+  const byLabel = new Map(
+    ds
+      .filter((x) => x && x.dimension)
+      .map((x) => [
+        normalizedDimensionLabel(String(x.dimension)),
+        {
+          score: clamp15(Number(x.score) || 3),
+          justification: String(x.justification ?? ""),
+          evidence: x.evidence ? String(x.evidence) : undefined,
+        },
+      ]),
+  );
+  const fallbackByLabel = new Map(
+    fallback.dimension_scores.map((d) => [normalizedDimensionLabel(d.dimension), d]),
+  );
+
+  const dimension_scores = NON_STAR_PROFILES[questionType].map((spec) => {
+    const normalized = normalizedDimensionLabel(spec.label);
+    const model = byLabel.get(normalized);
+    const fb = fallbackByLabel.get(normalized);
+    const score = model?.score ?? fb?.score ?? 1;
+    const justification = model?.justification || fb?.justification || nonStarJustify(spec, score);
+    return {
+      dimension: spec.label,
+      score,
+      justification: hasStarAdvice(justification) ? nonStarJustify(spec, score) : justification,
+      ...(spec.evidence && (model?.evidence || fb?.evidence) ? { evidence: model?.evidence ?? fb?.evidence } : {}),
+    };
+  });
+  const overall = round1(
+    dimension_scores.reduce((sum, d) => sum + d.score, 0) / dimension_scores.length,
+  );
+  const modelStrengths = Array.isArray(r?.strengths) ? noStarLanguage(r!.strengths.map(String)) : [];
+  const modelImprovements = Array.isArray(r?.improvements) ? noStarLanguage(r!.improvements.map(String)) : [];
+
+  return {
+    dimension_scores,
+    overall,
+    covered_key_points: [],
+    missed_key_points: [],
+    strengths: modelStrengths.length ? modelStrengths : fallback.strengths,
+    improvements: modelImprovements.length ? modelImprovements : fallback.improvements,
+  };
+}
+
+function hasStarAdvice(text: string): boolean {
+  return /\b(STAR|Situation|Task|Action|Result)\b/i.test(text);
+}
+
 async function claudeEvaluation(
   question: string,
   answer: string,
   prepared: AnswerBankEntry | null,
+  context?: BehaviouralScoringContext,
 ): Promise<BehaviouralScore> {
+  const questionType = questionTypeFor(question, context);
+  if (isNonStarQuestionType(questionType)) {
+    return claudeNonStarEvaluation(question, answer, questionType);
+  }
+
   const system =
     "You are an interview coach scoring a single behavioural (STAR) answer against a fixed rubric. " +
     "Score only what the response demonstrates. Be strict and evidence-grounded. Return compact valid JSON only, with no prose outside the JSON.";
@@ -416,6 +905,37 @@ async function claudeEvaluation(
   }
 }
 
+async function claudeNonStarEvaluation(
+  question: string,
+  answer: string,
+  questionType: NonStarQuestionType,
+): Promise<BehaviouralScore> {
+  const labels = NON_STAR_PROFILES[questionType].map((d) => d.label).join("|");
+  const system =
+    "You are an interview coach scoring a single interview answer against a fixed question-type rubric. " +
+    "Score only what the response demonstrates. Do not use STAR criteria unless the rubric explicitly asks for it. Return compact valid JSON only, with no prose outside the JSON.";
+  const prompt = [
+    `Question type: ${questionType}`,
+    `Question: ${question}`,
+    "",
+    "Rubric (score each 1-5):",
+    nonStarRubricText(questionType),
+    "",
+    `Candidate's live response:\n"""${answer}"""`,
+    "",
+    "Feedback must reference only observable answer content. Do not mention STAR, Situation, Task, Action, or Result for this question type.",
+    "",
+    `Return JSON: {"dimension_scores":[{"dimension":"${labels}","score":1-5,"justification":"...","evidence":"short quote"}],"overall":1-5,"covered_key_points":[],"missed_key_points":[],"strengths":[],"improvements":[]}`,
+  ].join("\n");
+
+  try {
+    const text = await complete(prompt, { system, temperature: 0, maxTokens: 2000 });
+    return coerceScore(extractJSON(text), question, answer, null, { question, type: questionType });
+  } catch {
+    return buildNonStarScore(question, answer, questionType);
+  }
+}
+
 /**
  * Evaluate one behavioural response. Mock mode is the deterministic heuristic; real
  * mode prompts Haiku and coerces to the same `BehaviouralScore` shape.
@@ -424,7 +944,8 @@ export async function evaluateBehavioural(
   question: string,
   answer: string,
   prepared: AnswerBankEntry | null,
+  context?: BehaviouralScoringContext,
 ): Promise<BehaviouralScore> {
-  if (useMocks()) return heuristicEvaluation(question, answer, prepared);
-  return claudeEvaluation(question, answer, prepared);
+  if (useMocks()) return heuristicEvaluation(question, answer, prepared, context);
+  return claudeEvaluation(question, answer, prepared, context);
 }

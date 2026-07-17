@@ -98,6 +98,60 @@ describe("behavioural evaluator (mock heuristic)", () => {
       scoreDimensions(incomplete, prepared).star_structure as number,
     );
   });
+
+  it("preserves identical STAR scores when context is omitted or classified as competency_star", () => {
+    const question = "Tell me about a time you led a team through a difficult situation.";
+    const legacy = heuristicEvaluation(question, STRONG, prepared);
+    const typed = heuristicEvaluation(question, STRONG, prepared, {
+      id: "leadership",
+      question,
+      type: "star",
+      competency: "leadership & influence",
+    });
+
+    expect(typed).toEqual(legacy);
+  });
+
+  it("uses the introduction profile with five non-STAR dimensions", () => {
+    const question = "Tell me about yourself.";
+    const ev = heuristicEvaluation(
+      question,
+      "I am a data analyst with project experience in SQL dashboards and client reporting, and I am targeting analytics roles where I can connect business questions to clear data products.",
+      null,
+      { id: "tell_me_about_yourself", question, type: "intro" },
+    );
+
+    expect(ev.dimension_scores.map((d) => d.dimension)).toEqual([
+      "Professional positioning",
+      "Relevance",
+      "Specificity",
+      "Clarity",
+      "Concision",
+    ]);
+    expect(ev.dimension_scores).toHaveLength(5);
+    expect(JSON.stringify(ev)).not.toMatch(/\b(STAR|Situation|Task|Action|Result)\b/);
+  });
+
+  it("classifies and scores self-assessment separately from motivation", () => {
+    const question = "What are your greatest strengths, and how have you applied them?";
+    const ev = heuristicEvaluation(
+      question,
+      "One strength is self-awareness in team settings. I use feedback from project reviews to improve how I explain analysis, and that helps me contribute clearly in data roles.",
+      null,
+      { id: "greatest_strength", question, type: "self-assessment" },
+    );
+
+    expect(ev.dimension_scores.map((d) => d.dimension)).toEqual([
+      "Self-awareness",
+      "Supporting evidence",
+      "Role relevance",
+      "Credibility",
+      "Clarity",
+    ]);
+    expect(ev.dimension_scores).toHaveLength(5);
+    expect(ev.dimension_scores.map((d) => d.dimension)).not.toContain("Role-specific motivation");
+    expect(JSON.stringify(ev.improvements)).not.toMatch(/\b(STAR|Situation|Task|Action|Result)\b/);
+  });
 });
 
 describe("behavioural evaluator (real-mode coercion — F2: key-point coverage N/A)", () => {
