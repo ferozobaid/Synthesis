@@ -1,0 +1,55 @@
+{
+  "_comment": "Real Vapi end-of-call-report from the Synthesis Behavioural Interviewer. Structure preserved; sensitive VALUES redacted (candidate first name -> [name]; sessionId is a test placeholder; per-word confidence arrays dropped). Used as the canonical transcript-mapping test case: pre-question small talk, a repeated Q1, a mid-question clarification, short/non-answers, and all 14 ordered questions.",
+  "message": {
+    "type": "end-of-call-report",
+    "endedReason": "assistant-ended-call",
+    "call": {
+      "id": "019f0000-0000-0000-0000-0000000f3801",
+      "assistantId": "eb211b6a-c9e1-4fa5-99e6-176af1a03013"
+    },
+    "artifact": {
+      "variableValues": { "sessionId": "SESSION_ID_PLACEHOLDER" },
+      "transcript": "(redacted convenience string; use artifact.messages)",
+      "messages": [
+        { "role": "system", "message": "You are conducting a behavioural interview for the Data Analyst role at Tenazx Inc with . Ask these questions in order, one at a time; never skip, merge, reorder, or replace any:\n1. Tell me about yourself.\n2. Why are you interested in the Data Analyst role?\n3. Why do you want to work at Tenazx Inc?\n4. Why are you interested in consulting?\n5. What are your greatest strengths, and how have you applied them?\n6. Tell me about a time you failed and what you learned.\n7. Tell me about a time you led a team through a difficult situation.\n8. Tell me about a time you had a conflict with a teammate and how you resolved it.\n9. Tell me about a time you dealt with significant ambiguity.\n10. Tell me about a time you influenced others without formal authority.\n11. Tell me about a time you used data to make a decision.\n12. Tell me about a time you delivered high-quality work under a tight deadline.\n13. Tell me about a time you worked cross-functionally.\n14. Tell me about a time you went beyond what was asked.", "secondsFromStart": 0 },
+        { "role": "bot", "message": "Hello, I'm your synthesis behavioral interviewer for the data analyst role at Tenazx, Inc. I'll ask one question at a time, and wait for your complete response. Here is your first question.", "secondsFromStart": 0.661 },
+        { "role": "user", "message": "You're not asking me the question, you're just, like, reading the question now.", "secondsFromStart": 19.68 },
+        { "role": "bot", "message": "Thank you for your feedback. Let's get started. 1) Tell me about yourself.", "secondsFromStart": 23.641 },
+        { "role": "user", "message": "Uh, it's still not in silk.", "secondsFromStart": 29.52 },
+        { "role": "bot", "message": "Thank you for letting me know. Let's begin. 1) Tell me about yourself.", "secondsFromStart": 33.301 },
+        { "role": "user", "message": "Yeah, I'm good. How are you?", "secondsFromStart": 39.36 },
+        { "role": "bot", "message": "I'm doing well, thank you. To get us started, could you tell me a bit. About your background and experience? 2) Why are you interested in the data analyst role?", "secondsFromStart": 42.481 },
+        { "role": "user", "message": "Good question. Uh— I'm [name], I'm a data analyst guy. And I would love to have a data analyst role to make some money.", "secondsFromStart": 55.44 },
+        { "role": "bot", "message": "Thank you for sharing that, [name]. 3) Why do you want to work at Tenaz, Inc.?", "secondsFromStart": 64.741 },
+        { "role": "user", "message": "Hmm. I've heard they pay really well.", "secondsFromStart": 74.7 },
+        { "role": "bot", "message": "Thank you for your answer. 4) Why are you interested in consulting?", "secondsFromStart": 78.661 },
+        { "role": "user", "message": "Uh, I know how to network. And I think I have a way with people.", "secondsFromStart": 85.32 },
+        { "role": "bot", "message": "Thank you for your response. 5) What are your greatest strengths, and how have you applied them?", "secondsFromStart": 91.441 },
+        { "role": "user", "message": "My greatest strengths are the— I have a way at. One with people and one with process.", "secondsFromStart": 100.08 },
+        { "role": "bot", "message": "Thank you for your answer. Just to clarify, could you share a specific strength you have in your work as a data analyst, and an example of how you've used it?", "secondsFromStart": 106.741 },
+        { "role": "user", "message": "Dude, I'm at an Excel Ways— I know Excel shortcuts— such as Command, Option, Space. And then slash, ESU.", "secondsFromStart": 118.02 },
+        { "role": "bot", "message": "Thank you for sharing your expertise with Excel shortcuts. 6) Tell me about a time you failed and what you learned.", "secondsFromStart": 132.241 },
+        { "role": "user", "message": "Hmm, I failed. I've never failed, man. To be honest with you.", "secondsFromStart": 142.62 },
+        { "role": "bot", "message": "Thank you for your honesty. 7) Tell me about a time you led a team through a difficult situation.", "secondsFromStart": 149.461 },
+        { "role": "user", "message": "Literally now?", "secondsFromStart": 158.82 },
+        { "role": "bot", "message": "Thank you for your response. 8) Tell me about a time you had a conflict with a teammate and how you resolved it.", "secondsFromStart": 162.181 },
+        { "role": "user", "message": "I had a disagreement with the first one and then the second one. And the third one was so surprised, he just, like, came in line.", "secondsFromStart": 170.88 },
+        { "role": "bot", "message": "Thank you for your answer. 9) Tell me about a time you dealt with significant ambiguity.", "secondsFromStart": 180.841 },
+        { "role": "user", "message": "I never— I'm bakery UT. I am show lead.", "secondsFromStart": 189.54 },
+        { "role": "bot", "message": "Thank you for your response. 10) Tell me about a time you influenced others without formal authority.", "secondsFromStart": 196.621 },
+        { "role": "user", "message": "I told them I'm going to make them an offer they can't refuse.", "secondsFromStart": 205.08 },
+        { "role": "bot", "message": "Thank you for your answer. 11) Tell me about a time you used data to make a decision.", "secondsFromStart": 209.101 },
+        { "role": "user", "message": "Hmm. On a betting platform.", "secondsFromStart": 217.38 },
+        { "role": "bot", "message": "Thank you for your response. 12) Tell me about a time you delivered high-quality work under a tight deadline.", "secondsFromStart": 221.821 },
+        { "role": "user", "message": "Hmm. Never happened to me. I make the deadlines.", "secondsFromStart": 230.28 },
+        { "role": "bot", "message": "Thank you for your answer. 13) Tell me about a time you worked cross-functionally.", "secondsFromStart": 234.661 },
+        { "role": "user", "message": "Hmm. Across a few teams once.", "secondsFromStart": 241.92 },
+        { "role": "bot", "message": "Thank you for your response. 14) Tell me about a time you went beyond what was asked.", "secondsFromStart": 244.681 },
+        { "role": "user", "message": "Hmm.", "secondsFromStart": 251.58 },
+        { "role": "bot", "message": "Thank you for your answer. That concludes our interview. If you have any questions or need further information, please let me know. Have a great day.", "secondsFromStart": 253.681 },
+        { "role": "user", "message": "Thank you.", "secondsFromStart": 263.58 },
+        { "role": "bot", "message": "You're welcome. Thank you for your time today. Have a great day.", "secondsFromStart": 265.621 }
+      ]
+    }
+  }
+}

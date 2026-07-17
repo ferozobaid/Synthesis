@@ -165,7 +165,14 @@ export interface BehaviouralSession {
   id: string;
   user_id: string;
   jd_id: string | null;
-  questions_asked: { question_id: string; question: string }[] | null;
+  questions_asked: {
+    question_id: string;
+    question: string;
+    competency?: string;
+    type?: string;
+    source?: string;
+    fallback_company?: string;
+  }[] | null;
   scores: Record<string, BehaviouralScore> | null;
   feedback: { summary: string; next_focus: string[] } | null;
   created_at: string;

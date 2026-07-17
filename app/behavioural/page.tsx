@@ -9,12 +9,14 @@ import type {
   BehaviouralSession,
 } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
+import VoiceInterview, { type VoiceReport } from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
+import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 
 interface StartResult {
   session: BehaviouralSession;
@@ -33,7 +35,11 @@ interface SummaryResult {
   overall: number;
   dimension_averages: { dimension: string; average: number }[];
   answered: number;
+  /** Present for voice reports; partial (max-duration/early-end) calls set these. */
+  total?: number;
+  unanswered?: number;
   feedback: { summary: string; next_focus: string[] };
+  qualitative?: BehaviouralQualitativeReport | null;
 }
 
 async function postBehavioural<T>(body: unknown): Promise<T> {
@@ -67,6 +73,23 @@ export default function BehaviouralPage() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(true);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
+  // True while the Vapi voice flow owns the screen — hide the manual question
+  // during the live call and post-call report processing.
+  const [voiceActive, setVoiceActive] = useState(false);
+  // The post-call voice report (same shape as the manual summary) once ready.
+  const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
+
+  const handleVoiceComplete = useCallback(
+    (report: VoiceReport) => {
+      setVoiceSummary(report);
+      setModule("behavioural", {
+        status: "done",
+        score: to100(report.overall),
+        statusLine: `${report.answered} answer${report.answered === 1 ? "" : "s"} scored`,
+      });
+    },
+    [setModule],
+  );
 
   const current = questions[idx];
   const currentResult = current ? results[current.id] : undefined;
@@ -150,13 +173,26 @@ export default function BehaviouralPage() {
         ← Dashboard
       </Link>
 
+      {/* Hands-free voice interview (renders only when Vapi is configured). */}
+      <VoiceInterview
+        jdText={state.target.jdText}
+        onActiveChange={setVoiceActive}
+        onComplete={handleVoiceComplete}
+      />
+
       {starting ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
           <Spinner />
           <div style={{ fontSize: 14, color: "var(--ink-3)" }}>Preparing your questions…</div>
         </div>
-      ) : summary ? (
-        <SummaryView summary={summary} onDone={() => router.push("/dashboard")} />
+      ) : summary || voiceSummary ? (
+        <SummaryView summary={(summary ?? voiceSummary)!} onDone={() => router.push("/dashboard")} />
+      ) : voiceActive ? (
+        // Voice flow owns the screen (live call or post-call processing). The voice
+        // panel above shows the current question / processing state / transcript;
+        // the manual text form stays hidden until the report is shown or the user
+        // starts over.
+        null
       ) : current ? (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -322,6 +358,14 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         verdict={summary.feedback.summary}
       />
 
+      {summary.unanswered && summary.unanswered > 0 ? (
+        <p style={{ margin: "-6px 0 16px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
+          Partial interview — scored on {summary.answered} of {summary.total} questions.{" "}
+          {summary.unanswered} question{summary.unanswered === 1 ? " was" : "s were"} not
+          answered and left unscored.
+        </p>
+      ) : null}
+
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 }}>
         <SectionLabel style={{ marginBottom: 16 }}>Across all {summary.answered} answer{summary.answered === 1 ? "" : "s"}</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -335,6 +379,8 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </div>
       </div>
 
+      {summary.qualitative ? <QualitativeReportView qualitative={summary.qualitative} /> : null}
+
       <div style={{ background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
           <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>{nextFocus ? "Focus next on" : "Report complete"}</SectionLabel>
@@ -347,6 +393,174 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </button>
       </div>
     </div>
+  );
+}
+
+function QualitativeReportView({ qualitative }: { qualitative: BehaviouralQualitativeReport }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 18 }}>
+      {qualitative.partial_warning ? (
+        <div style={{ background: "var(--partial-tint)", border: "1px solid var(--partial)", borderRadius: 12, padding: "14px 16px", color: "var(--ink-2)", fontSize: 12.5, lineHeight: 1.5 }}>
+          <strong style={{ color: "var(--ink)" }}>Partial interview warning:</strong>{" "}
+          {qualitative.partial_warning}
+        </div>
+      ) : null}
+
+      <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <SectionLabel>Qualitative coaching</SectionLabel>
+          <Pill tone={qualitative.qualitative_backend === "haiku" ? "success" : "partial"}>
+            BACKEND: {backendLabel(qualitative.qualitative_backend)}
+          </Pill>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 18 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>Overall patterns</div>
+            <BulletList items={qualitative.overall_patterns} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>Top three priorities</div>
+            <BulletList items={qualitative.top_three_priorities} />
+          </div>
+        </div>
+      </div>
+
+      {qualitative.answers.map((answer) => (
+        <div key={answer.question_id} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 22px", boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ minWidth: 0, flex: "1 1 320px" }}>
+              <SectionLabel style={{ marginBottom: 6 }}>Question {answer.question_number}</SectionLabel>
+              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, color: "var(--ink)" }}>{answer.question}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <Pill tone="neutral">{answer.question_type.replace(/_/g, " ").toUpperCase()}</Pill>
+              <Pill tone={answer.addressed_question === "yes" ? "success" : answer.addressed_question === "partially" ? "partial" : "gap"}>
+                ADDRESSED: {answer.addressed_question.toUpperCase()}
+              </Pill>
+              <Pill tone={answer.assessment_confidence === "high" ? "success" : answer.assessment_confidence === "medium" ? "partial" : "gap"}>
+                ASSESSMENT CONFIDENCE: {answer.assessment_confidence.toUpperCase()}
+              </Pill>
+            </div>
+          </div>
+
+          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+            <SectionLabel style={{ marginBottom: 6, fontSize: 9.5 }}>Candidate excerpt</SectionLabel>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)", fontStyle: "italic" }}>
+              {answer.candidate_excerpt || "No substantive answer captured."}
+            </div>
+          </div>
+
+          <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
+            {answer.addressed_rationale}
+          </p>
+
+          {answer.insufficient_evidence ? (
+            <div style={{ background: "var(--gap-tint)", border: "1px solid var(--gap)", borderRadius: 12, padding: "12px 14px", marginBottom: 16, fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+              <strong style={{ color: "var(--ink)" }}>Insufficient evidence:</strong>{" "}
+              {answer.insufficient_evidence_reason ?? "The answer was too brief for confident qualitative assessment."}
+            </div>
+          ) : null}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn title="Strengths" items={answer.strengths} color="var(--success)" emptyLabel="No substantive strengths to credit." />
+            <FeedbackColumn title="Weaknesses" items={answer.weaknesses} color="var(--gap)" />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn
+              title="Professionalism"
+              items={[`${ratingLabel(answer.professionalism.rating)} — ${answer.professionalism.rationale}`]}
+              color={ratingColor(answer.professionalism.rating)}
+            />
+            <FeedbackColumn
+              title="Interview engagement"
+              items={[`${ratingLabel(answer.interview_engagement.rating)} — ${answer.interview_engagement.rationale}`]}
+              color={ratingColor(answer.interview_engagement.rating)}
+            />
+            <FeedbackColumn
+              title="Clarity and relevance"
+              items={[`${ratingLabel(answer.clarity_relevance.rating)} — ${answer.clarity_relevance.rationale}`]}
+              color={ratingColor(answer.clarity_relevance.rating)}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <FeedbackColumn
+              title="Missing elements"
+              items={answer.missing_elements.length ? answer.missing_elements : ["No major missing element detected."]}
+              color="var(--partial)"
+            />
+            <FeedbackColumn
+              title="STAR gaps"
+              items={answer.missing_star_elements.length ? answer.missing_star_elements.map((x) => x[0].toUpperCase() + x.slice(1)) : ["Not applicable or no major STAR gap detected."]}
+              color="var(--partial)"
+            />
+          </div>
+
+          <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px" }}>
+            <SectionLabel style={{ marginBottom: 7, fontSize: 9.5 }}>Improved answer outline</SectionLabel>
+            <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-2)" }}>{answer.improved_answer_outline}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Pill({ tone, children }: { tone: "success" | "partial" | "gap" | "neutral"; children: React.ReactNode }) {
+  const color =
+    tone === "success" ? "var(--success)" : tone === "partial" ? "var(--partial)" : tone === "gap" ? "var(--gap)" : "var(--ink-3)";
+  return (
+    <span style={{
+      fontFamily: "var(--font-mono)",
+      fontSize: 10,
+      letterSpacing: ".06em",
+      fontWeight: 700,
+      color,
+      background: "var(--surface-2)",
+      border: "1px solid var(--line)",
+      borderRadius: 999,
+      padding: "6px 9px",
+      whiteSpace: "nowrap",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function ratingLabel(rating: string): string {
+  return rating.replace(/_/g, " ").toUpperCase();
+}
+
+function ratingColor(rating: string): string {
+  if (rating === "strong") return "var(--success)";
+  if (rating === "acceptable") return "var(--partial)";
+  return "var(--gap)";
+}
+
+function backendLabel(backend: BehaviouralQualitativeReport["qualitative_backend"]): string {
+  return backend === "haiku" ? "HAIKU" : "DETERMINISTIC FALLBACK";
+}
+
+function FeedbackColumn({ title, items, color, emptyLabel }: { title: string; items: string[]; color: string; emptyLabel?: string }) {
+  return (
+    <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "14px 16px" }}>
+      <SectionLabel color={color} style={{ marginBottom: 8, fontSize: 9.5 }}>{title}</SectionLabel>
+      <BulletList items={items} emptyLabel={emptyLabel} />
+    </div>
+  );
+}
+
+function BulletList({ items, emptyLabel }: { items: string[]; emptyLabel?: string }) {
+  const displayItems = items.length ? items : emptyLabel ? [emptyLabel] : [];
+  return (
+    <ul style={{ margin: 0, paddingLeft: 17, display: "flex", flexDirection: "column", gap: 6 }}>
+      {displayItems.map((item, i) => (
+        <li key={i} style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--ink-2)", paddingLeft: 2 }}>
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 

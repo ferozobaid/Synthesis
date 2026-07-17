@@ -21,6 +21,7 @@ import type {
   BehaviouralScore,
   BehaviouralSession,
 } from "@/lib/types";
+import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
 
 export const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -50,6 +51,8 @@ export interface BehaviouralSummary {
   dimension_averages: { dimension: string; average: number }[];
   answered: number;
   feedback: { summary: string; next_focus: string[] };
+  /** Voice post-call coaching detail; optional so existing numeric/manual contracts stay stable. */
+  qualitative?: BehaviouralQualitativeReport | null;
 }
 
 function round1(x: number): number {
@@ -80,7 +83,14 @@ export function startBehavioural(opts: {
     id: newSessionId(),
     user_id: opts.userId ?? DEFAULT_USER_ID,
     jd_id: null,
-    questions_asked: questions.map((q) => ({ question_id: q.id, question: q.question })),
+    questions_asked: questions.map((q) => ({
+      question_id: q.id,
+      question: q.question,
+      competency: q.competency,
+      type: q.type,
+      source: q.source,
+      fallback_company: q.fallback_company,
+    })),
     scores: {},
     feedback: null,
     created_at: new Date().toISOString(),
@@ -113,7 +123,14 @@ export async function respondToBehavioural(
   const relevant = !!top && top.score >= RELEVANCE_THRESHOLD;
   const prepared = relevant ? top.item : null;
 
-  const score = await evaluateBehavioural(questionText, answer, prepared);
+  const score = await evaluateBehavioural(questionText, answer, prepared, {
+    id: asked?.question_id ?? questionId,
+    question: questionText,
+    competency: asked?.competency,
+    type: asked?.type,
+    source: asked?.source,
+    fallback_company: asked?.fallback_company,
+  });
 
   const updated: BehaviouralSession = {
     ...session,

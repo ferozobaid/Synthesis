@@ -33,6 +33,26 @@ describe("behavioural runner (mock session)", () => {
     expect(turn.session.scores?.["leadership"]).toBeTruthy();
   });
 
+  it("scores manual introduction answers with the introduction profile", async () => {
+    const start = startBehavioural({ questionBank: MOCK_QUESTIONS, jdText: MOCK_JD_TEXT });
+    const turn = await respondToBehavioural(
+      start.session,
+      "tell_me_about_yourself",
+      "I am a data analyst with SQL dashboard and client reporting experience, and I am targeting analytics roles where I can translate business questions into useful data products.",
+      bank,
+    );
+
+    expect(turn.score.dimension_scores.map((d) => d.dimension)).toEqual([
+      "Professional positioning",
+      "Relevance",
+      "Specificity",
+      "Clarity",
+      "Concision",
+    ]);
+    expect(turn.score.dimension_scores).toHaveLength(5);
+    expect(JSON.stringify(turn.score.improvements)).not.toMatch(/\b(STAR|Situation|Task|Action|Result)\b/);
+  });
+
   it("produces varied scores across answers and aggregates a session summary", async () => {
     let session = startBehavioural({ questionBank: MOCK_QUESTIONS, jdText: MOCK_JD_TEXT }).session;
     const t1 = await respondToBehavioural(session, "leadership", STRONG, bank);
@@ -48,6 +68,19 @@ describe("behavioural runner (mock session)", () => {
     expect(summary.overall).toBeLessThanOrEqual(5);
     expect(summary.dimension_averages.length).toBeGreaterThan(0);
     expect(summary.session.feedback).not.toBeNull();
+  });
+
+  it("uses the actual lowest mixed-question dimension in focus messaging", async () => {
+    let session = startBehavioural({ questionBank: MOCK_QUESTIONS, jdText: MOCK_JD_TEXT }).session;
+    session = (await respondToBehavioural(session, "why_this_company", "Nice company.", bank)).session;
+    session = (await respondToBehavioural(session, "leadership", STRONG, bank)).session;
+
+    const summary = summarizeBehavioural(session);
+    const lowest = [...summary.dimension_averages].sort((a, b) => a.average - b.average)[0];
+
+    expect(summary.feedback.next_focus[0]).toBe(lowest.dimension);
+    expect(lowest.dimension).not.toBe("STAR structure");
+    expect(summary.feedback.summary).toContain(lowest.dimension);
   });
 
   it("degrades gracefully with an empty answer bank (no match, still scores)", async () => {
