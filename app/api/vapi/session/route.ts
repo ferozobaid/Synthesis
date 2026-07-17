@@ -10,6 +10,7 @@ import {
 } from "@/lib/__mocks__/fixtures";
 import { useMocks } from "@/lib/config";
 import { saveSession } from "@/lib/voice/session-store";
+import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
 
 // POST /api/vapi/session — bootstrap a voice session (called when a call starts).
@@ -136,14 +137,25 @@ export async function POST(req: NextRequest) {
     if (!c) {
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
+    if (caseId !== "beautify") {
+      return NextResponse.json({ error: "unsupported_case" }, { status: 400 });
+    }
 
     const started = await startCase(c, MOCK_USER_ID);
     const now = new Date().toISOString();
     const sessionId = newSessionId();
+    const projectionToken = randomBytes(32).toString("hex");
+    const projectionTokenHash = createHash("sha256").update(projectionToken).digest("hex");
     const record: CaseVoiceSession = {
       module: "case",
       session: started.session,
       caseId,
+      callId: null,
+      turnSeq: 0,
+      score: null,
+      processedToolCalls: {},
+      projectionTokenHash,
+      invalidRetries: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -151,8 +163,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       sessionId,
+      projectionToken,
       openingPrompt: started.interviewer.text,
       caseTitle: c.title,
+      stage: started.stage,
+      stageIndex: CASE_STATES.indexOf(started.stage),
       candidateName: candidateName ?? null,
     });
   }

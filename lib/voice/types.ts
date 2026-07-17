@@ -8,9 +8,13 @@
  * session types unchanged. Server (live) plane only; never imported by client code.
  */
 import type {
+  CaseAction,
+  CaseExhibit,
+  CaseScore,
   BehaviouralQuestion,
   BehaviouralSession,
   CaseSessionState,
+  CaseState,
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
 
@@ -51,11 +55,39 @@ export interface BehaviouralVoiceSession {
 }
 
 /** A case voice session: the existing FSM session state plus the case id. */
+export interface CaseVoiceToolResponse {
+  spokenText: string;
+  stage: CaseState | null;
+  stageIndex: number;
+  action: CaseAction | "retry" | null;
+  exhibit: CaseExhibit | null;
+  complete: boolean;
+  score: CaseScore | null;
+  turnSeq: number;
+  duplicate?: boolean;
+  error?: string;
+  retryable?: boolean;
+  retryCount?: number;
+  maxRetries?: number;
+}
+
 export interface CaseVoiceSession {
   module: "case";
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Bound to the first valid Vapi call id that successfully advances the session. */
+  callId?: string | null;
+  /** Monotonic sequence for backend-authored interviewer turns returned to Vapi. */
+  turnSeq?: number;
+  /** Final score once the wrapped CaseSessionState reaches scoring. */
+  score?: CaseScore | null;
+  /** Cached Vapi tool-call results keyed by `${callId}:${toolCallId}`. */
+  processedToolCalls?: Record<string, CaseVoiceToolResponse>;
+  /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */
+  projectionTokenHash?: string;
+  /** Invalid answer retries returned to Vapi without mutating the Case FSM session. */
+  invalidRetries?: number;
   createdAt: string;
   updatedAt: string;
 }
