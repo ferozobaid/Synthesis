@@ -41,7 +41,10 @@ Use this only when you are ready for live Claude calls and user-data persistence
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL | User-data persistence/auth, if enabled. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | Browser/client scoped Supabase access. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service key | Server-only Supabase access. |
-| `EMBEDDINGS_ENABLED` | `false` on Vercel | Keep local semantic embeddings off on serverless unless explicitly tested. |
+| `EMBEDDINGS_ENABLED` | `true` | Enables the packaged BGE semantic scoring path. |
+| `EMBEDDINGS_MODEL` | `Xenova/bge-small-en-v1.5` | Selects the supported 384-dimensional BGE model. |
+| `EMBEDDINGS_MODEL_REVISION` | `ea104dacec62c0de699686887e3f920caeb4f3e3` | Pins the model files downloaded during the build. |
+| `BGE_INFERENCE_CONCURRENCY` | `2` | Bounds concurrent ONNX inference work per function instance. |
 
 Mock mode is controlled by `useMocks()`:
 
@@ -65,9 +68,13 @@ This method does not query Supabase, pgvector, or an O*NET RAG index.
 ## Known Limitations
 
 - **No authentication yet.** Sessions use mock data unless Supabase/user flows are wired.
-- **Local embeddings on Vercel are not recommended by default.** `@xenova/transformers`
-  is available in development, but serverless cold start and runtime constraints need
-  separate testing before enabling `EMBEDDINGS_ENABLED=true` in production.
+- **The BGE model is packaged at build time.** `prebuild` downloads the pinned
+  quantized model into the generated `models/` directory. The Fit Analyzer runs
+  in the Node.js runtime and disables remote model loading when the packaged files
+  are present.
+- **The generated model directory is intentionally gitignored.** Do not commit the
+  ONNX binary. Run `npm run build` to reproduce it from the pinned Hugging Face
+  revision.
 - **No O*NET RAG layer.** This is intentional. O*NET is a compact committed dictionary,
   and the current fit-scoring task benefits more from deterministic taxonomy grounding
   than from vector retrieval over O*NET text chunks.
@@ -89,6 +96,19 @@ After deployment, open:
 - `/behavioural`
 - `/case`
 
-And POST to `/api/fit/analyze` with a resume/JD pair. The JSON response includes
-`scoring.method`, which should show `hybrid_0_25` only when local embeddings are
-enabled; otherwise it will show `structured`.
+And POST to `/api/fit/analyze` with a resume/JD pair. A healthy BGE deployment
+must return all of the following under `scoring`:
+
+```json
+{
+  "method": "hybrid_0_25",
+  "embedding_backend": "bge",
+  "embedding_model": "Xenova/bge-small-en-v1.5",
+  "embedding_failure_category": null,
+  "fallback_reason": null
+}
+```
+
+If `embedding_backend` is `failed`, inspect the structured Vercel log entry named
+`[embeddings] BGE model load failed`. It includes the model, runtime, and original
+error message while the user request safely falls back to structured scoring.

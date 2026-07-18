@@ -4,6 +4,9 @@ import { parseResume } from "@/lib/parsers/resume-parser";
 import { scoreFitAnalyzer } from "@/lib/matching-semantic";
 import { useMocks } from "@/lib/config";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 // POST /api/fit/analyze  { resumeText, jdText }
 // Runs the real O*NET-grounded fit pipeline. When local embeddings are enabled,
 // the analyzer returns the pre-specified hybrid_0_25 score; otherwise it falls
@@ -27,6 +30,8 @@ export async function POST(req: NextRequest) {
       semantic_weight: scoring.semantic_weight,
       embeddings_enabled: scoring.embeddings_enabled,
       embedding_backend: scoring.embedding_backend,
+      embedding_model: scoring.embedding_model,
+      embedding_failure_category: scoring.embedding_failure_category ?? null,
       fallback_reason: scoring.fallback_reason ?? null,
     },
     jd: {

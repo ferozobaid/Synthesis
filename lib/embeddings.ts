@@ -10,6 +10,8 @@
  */
 import { EMBEDDING_DIM, type Embedding } from "@/lib/types";
 import { embeddingsEnabled, embeddingsModel } from "@/lib/config";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 /** BGE asymmetric-retrieval instruction (queries only; passages get no prefix). */
 export const BGE_QUERY_PREFIX =
@@ -39,13 +41,11 @@ export function mockEmbed(text: string): Embedding {
   return normalize(v);
 }
 
-// Lazily-created transformers.js pipeline. The indirect import hides the
-// specifier from TS + the bundler so the package is only resolved when enabled.
+// Lazily-created Transformers.js pipeline. This import must remain statically
+// analyzable so Next.js includes the package in the Vercel function trace.
 type Extractor = (input: string, opts: unknown) => Promise<{ data: Float32Array }>;
-const dynamicImport = new Function("m", "return import(m)") as (
-  m: string,
-) => Promise<{ pipeline: (task: string, model: string) => Promise<Extractor> }>;
 type ExtractorLoader = () => Promise<Extractor>;
+const DEFAULT_INFERENCE_CONCURRENCY = 2;
 
 export type EmbeddingFailureCategory = "load" | "inference";
 
@@ -67,8 +67,28 @@ function errorMessage(error: unknown): string {
 }
 
 async function defaultExtractorLoader(): Promise<Extractor> {
-  const mod = await dynamicImport("@xenova/transformers");
-  return mod.pipeline("feature-extraction", embeddingsModel());
+  const mod = await import("@xenova/transformers");
+  const model = embeddingsModel();
+  const modelRoot = path.join(process.cwd(), "models");
+  const localModel = path.join(modelRoot, ...model.split("/"), "config.json");
+
+  if (existsSync(localModel)) {
+    mod.env.localModelPath = `${modelRoot}${path.sep}`;
+    mod.env.allowLocalModels = true;
+    mod.env.allowRemoteModels = false;
+    console.info(`[embeddings] Using packaged BGE model (${model})`);
+  } else {
+    mod.env.allowLocalModels = false;
+    mod.env.allowRemoteModels = true;
+    mod.env.cacheDir =
+      process.env.BGE_CACHE_DIR ||
+      (process.env.VERCEL ? path.join("/tmp", "bge-cache") : path.join(process.cwd(), ".cache"));
+    console.warn(`[embeddings] Packaged BGE model not found; remote loading enabled (${model})`);
+  }
+
+  return mod.pipeline("feature-extraction", model, {
+    quantized: true,
+  }) as Promise<Extractor>;
 }
 
 let _extractor: Promise<Extractor> | null = null;
@@ -87,21 +107,26 @@ export function setEmbeddingLoaderForTests(loader: ExtractorLoader): () => void 
 async function getExtractor(): Promise<Extractor> {
   if (!_extractor) {
     const model = embeddingsModel();
-    _extractor = extractorLoader().then((extractor) => {
-      console.info(`[embeddings] BGE loaded (${model})`);
-      return extractor;
-    });
+    _extractor = extractorLoader()
+      .then((extractor) => {
+        console.info(`[embeddings] BGE loaded (${model})`);
+        return extractor;
+      })
+      .catch((error) => {
+        _extractor = null;
+        console.error("[embeddings] BGE model load failed", {
+          model,
+          runtime: process.env.VERCEL ? "vercel-node" : "node",
+          message: errorMessage(error),
+        });
+        throw new EmbeddingError(
+          "load",
+          `BGE embedding load failed: ${errorMessage(error)}`,
+          error,
+        );
+      });
   }
-  try {
-    return await _extractor;
-  } catch (error) {
-    _extractor = null;
-    throw new EmbeddingError(
-      "load",
-      `BGE embedding load failed: ${errorMessage(error)}`,
-      error,
-    );
-  }
+  return _extractor;
 }
 
 function inputFor(text: string, opts: { query?: boolean }): string {
@@ -121,12 +146,44 @@ async function runExtractor(
     return embedding;
   } catch (error) {
     if (error instanceof EmbeddingError) throw error;
+    console.error("[embeddings] BGE inference failed", {
+      model: embeddingsModel(),
+      runtime: process.env.VERCEL ? "vercel-node" : "node",
+      message: errorMessage(error),
+    });
     throw new EmbeddingError(
       "inference",
       `BGE embedding inference failed: ${errorMessage(error)}`,
       error,
     );
   }
+}
+
+function inferenceConcurrency(): number {
+  const configured = Number.parseInt(process.env.BGE_INFERENCE_CONCURRENCY || "", 10);
+  if (!Number.isFinite(configured)) return DEFAULT_INFERENCE_CONCURRENCY;
+  return Math.max(1, Math.min(configured, 4));
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(values[index]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+  );
+  return results;
 }
 
 export async function embedStrict(
@@ -142,7 +199,9 @@ export async function embedBatchStrict(
   opts: { query?: boolean } = {},
 ): Promise<Embedding[]> {
   const extractor = await getExtractor();
-  return Promise.all(texts.map((text) => runExtractor(extractor, inputFor(text, opts))));
+  return mapWithConcurrency(texts, inferenceConcurrency(), (text) =>
+    runExtractor(extractor, inputFor(text, opts)),
+  );
 }
 
 export async function embed(
@@ -163,7 +222,7 @@ export async function embedBatch(
   texts: string[],
   opts: { query?: boolean } = {},
 ): Promise<Embedding[]> {
-  return Promise.all(texts.map((t) => embed(t, opts)));
+  return mapWithConcurrency(texts, inferenceConcurrency(), (text) => embed(text, opts));
 }
 
 export function cosine(a: Embedding, b: Embedding): number {

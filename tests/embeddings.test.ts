@@ -61,6 +61,7 @@ describe("embeddings", () => {
   });
 
   it("embedBatchStrict categorizes BGE load failures", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => {
       throw new Error("missing model");
     });
@@ -70,10 +71,52 @@ describe("embeddings", () => {
 
   it("embedBatchStrict categorizes BGE inference failures", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
       throw new Error("bad tensor");
     });
 
     await expect(embedBatchStrict(["hello"])).rejects.toMatchObject({ category: "inference" });
   });
+
+  it("embedBatchStrict bounds concurrent model inference", async () => {
+    const previous = process.env.BGE_INFERENCE_CONCURRENCY;
+    process.env.BGE_INFERENCE_CONCURRENCY = "2";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    let active = 0;
+    let peak = 0;
+    restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { data: new Float32Array(EMBEDDING_DIM) };
+    });
+
+    try {
+      const embeddings = await embedBatchStrict(["a", "b", "c", "d", "e"]);
+      expect(embeddings).toHaveLength(5);
+      expect(peak).toBe(2);
+    } finally {
+      if (previous === undefined) delete process.env.BGE_INFERENCE_CONCURRENCY;
+      else process.env.BGE_INFERENCE_CONCURRENCY = previous;
+    }
+  });
+
+  it.runIf(process.env.RUN_BGE_INTEGRATION === "true")(
+    "loads the packaged BGE model and returns meaningful normalized vectors",
+    async () => {
+      const relatedA = await embedBatchStrict(["SQL and Python data analysis"]);
+      const relatedB = await embedBatchStrict(["SQL and Python analytics"]);
+      const unrelated = await embedBatchStrict(["restaurant pastry cooking"]);
+      const norm = Math.sqrt(relatedA[0].reduce((sum, value) => sum + value * value, 0));
+
+      expect(relatedA[0]).toHaveLength(EMBEDDING_DIM);
+      expect(norm).toBeCloseTo(1, 5);
+      expect(cosine(relatedA[0], relatedB[0])).toBeGreaterThan(
+        cosine(relatedA[0], unrelated[0]),
+      );
+    },
+    120_000,
+  );
 });

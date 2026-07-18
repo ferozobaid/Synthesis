@@ -15,7 +15,7 @@ import type {
   PerRequirementResult,
   RequirementStatus,
 } from "@/lib/types";
-import { embeddingsEnabled } from "@/lib/config";
+import { embeddingsEnabled, embeddingsModel } from "@/lib/config";
 import {
   cosine,
   embedBatch,
@@ -40,6 +40,8 @@ export interface FitAnalyzerScore {
   semantic_weight: number;
   embeddings_enabled: boolean;
   embedding_backend: EmbeddingBackend;
+  embedding_model: string;
+  embedding_failure_category?: EmbeddingFailureCategory;
   fallback_reason?: string;
 }
 
@@ -336,6 +338,7 @@ export async function scoreFitAnalyzer(
       semantic_weight: 0,
       embeddings_enabled: false,
       embedding_backend: "disabled",
+      embedding_model: "none",
       fallback_reason: "EMBEDDINGS_ENABLED is not true",
     };
   }
@@ -351,6 +354,7 @@ export async function scoreFitAnalyzer(
       semantic_weight: semanticWeight,
       embeddings_enabled: true,
       embedding_backend: "bge",
+      embedding_model: embeddingsModel(),
     };
   } catch (error) {
     const category = embeddingFailureCategory(error);
@@ -364,6 +368,8 @@ export async function scoreFitAnalyzer(
       semantic_weight: 0,
       embeddings_enabled: true,
       embedding_backend: "failed",
+      embedding_model: embeddingsModel(),
+      embedding_failure_category: category,
       fallback_reason: embeddingFallbackReason(category),
     };
   }
