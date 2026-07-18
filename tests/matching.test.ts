@@ -123,12 +123,15 @@ describe("fit analyzer production method", () => {
     restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => {
       throw new Error("model unavailable");
     });
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     try {
       const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
       expect(result.method).toBe("structured");
       expect(result.embedding_backend).toBe("failed");
+      expect(result.embedding_model).toBe("Xenova/bge-small-en-v1.5");
+      expect(result.embedding_failure_category).toBe("load");
       expect(result.semantic).toBeNull();
       expect(result.report).toEqual(result.structured);
       expect(result.structured_weight).toBe(1);
@@ -149,6 +152,7 @@ describe("fit analyzer production method", () => {
     const prev = process.env.EMBEDDINGS_ENABLED;
     process.env.EMBEDDINGS_ENABLED = "true";
     vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     restoreEmbeddingLoader = setEmbeddingLoaderForTests(async () => async () => {
       throw new Error("tensor failed");
     });
@@ -158,6 +162,7 @@ describe("fit analyzer production method", () => {
       const result = await scoreFitAnalyzer(parseResume(RESUME), parseJD(JD));
       expect(result.method).toBe("structured");
       expect(result.embedding_backend).toBe("failed");
+      expect(result.embedding_failure_category).toBe("inference");
       expect(result.semantic).toBeNull();
       expect(result.report).toEqual(result.structured);
       expect(result.structured_weight).toBe(1);
@@ -253,6 +258,8 @@ describe("fit analyzer API compatibility", () => {
         semantic_weight: 0,
         embeddings_enabled: false,
         embedding_backend: "disabled",
+        embedding_model: "none",
+        embedding_failure_category: null,
         fallback_reason: "EMBEDDINGS_ENABLED is not true",
       });
     } finally {
@@ -286,6 +293,8 @@ describe("fit analyzer API compatibility", () => {
         semantic_weight: 0.75,
         embeddings_enabled: true,
         embedding_backend: "bge",
+        embedding_model: "Xenova/bge-small-en-v1.5",
+        embedding_failure_category: null,
         fallback_reason: null,
       });
     } finally {

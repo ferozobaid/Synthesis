@@ -1,8 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Note: /lib/embeddings.ts loads @xenova/transformers via an indirect import, so the
-  // bundler never resolves it — no externals config needed while it's optional.
+  experimental: {
+    // Transformers.js uses Node-specific ONNX bindings and must remain a native
+    // server dependency. The standard import in lib/embeddings.ts allows output
+    // file tracing to discover the package and its transitive dependencies.
+    serverComponentsExternalPackages: ["@xenova/transformers"],
+    outputFileTracingIncludes: {
+      "/api/fit/analyze": ["./models/**/*"],
+    },
+  },
 };
 
 export default nextConfig;
