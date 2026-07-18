@@ -19,14 +19,16 @@ import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/type
 //   { module: "case", caseId, candidateName? }
 //     -> { sessionId, openingPrompt, caseTitle, candidateName }
 //
-// Reuses the existing startBehavioural / startCase implementations verbatim; the
-// only new behaviour is persisting the full session in Redis for the tool routes.
+// Reuses the existing startBehavioural / startCase implementations and persists
+// the server-owned session in Redis for the live voice routes.
 
 const MAX_JD_LENGTH = 20_000;
 const MAX_NAME_LENGTH = 200;
 const MAX_CASE_ID_LENGTH = 100;
 const CASE_INTERVIEWER_INTRODUCTION =
   "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Ready whenever you are? Let’s begin.";
+const CASE_OPENING_QUESTION =
+  "What would you like to clarify before structuring your approach?";
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
@@ -144,14 +146,18 @@ export async function POST(req: NextRequest) {
     }
 
     const started = await startCase(c, MOCK_USER_ID);
-    const openingText = `${CASE_INTERVIEWER_INTRODUCTION}\n\n${started.interviewer.text}`;
+    // The spoken opening already frames the case and asks for clarifications, so
+    // the first voice answer must be evaluated by that existing FSM stage.
+    const voiceSession = { ...started.session, fsm_state: "clarification" as const };
+    const openingText =
+      `${CASE_INTERVIEWER_INTRODUCTION}\n\n${started.interviewer.text}\n\n${CASE_OPENING_QUESTION}`;
     const now = new Date().toISOString();
     const sessionId = newSessionId();
     const projectionToken = randomBytes(32).toString("hex");
     const projectionTokenHash = createHash("sha256").update(projectionToken).digest("hex");
     const record: CaseVoiceSession = {
       module: "case",
-      session: started.session,
+      session: voiceSession,
       caseId,
       openingText,
       callId: null,
@@ -172,8 +178,8 @@ export async function POST(req: NextRequest) {
       projectionToken,
       openingPrompt: openingText,
       caseTitle: c.title,
-      stage: started.stage,
-      stageIndex: CASE_STATES.indexOf(started.stage),
+      stage: voiceSession.fsm_state,
+      stageIndex: CASE_STATES.indexOf(voiceSession.fsm_state),
       candidateName: candidateName ?? null,
     });
   }

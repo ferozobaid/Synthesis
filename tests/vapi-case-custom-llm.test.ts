@@ -38,6 +38,8 @@ const SECRET = "test-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
 const INTRODUCTION =
   "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Ready whenever you are? Let’s begin.";
+const OPENING_QUESTION =
+  "What would you like to clarify before structuring your approach?";
 
 const ANSWERS = {
   intro:
@@ -134,6 +136,7 @@ beforeEach(() => {
   process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN = "test-token";
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
   process.env.SYNTHESIS_USE_MOCKS = "true";
+  delete process.env.VAPI_CASE_AUTH_DEBUG;
 });
 
 describe("Case custom-LLM deterministic turn loop", () => {
@@ -143,14 +146,55 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
     expect(bootstrapData.openingPrompt.startsWith(`${INTRODUCTION}\n\n`)).toBe(true);
     expect(bootstrapData.openingPrompt.indexOf(authoredPrompt)).toBeGreaterThan(INTRODUCTION.length);
+    expect(bootstrapData.openingPrompt.endsWith(`\n\n${OPENING_QUESTION}`)).toBe(true);
     expect(stored(bootstrapData.sessionId).openingText).toBe(bootstrapData.openingPrompt);
+    expect(stored(bootstrapData.sessionId).session.fsm_state).toBe("clarification");
+  });
+
+  it("logs only safe request authentication diagnostics when explicitly enabled", async () => {
+    const started = await bootstrap();
+    const messages: ChatMessage[] = [
+      { role: "assistant", content: started.openingPrompt },
+      { role: "user", content: ANSWERS.clarification },
+    ];
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    process.env.VAPI_CASE_AUTH_DEBUG = "true";
+
+    const rejected = await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", messages), {
+        authorization: `Basic ${SECRET}`,
+      }) as never,
+    );
+    expect(rejected.status).toBe(401);
+    expect(info).toHaveBeenLastCalledWith("[case-custom-llm] request", {
+      requestReceived: true,
+      authorizationHeader: "present",
+      authenticationScheme: "Basic",
+      metadataSessionId: "present",
+      statusCode: 401,
+    });
+
+    const accepted = await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", messages), authHeader) as never,
+    );
+    expect(accepted.status).toBe(200);
+    expect(info).toHaveBeenLastCalledWith("[case-custom-llm] request", {
+      requestReceived: true,
+      authorizationHeader: "present",
+      authenticationScheme: "Bearer",
+      metadataSessionId: "present",
+      statusCode: 200,
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(SECRET);
+    expect(JSON.stringify(info.mock.calls)).not.toContain(ANSWERS.clarification);
+    info.mockRestore();
   });
 
   it("evaluates every finalized non-empty candidate turn exactly once", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
 
-    const reply = await sendTurn(started.sessionId, "call-1", history, ANSWERS.intro);
+    const reply = await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
 
     const session = stored(started.sessionId);
     expect(reply).toBe(session.projectedTurns?.[0].interviewerText);
@@ -164,7 +208,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const started = await bootstrap();
     const messages: ChatMessage[] = [
       { role: "assistant", content: started.openingPrompt },
-      { role: "user", content: ANSWERS.intro },
+      { role: "user", content: ANSWERS.clarification },
     ];
     const body = modelBody(started.sessionId, "call-1", messages);
 
@@ -185,7 +229,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const started = await bootstrap();
     const messages: ChatMessage[] = [
       { role: "assistant", content: started.openingPrompt },
-      { role: "user", content: ANSWERS.intro },
+      { role: "user", content: ANSWERS.clarification },
     ];
     const body = modelBody(started.sessionId, "call-1", messages);
 
@@ -207,7 +251,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
   it("returns only the exact persisted backend interviewer text as assistant speech", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
-    const reply = await sendTurn(started.sessionId, "call-1", history, ANSWERS.intro);
+    const reply = await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
     const turn = stored(started.sessionId).projectedTurns![0];
 
     expect(reply).toBe(turn.interviewerText);
@@ -216,15 +260,79 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(reply).not.toContain("turnSeq");
   });
 
+  it("uses concise deterministic interviewer phrasing for each FSM transition", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification)).toBe(
+      "Good. Let's move to your structure. What factors should Beautify consider as it shifts consultants into virtual-advisor roles?",
+    );
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.framework)).toBe(
+      "That's a sensible structure. Let's start with the customer. What would make a high-touch in-store customer switch to a mostly virtual experience?",
+    );
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.analysis)).toBe(
+      "Good. Let's ground the case in data. Are you ready for the first exhibit?",
+    );
+
+    const firstExhibit = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      ANSWERS.data_reveal,
+    );
+    expect(firstExhibit).toContain("First-year economics of the virtual-advisor shift");
+    expect(firstExhibit).toContain("what it means for Beautify");
+
+    const secondExhibit = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      ANSWERS.data_reveal,
+    );
+    expect(secondExhibit).toContain("Effect of top-4 competitors' AI chatbots");
+
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.data_reveal)).toBe(
+      "Good. Now pressure-test your conclusion. What is the strongest argument against this shift, and how would you address it?",
+    );
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.pressure_test)).toBe(
+      "Understood. Please give me your concise final recommendation, supported by the key evidence and next steps.",
+    );
+    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.recommendation)).toBe(
+      "Thank you. That concludes the case.",
+    );
+  });
+
+  it("keeps a weak clarification in-stage with one natural backend-owned probe", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "What is the time horizon?",
+    );
+
+    expect(reply).toBe(
+      "No fixed time horizon is provided, so state a reasonable assumption and test it against the case economics. What else would you like to clarify before structuring your approach?",
+    );
+    expect(stored(started.sessionId).session.fsm_state).toBe("clarification");
+    expect(stored(started.sessionId).projectedTurns?.[0]).toMatchObject({
+      stage: "clarification",
+      action: "probe",
+      interviewerText: reply,
+    });
+  });
+
   it("commits candidate and interviewer text under the same turnSeq", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
-    await sendTurn(started.sessionId, "call-1", history, ANSWERS.intro);
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
 
     expect(stored(started.sessionId).projectedTurns![0]).toMatchObject({
       turnSeq: 1,
-      candidateText: ANSWERS.intro,
-      stage: "clarification",
+      candidateText: ANSWERS.clarification,
+      stage: "framework",
       action: "advance",
       exhibit: null,
     });
@@ -233,8 +341,8 @@ describe("Case custom-LLM deterministic turn loop", () => {
   it("keeps projected turns chronological and duplicate-free", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
-    await sendTurn(started.sessionId, "call-1", history, ANSWERS.intro);
     await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.framework);
 
     const response = await projectionGET(
       projectionRequest(started.projectionToken) as never,
@@ -243,15 +351,14 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const projection = await response.json();
 
     expect(projection.turns.map((turn: { turnSeq: number }) => turn.turnSeq)).toEqual([1, 2]);
-    expect(projection.turns[0].candidateText).toBe(ANSWERS.intro);
-    expect(projection.turns[1].candidateText).toBe(ANSWERS.clarification);
+    expect(projection.turns[0].candidateText).toBe(ANSWERS.clarification);
+    expect(projection.turns[1].candidateText).toBe(ANSWERS.framework);
   });
 
   it("reveals exhibits once and in authored order", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     for (const answer of [
-      ANSWERS.intro,
       ANSWERS.clarification,
       ANSWERS.framework,
       ANSWERS.analysis,
@@ -277,7 +384,6 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     for (const answer of [
-      ANSWERS.intro,
       ANSWERS.clarification,
       ANSWERS.framework,
       ANSWERS.analysis,
@@ -302,7 +408,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const started = await bootstrap();
     const validMessages: ChatMessage[] = [
       { role: "assistant", content: started.openingPrompt },
-      { role: "user", content: ANSWERS.intro },
+      { role: "user", content: ANSWERS.clarification },
     ];
 
     const unauthorized = await customLlmPOST(

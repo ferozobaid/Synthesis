@@ -89,6 +89,7 @@ describe("POST /api/vapi/session (Case bootstrap)", () => {
     expect(record.caseId).toBe("beautify");
     expect(record.callId).toBeNull();
     expect(record.turnSeq).toBe(0);
+    expect(record.session.fsm_state).toBe("clarification");
     expect(record.projectedTurns).toEqual([]);
     expect(record.projectionTokenHash).not.toBe(started.projectionToken);
   });
@@ -151,7 +152,7 @@ describe("GET /api/case/voice/[sessionId]", () => {
     });
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.stage).toBe("intro");
+    expect(body.stage).toBe("clarification");
     expect(body.turnSeq).toBe(0);
     expect(body.turns).toEqual([]);
     expect(body.openingText).toBe(started.openingPrompt);

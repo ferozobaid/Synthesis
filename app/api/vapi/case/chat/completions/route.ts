@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { mockCase } from "@/lib/__mocks__/fixtures";
 import { respondToCase } from "@/lib/fsm/case-runner";
+import { caseConversationText } from "@/lib/voice/case-conversation";
 import {
   acquireLock,
   loadSession,
@@ -36,6 +37,28 @@ interface OpenAIChatRequest {
   call?: unknown;
   sessionId?: unknown;
   caseId?: unknown;
+}
+
+function hasSessionMetadata(body: OpenAIChatRequest | null): boolean {
+  const metadata = body?.metadata as Record<string, unknown> | null;
+  return typeof metadata?.sessionId === "string" && metadata.sessionId.trim().length > 0;
+}
+
+function logRequestDiagnostic(
+  req: NextRequest,
+  body: OpenAIChatRequest | null,
+  statusCode: number,
+): void {
+  if (process.env.VAPI_CASE_AUTH_DEBUG !== "true") return;
+  const authorization = req.headers.get("authorization")?.trim() ?? "";
+  const authenticationScheme = authorization.split(/\s+/, 1)[0] || "none";
+  console.info("[case-custom-llm] request", {
+    requestReceived: true,
+    authorizationHeader: authorization ? "present" : "absent",
+    authenticationScheme,
+    metadataSessionId: hasSessionMetadata(body) ? "present" : "absent",
+    statusCode,
+  });
 }
 
 class CaseModelRequestError extends Error {
@@ -293,8 +316,17 @@ async function processTurn(
     const turnSeq = (current.turnSeq ?? 0) + 1;
     const score = turn.score ?? current.score ?? null;
     const timestamp = new Date().toISOString();
+    const spokenText = caseConversationText({
+      candidateText: answer,
+      stageBefore: current.session.fsm_state,
+      stageAfter: turn.session.fsm_state,
+      action: turn.interviewer.action,
+      backendText: turn.interviewer.text,
+      exhibit: turn.interviewer.exhibit,
+      complete: turn.session.complete || turn.session.fsm_state === "scoring",
+    });
     const result: CaseVoiceModelResponse = {
-      spokenText: turn.interviewer.text,
+      spokenText,
       stage: turn.session.fsm_state,
       action: turn.interviewer.action,
       exhibit: turn.interviewer.exhibit,
@@ -332,19 +364,34 @@ async function processTurn(
 
 export async function POST(req: NextRequest) {
   const unauthorized = authorizeVapi(req);
-  if (unauthorized) return unauthorized;
-
+  if (unauthorized) {
+    const diagnosticBody = process.env.VAPI_CASE_AUTH_DEBUG === "true"
+      ? await req.clone().json().catch(() => null) as OpenAIChatRequest | null
+      : null;
+    logRequestDiagnostic(req, diagnosticBody, unauthorized.status);
+    return unauthorized;
+  }
   const body = await req.json().catch(() => null) as OpenAIChatRequest | null;
   if (!body || typeof body !== "object") {
-    return openAIError(new CaseModelRequestError("invalid_json", 400, "A JSON request body is required"));
+    const response = openAIError(
+      new CaseModelRequestError("invalid_json", 400, "A JSON request body is required"),
+    );
+    logRequestDiagnostic(req, body, response.status);
+    return response;
   }
 
   try {
     const { result, cacheKey } = await processTurn(body);
-    return openAIResponse(result, cacheKey, body.model, body.stream !== false);
+    const response = openAIResponse(result, cacheKey, body.model, body.stream !== false);
+    logRequestDiagnostic(req, body, response.status);
+    return response;
   } catch (error) {
-    if (error instanceof CaseModelRequestError) return openAIError(error);
-    console.error("[case-custom-llm] turn failed", error);
-    return openAIError(new CaseModelRequestError("internal_error", 500, "The Case turn could not be processed"));
+    const response = error instanceof CaseModelRequestError
+      ? openAIError(error)
+      : openAIError(
+        new CaseModelRequestError("internal_error", 500, "The Case turn could not be processed"),
+      );
+    logRequestDiagnostic(req, body, response.status);
+    return response;
   }
 }
