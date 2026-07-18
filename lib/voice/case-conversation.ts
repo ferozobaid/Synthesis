@@ -1,4 +1,5 @@
-import type { CaseAction, CaseExhibit, CaseState } from "@/lib/types";
+import type { CaseAction, CaseExhibit, CaseState, Evaluation } from "@/lib/types";
+import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
 
 export const CASE_READINESS_PROMPT =
   "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Are you ready to begin?";
@@ -9,7 +10,7 @@ export const CASE_ALREADY_READY_RESPONSE =
 export const CASE_OPENING_QUESTION =
   "What would you like to clarify before structuring your approach?";
 
-interface CaseConversationTurn {
+export interface CaseConversationTurn {
   candidateText: string;
   stageBefore: CaseState;
   stageAfter: CaseState;
@@ -17,6 +18,18 @@ interface CaseConversationTurn {
   backendText: string;
   exhibit: CaseExhibit | null;
   complete: boolean;
+  evaluation?: Evaluation;
+  variationSeed?: string;
+}
+
+export interface FrameworkCoverage {
+  demand: boolean;
+  economics: boolean;
+  competition: boolean;
+  implementationRisk: boolean;
+  retailerChannel: boolean;
+  internalCapabilities: boolean;
+  brandFit: boolean;
 }
 
 interface ClarificationCoverage {
@@ -33,7 +46,7 @@ function clarificationCoverage(candidateText: string): ClarificationCoverage {
     timeHorizon: /time|horizon|payback|profitable|profitability/.test(answer),
     scope: /scope|market|brand|country|countries|region/.test(answer),
     costs: /cost|invest|fund|bear|pay for|technology|training|operating/.test(answer),
-    virtualDefinition: /what (?:does|would).*virtual|define virtual|virtual.*include|social.media channel/.test(answer),
+    virtualDefinition: /what (?:does|would).*virtual|what do you mean by virtual|define virtual|virtual.*include|social.media channel/.test(answer),
     unsupportedFact: /market size|growth rate|revenue target|profit threshold|exact budget/.test(answer),
   };
 }
@@ -90,6 +103,92 @@ export function caseOpeningAfterReadiness(authoredPrompt: string): string {
   return `${CASE_READINESS_CONFIRMED}\n\n${authoredPrompt}\n\n${CASE_OPENING_QUESTION}`;
 }
 
+export function frameworkCoverage(candidateText: string): FrameworkCoverage {
+  const answer = candidateText.toLowerCase();
+  return {
+    demand: /\b(?:demand|customer|consumer|market attractiveness|willingness|adoption)\b/.test(answer),
+    economics: /\b(?:economic|economics|cost|revenue|profit|profitability|payback|roi|investment)\b/.test(answer),
+    competition: /\b(?:competitor|competition|competitive|rival)\b/.test(answer),
+    implementationRisk: /\b(?:implementation|execution|rollout|operational|operating risk|implementation risk)\b/.test(answer),
+    retailerChannel: /\b(?:retailer|retail partner|channel|department store|sephora|harrods)\b/.test(answer),
+    internalCapabilities: /\b(?:capabilit(?:y|ies)|training|technology|talent|consultant|operating model)\b/.test(answer),
+    brandFit: /\b(?:brand|positioning|reputation|image|prestige)\b/.test(answer),
+  };
+}
+
+function listWords(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+function variationIndex(seed: string, variants: number): number {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (Math.imul(hash, 31) + seed.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash) % variants;
+}
+
+function frameworkFeedback(candidateText: string, seed: string): string {
+  const coverage = frameworkCoverage(candidateText);
+  const labels = [
+    coverage.demand ? "demand" : null,
+    coverage.economics ? "economics" : null,
+    coverage.competition ? "competitive dynamics" : null,
+    coverage.implementationRisk ? "implementation risk" : null,
+    coverage.retailerChannel ? "retailer and channel implications" : null,
+    coverage.internalCapabilities ? "internal capabilities" : null,
+    coverage.brandFit ? "brand fit" : null,
+  ].filter((item): item is string => Boolean(item));
+  const acknowledgement = labels.length > 0
+    ? `You’ve covered ${listWords(labels)}.`
+    : "You have several relevant ideas on the table.";
+  const objectives = [
+    "To sharpen the structure, separate the external market and retailer questions from Beautify’s internal capabilities, brand fit, and economics. How would you organize those branches?",
+    "Now group those ideas into external attractiveness and channel dynamics on one side, and Beautify’s internal feasibility and economics on the other. How would you lay out those two sides?",
+    "Let’s make the structure more mutually exclusive: what belongs externally, and what sits within Beautify’s control?",
+  ];
+  return `${acknowledgement} ${objectives[variationIndex(seed, objectives.length)]}`;
+}
+
+function latestQuestion(text: string): string | null {
+  const questions = text.match(/[^.!?]*\?/g)?.map((part) => part.trim()).filter(Boolean) ?? [];
+  return questions.at(-1) ?? null;
+}
+
+export function caseRepeatQuestion(currentPrompt: string, stage: CaseState): string {
+  const question = latestQuestion(currentPrompt);
+  if (question) return `Of course. ${question}`;
+  const fallback: Partial<Record<CaseState, string>> = {
+    clarification: CASE_OPENING_QUESTION,
+    framework: "What external and internal factors should Beautify consider in making this decision?",
+    analysis: "What would make customers switch from high-touch in-store service to a mostly virtual experience?",
+    data_reveal: "What does the exhibit tell you, and what does it imply for Beautify?",
+    pressure_test: "What is the strongest risk to your view, and how would you mitigate it?",
+    recommendation: "What is your recommendation, the supporting evidence, the main risk, and the next step?",
+  };
+  return `Of course. ${fallback[stage] ?? "Please continue with your response."}`;
+}
+
+export function caseMetaConversationText(
+  intent: CaseCandidateIntent,
+  stage: CaseState,
+  currentPrompt: string,
+): string {
+  if (intent === "thinking-pause-request") {
+    return "Of course. Take your time—let me know when you’re ready to continue.";
+  }
+  if (intent === "repeat-question-request") return caseRepeatQuestion(currentPrompt, stage);
+  if (intent === "readiness-confirmation") {
+    return "Go ahead. Please continue with your response.";
+  }
+  if (intent === "end-interview") {
+    return "Of course. We’ll stop the interview here.";
+  }
+  return `No problem. Let’s stay with the current question. ${caseRepeatQuestion(currentPrompt, stage).replace(/^Of course\. /, "")}`;
+}
+
 function stageHint(stage: CaseState, backendText: string): string {
   switch (stage) {
     case "clarification":
@@ -129,10 +228,22 @@ export function caseConversationText(turn: CaseConversationTurn): string {
   }
 
   if (turn.action === "hint") {
+    if (turn.stageBefore === "framework") {
+      return frameworkFeedback(
+        turn.candidateText,
+        turn.variationSeed ?? turn.candidateText,
+      );
+    }
     return stageHint(turn.stageBefore, turn.backendText);
   }
 
   if (turn.action === "probe" || turn.action === "redirect") {
+    if (turn.stageBefore === "framework") {
+      return frameworkFeedback(
+        turn.candidateText,
+        turn.variationSeed ?? turn.candidateText,
+      );
+    }
     return turn.backendText;
   }
 

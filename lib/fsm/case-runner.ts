@@ -55,6 +55,18 @@ export interface CaseTurnResult {
   mock: boolean;
 }
 
+export interface CaseRunnerTimings {
+  evaluationMs?: number;
+  prefetchMs?: number;
+  scoringMs?: number;
+}
+
+export interface RespondToCaseOptions {
+  /** Voice already has all authored prompts and does not consume StageContext. */
+  prefetchOnAdvance?: boolean;
+  timings?: CaseRunnerTimings;
+}
+
 /** The interviewer's spoken line for a decision (reads prompts/hints/probes from the case JSON). */
 function interviewerLine(
   c: CaseRecord,
@@ -102,9 +114,12 @@ export async function respondToCase(
   c: CaseRecord,
   prior: CaseSessionState,
   answer: string,
+  options: RespondToCaseOptions = {},
 ): Promise<CaseTurnResult> {
   const stageBefore = prior.fsm_state;
+  const evaluationStartedAt = Date.now();
   const evaluation = await evaluateResponse(c, stageBefore, answer);
+  if (options.timings) options.timings.evaluationMs = Date.now() - evaluationStartedAt;
   const strong = isStrong(evaluation, stageBefore, c);
 
   // Record the candidate's turn (tagged with the stage it was given at) so final
@@ -129,12 +144,16 @@ export async function respondToCase(
   let context: StageContext | null = null;
 
   if (session.fsm_state === "scoring") {
+    const scoringStartedAt = Date.now();
     score = await scoreCase(c, session);
+    if (options.timings) options.timings.scoringMs = Date.now() - scoringStartedAt;
     session = { ...session, complete: true };
-  } else if (decision.action === "advance") {
+  } else if (decision.action === "advance" && options.prefetchOnAdvance !== false) {
     // Advanced into a new stage — pre-fetch its context so it's ready before the
     // next response (CLAUDE.md: pre-fetch at transitions, never mid-response).
+    const prefetchStartedAt = Date.now();
     context = await prefetchCaseStage(c, session.fsm_state, session.exhibits_revealed);
+    if (options.timings) options.timings.prefetchMs = Date.now() - prefetchStartedAt;
   }
 
   return {

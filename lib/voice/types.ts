@@ -81,7 +81,7 @@ export interface CaseVoiceProjectedTurn {
   timestamp: string;
 }
 
-export type CaseVoiceModelAction = CaseAction | "readiness" | "suppressed";
+export type CaseVoiceModelAction = CaseAction | "readiness" | "conversation" | "suppressed";
 
 /** Cached backend result for one OpenAI-compatible custom-LLM request. */
 export interface CaseVoiceModelResponse {
@@ -119,10 +119,14 @@ export interface CaseVoiceSession {
   /** Readiness is outside the scored FSM and never creates a projected Case turn. */
   readinessStatus?: "awaiting" | "confirmed";
   readinessConfirmedAt?: string | null;
+  /** Voice-only conversational state; never changes the Case FSM or score. */
+  conversationStatus?: "active" | "paused";
   /** Bound to the first valid Vapi call id that successfully advances the session. */
   callId?: string | null;
   /** Monotonic sequence for backend-authored interviewer turns returned to Vapi. */
   turnSeq?: number;
+  /** Monotonic processed speech sequence, including non-scored conversational replies. */
+  responseSeq?: number;
   /** Final score once the wrapped CaseSessionState reaches scoring. */
   score?: CaseScore | null;
   /** Cached Vapi tool-call results keyed by `${callId}:${toolCallId}`. */

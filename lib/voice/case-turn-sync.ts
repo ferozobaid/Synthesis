@@ -59,9 +59,12 @@ export type ReadinessDisposition = "ready" | "not-ready";
 
 export function isReadinessOnlyConfirmation(text: string): boolean {
   const normalized = normalizeCandidateText(text);
-  return /^(?:yes(?: i(?:'m| am) ready)?|yeah|yep|sure|absolutely|ready|i'm ready|i am ready|let's begin|lets begin|we can begin|go ahead)(?: please)?$/.test(
-    normalized,
-  );
+  if (!normalized) return false;
+  return [
+    /^(?:(?:yes|yeah|yep|sure|okay|ok|absolutely) )?(?:(?:i(?:'m| am)|we(?:'re| are)) )?ready(?: now| to (?:begin|start|continue))?(?: please)?$/,
+    /^(?:let'?s|lets|let us|we can|we should) (?:begin|start|continue)(?: now)?(?: please)?$/,
+    /^(?:go ahead|please (?:begin|start)|begin|start)(?: now)?$/,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 export function readinessDisposition(text: string): ReadinessDisposition {

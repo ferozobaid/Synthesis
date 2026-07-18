@@ -204,6 +204,20 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.openingText).toBe(`${INTRODUCTION}\n\n${reply}`);
   });
 
+  it("accepts a natural readiness confirmation with a temporal modifier", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await confirmReadiness(started.sessionId, "call-1", history, "I’m ready now");
+    const session = stored(started.sessionId);
+
+    expect(reply).toContain(READINESS_CONFIRMED);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.readinessConfirmedAt).toEqual(expect.any(String));
+    expect(session.session.history).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
   it("returns the cached readiness response when the confirmation request is repeated", async () => {
     const started = await bootstrap();
     const messages: ChatMessage[] = [
@@ -255,6 +269,58 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.turnSeq).toBe(0);
   });
 
+  it("answers thinking-time requests without scoring, transitioning, or creating a Case turn", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const first = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Can I have a moment to gather my thoughts?",
+    );
+    const second = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I’m still gathering my thoughts.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(first).toBe("Of course. Take your time—let me know when you’re ready to continue.");
+    expect(second).toBe(first);
+    expect(session.conversationStatus).toBe("paused");
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(session.responseSeq).toBe(3);
+    expect(session.score).toBeNull();
+  });
+
+  it("resumes and repeats the current question naturally without scoring", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    await sendTurn(started.sessionId, "call-1", history, "Can I gather my thoughts for a moment?");
+
+    const resumed = await sendTurn(started.sessionId, "call-1", history, "I’m ready to continue");
+    const repeated = await sendTurn(started.sessionId, "call-1", history, "Could you repeat the question?");
+    const confused = await sendTurn(started.sessionId, "call-1", history, "I’m confused");
+    const ended = await sendTurn(started.sessionId, "call-1", history, "Please end the interview");
+    const session = stored(started.sessionId);
+
+    expect(resumed).toBe("Go ahead. Please continue with your response.");
+    expect(repeated).toContain("What would you like to clarify before structuring your approach?");
+    expect(confused).toContain("Let’s stay with the current question.");
+    expect(ended).toBe("Of course. We’ll stop the interview here.");
+    expect(session.conversationStatus).toBe("active");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
   it("logs only safe request authentication diagnostics when explicitly enabled", async () => {
     const started = await bootstrap();
     const messages: ChatMessage[] = [
@@ -282,13 +348,14 @@ describe("Case custom-LLM deterministic turn loop", () => {
       request(modelBody(started.sessionId, "call-1", messages), authHeader) as never,
     );
     expect(accepted.status).toBe(200);
-    expect(info).toHaveBeenLastCalledWith("[case-custom-llm] request", {
+    const requestCalls = info.mock.calls.filter(([label]) => label === "[case-custom-llm] request");
+    expect(requestCalls.at(-1)).toEqual(["[case-custom-llm] request", {
       requestReceived: true,
       authorizationHeader: "present",
       authenticationScheme: "Bearer",
       metadataSessionId: "present",
       statusCode: 200,
-    });
+    }]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(SECRET);
     expect(JSON.stringify(info.mock.calls)).not.toContain(ANSWERS.clarification);
     info.mockRestore();
@@ -327,6 +394,25 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.projectedTurns).toHaveLength(1);
     expect(session.turnSeq).toBe(1);
     expect(session.callId).toBe("call-1");
+  });
+
+  it("reports backend phase timings without exposing answer text", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    history.push({ role: "user", content: ANSWERS.clarification });
+
+    const response = await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", history), authHeader) as never,
+    );
+    const timing = response.headers.get("server-timing") ?? "";
+
+    expect(timing).toContain("stabilize;dur=");
+    expect(timing).toContain("redis_lock;dur=");
+    expect(timing).toContain("intent;dur=");
+    expect(timing).toContain("evaluator;dur=");
+    expect(timing).toContain("persist;dur=");
+    expect(timing).not.toContain(ANSWERS.clarification);
   });
 
   it("returns a cached retry without evaluating or advancing the FSM twice", async () => {
@@ -504,6 +590,24 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.recommendation)).toBe(
       "Thank you. That concludes the case. Your score is ready on screen.",
     );
+  });
+
+  it("acknowledges covered framework branches before applying the existing FSM probe", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+
+    const answer = "I would look at demand, economics, competition, and implementation risks.";
+    const reply = await sendTurn(started.sessionId, "call-1", history, answer);
+    const session = stored(started.sessionId);
+    const projected = session.projectedTurns?.at(-1);
+
+    expect(reply).toContain(
+      "You’ve covered demand, economics, competitive dynamics and implementation risk.",
+    );
+    expect(reply).not.toContain("You’ve listed external factors");
+    expect(projected).toMatchObject({ stage: "framework", action: "probe" });
+    expect(session.session.fsm_state).toBe("framework");
   });
 
   it("keeps a weak clarification in-stage with one natural backend-owned probe", async () => {

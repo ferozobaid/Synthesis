@@ -2,8 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CASE_VOICE_PENDING_KEY,
   CASE_VOICE_PENDING_TTL_MS,
+  CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED,
   CaseProjectionUnavailableError,
   caseVoiceControls,
+  caseVoiceElapsedMilliseconds,
+  caseVoiceEndedReason,
+  formatCaseVoiceElapsed,
   caseVoiceLiveCaption,
   caseVoiceRecoveryMessage,
   caseVoiceStartOverrides,
@@ -55,10 +59,13 @@ function projection(overrides: Partial<CaseVoiceProjection> = {}): CaseVoiceProj
     caseTitle: "Beautify - Virtual Beauty Advisors",
     openingText: "Opening prompt",
     readinessStatus: "awaiting",
+    readinessConfirmedAt: null,
+    conversationStatus: "active",
     stage: "intro",
     stageIndex: 0,
     complete: false,
     turnSeq: 0,
+    responseSeq: 0,
     lastAction: null,
     score: null,
     exhibits: [],
@@ -150,6 +157,18 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     expect(shouldApplyCaseProjection(current, next)).toBe(true);
   });
 
+  it("applies a processed conversational response without incrementing Case turnSeq", () => {
+    const current = projection({ turnSeq: 1, responseSeq: 2 });
+    const conversationReply = projection({
+      turnSeq: 1,
+      responseSeq: 3,
+      conversationStatus: "paused",
+    });
+
+    expect(shouldApplyCaseProjection(current, conversationReply)).toBe(true);
+    expect(conversationReply.turnSeq).toBe(1);
+  });
+
   it("applies the readiness opening without requiring a scored turn", () => {
     const awaiting = projection({ openingText: "Are you ready?", readinessStatus: "awaiting" });
     const confirmed = projection({
@@ -160,8 +179,8 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     expect(shouldApplyCaseProjection(awaiting, confirmed)).toBe(true);
     expect(confirmed.turnSeq).toBe(0);
     expect(confirmed.turns).toEqual([]);
-    expect(caseVoiceRecoveryMessage(awaiting)).toContain("before the Case began");
-    expect(caseVoiceRecoveryMessage(confirmed)).toContain("progress was recovered");
+    expect(caseVoiceRecoveryMessage(awaiting)).toContain("pre-case session was recovered");
+    expect(caseVoiceRecoveryMessage(confirmed)).toContain("progress was recovered from this session");
   });
 
   it("renders exhibits once and preserves backend-authored order", () => {
@@ -210,6 +229,56 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
         action: "advance",
       },
     ]);
+  });
+
+  it("keeps the transcript collapsed by default and orders canonical turns by turnSeq", () => {
+    expect(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED).toBe(false);
+    const turns = [
+      {
+        turnSeq: 2,
+        candidateText: "Second answer",
+        interviewerText: "Second response",
+        stage: "analysis" as const,
+        action: "advance",
+        exhibit: null,
+        timestamp: "2026-07-17T12:00:02.000Z",
+      },
+      {
+        turnSeq: 1,
+        candidateText: "First answer",
+        interviewerText: "First response",
+        stage: "framework" as const,
+        action: "probe",
+        exhibit: null,
+        timestamp: "2026-07-17T12:00:01.000Z",
+      },
+    ];
+
+    expect(caseVoiceTranscript("Opening", turns).map((line) => line.text)).toEqual([
+      "Opening",
+      "First answer",
+      "First response",
+      "Second answer",
+      "Second response",
+    ]);
+  });
+
+  it("uses the backend readiness timestamp and freezes the interview timer", () => {
+    const startedAt = "2026-07-17T12:00:00.000Z";
+    const now = Date.parse("2026-07-17T12:03:40.000Z");
+    const endedAt = Date.parse("2026-07-17T12:02:05.000Z");
+
+    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(null, now))).toBe("00:00");
+    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(startedAt, now))).toBe("03:40");
+    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(startedAt, now, endedAt))).toBe("02:05");
+  });
+
+  it("extracts an ended reason without requiring transcript or call content", () => {
+    expect(caseVoiceEndedReason({ call: { endedReason: "customer-ended-call" } }))
+      .toBe("customer-ended-call");
+    expect(caseVoiceEndedReason({ message: { call: { endedReason: "silence-timed-out" } } }))
+      .toBe("silence-timed-out");
+    expect(caseVoiceEndedReason({ type: "call-end" })).toBeNull();
   });
 
   it("uses only the backend projection for permanent assistant speech", () => {
@@ -271,6 +340,15 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
 });
 
 describe("CaseVoiceInterview refresh recovery", () => {
+  it("treats an empty fresh browser state as a new session without recovery", () => {
+    const { storage } = memoryStorage();
+
+    expect(readCaseVoicePending(100_000, storage)).toEqual({
+      pending: null,
+      expired: false,
+    });
+  });
+
   it("persists and restores the projection capability without exposing it to Vapi", () => {
     const pending = capability(90_000);
     const { storage } = memoryStorage();

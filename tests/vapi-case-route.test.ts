@@ -164,7 +164,9 @@ describe("GET /api/case/voice/[sessionId]", () => {
     expect(body.processedModelRequests).toBeUndefined();
     expect(body.processedToolCalls).toBeUndefined();
     expect(body.pendingCandidate).toBeUndefined();
-    expect(body.readinessConfirmedAt).toBeUndefined();
+    expect(body.readinessConfirmedAt).toBeNull();
+    expect(body.conversationStatus).toBe("active");
+    expect(body.responseSeq).toBe(0);
     expect(body.evaluation).toBeUndefined();
   });
 });

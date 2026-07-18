@@ -12,11 +12,12 @@ const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_CASE_ASSISTANT_ID;
 
 const POLL_INTERVAL_MS = 1_000;
-const ENDED_POLL_GRACE_MS = 10_000;
+const ENDED_POLL_GRACE_MS = 120_000;
 const PROJECTION_404_GRACE_MS = 3_000;
 const TRANSCRIPT_CAP = 200;
 export const CASE_VOICE_PENDING_TTL_MS = 115 * 60 * 1_000;
 export const CASE_VOICE_PENDING_KEY = "synthesis.voice.case.beautify.pending.v1";
+export const CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED = false;
 
 const STAGE_LABEL: Record<CaseState, string> = {
   intro: "Intro",
@@ -76,10 +77,13 @@ export interface CaseVoiceProjection {
   caseTitle: string;
   openingText: string;
   readinessStatus: "awaiting" | "confirmed";
+  readinessConfirmedAt: string | null;
+  conversationStatus: "active" | "paused";
   stage: CaseState;
   stageIndex: number;
   complete: boolean;
   turnSeq: number;
+  responseSeq: number;
   lastAction: string | null;
   score: CaseScore | null;
   exhibits: CaseExhibit[];
@@ -222,6 +226,7 @@ export function shouldApplyCaseProjection(
 ): boolean {
   if (!current) return true;
   if (next.turnSeq !== current.turnSeq) return next.turnSeq > current.turnSeq;
+  if (next.responseSeq !== current.responseSeq) return next.responseSeq > current.responseSeq;
   if (next.openingText !== current.openingText) return true;
   if (next.readinessStatus !== current.readinessStatus) return true;
   if (!current.complete && next.complete) return true;
@@ -282,8 +287,43 @@ export function caseVoiceLiveCaption(message: unknown): string | null {
 
 export function caseVoiceRecoveryMessage(projection: CaseVoiceProjection): string {
   return projection.readinessStatus === "awaiting"
-    ? "The prior call ended before the Case began. Start a new interview when you’re ready."
-    : "Your Case progress was recovered. The prior voice connection is no longer active.";
+    ? "A previous pre-case session was recovered. Start a new interview when you’re ready."
+    : "Your Case progress was recovered from this session. Start a new interview to continue live.";
+}
+
+export function caseVoiceElapsedMilliseconds(
+  readinessConfirmedAt: string | null,
+  now: number,
+  endedAt: number | null = null,
+): number {
+  if (!readinessConfirmedAt) return 0;
+  const startedAt = Date.parse(readinessConfirmedAt);
+  if (!Number.isFinite(startedAt)) return 0;
+  return Math.max(0, (endedAt ?? now) - startedAt);
+}
+
+export function formatCaseVoiceElapsed(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function caseVoiceEndedReason(payload: unknown): string | null {
+  const value = payload as {
+    endedReason?: unknown;
+    call?: { endedReason?: unknown };
+    message?: { endedReason?: unknown; call?: { endedReason?: unknown } };
+  } | null;
+  const candidates = [
+    value?.endedReason,
+    value?.call?.endedReason,
+    value?.message?.endedReason,
+    value?.message?.call?.endedReason,
+  ];
+  return candidates.find((candidate): candidate is string =>
+    typeof candidate === "string" && candidate.trim().length > 0
+  )?.trim() ?? null;
 }
 
 function isCaseState(value: unknown): value is CaseState {
@@ -308,7 +348,17 @@ function parseProjection(value: unknown): CaseVoiceProjection {
   }
   return {
     ...projection,
+    readinessStatus: projection.readinessStatus === "awaiting" ? "awaiting" : "confirmed",
+    readinessConfirmedAt:
+      typeof projection.readinessConfirmedAt === "string"
+        ? projection.readinessConfirmedAt
+        : null,
+    conversationStatus: projection.conversationStatus === "paused" ? "paused" : "active",
     stageIndex: CASE_STATES.indexOf(projection.stage),
+    responseSeq:
+      typeof projection.responseSeq === "number"
+        ? projection.responseSeq
+        : projection.turnSeq,
     lastAction: typeof projection.lastAction === "string" ? projection.lastAction : null,
     score: projection.score ?? null,
     exhibits: uniqueCaseExhibits(projection.exhibits as CaseExhibit[]),
@@ -354,10 +404,14 @@ export default function CaseVoiceInterview({
   const [callActive, setCallActive] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [capability, setCapability] = useState<PendingCaseVoiceCapability | null>(null);
   const [projection, setProjection] = useState<CaseVoiceProjection | null>(null);
   const [liveCaption, setLiveCaption] = useState<string | null>(null);
+  const [showTranscript, setShowTranscript] = useState(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
+  const [timerEndedAt, setTimerEndedAt] = useState<number | null>(null);
 
   const vapiRef = useRef<VapiLike | null>(null);
   const projectionRef = useRef<CaseVoiceProjection | null>(null);
@@ -368,6 +422,8 @@ export default function CaseVoiceInterview({
   const firstNotFoundAtRef = useRef<number | null>(null);
   const completionReportedRef = useRef(false);
   const startAttemptRef = useRef(0);
+  const lastFinalTranscriptAtRef = useRef<number | null>(null);
+  const endedReasonRef = useRef<string | null>(null);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
   statusRef.current = status;
@@ -405,14 +461,24 @@ export default function CaseVoiceInterview({
   const expireSession = useCallback(() => {
     startAttemptRef.current += 1;
     teardown();
+    const expiredAt = Date.now();
+    endedAtRef.current = expiredAt;
+    setTimerEndedAt(expiredAt);
     clearCaseVoicePending();
     setCapability(null);
     setStatus("expired");
+    setNotice(null);
     setError("This Case voice session expired or its projection token is no longer valid.");
   }, [teardown]);
 
-  const handleCallEnd = useCallback(() => {
+  const handleCallEnd = useCallback((payload?: unknown) => {
     startAttemptRef.current += 1;
+    const endedReason = caseVoiceEndedReason(payload) ?? endedReasonRef.current;
+    console.info("[case-voice] lifecycle", {
+      event: "call-ended",
+      endedReason: endedReason ?? "unavailable",
+      timestamp: new Date().toISOString(),
+    });
     const vapi = vapiRef.current;
     vapiRef.current = null;
     try {
@@ -424,6 +490,8 @@ export default function CaseVoiceInterview({
     setCallIsActive(false);
     setMuted(false);
     endedAtRef.current = Date.now();
+    setTimerEndedAt(endedAtRef.current);
+    clearCaseVoicePending();
     const latest = projectionRef.current;
     if (latest?.complete && latest.score) {
       setStatus("completed");
@@ -431,7 +499,8 @@ export default function CaseVoiceInterview({
       return;
     }
     setStatus("ended");
-    setError("The call ended before the Case was complete. Your backend progress is preserved.");
+    setError(null);
+    setNotice("The voice call ended. Your backend progress from this session is preserved.");
   }, [reportCompletion, setCallIsActive]);
 
   const start = useCallback(async () => {
@@ -446,7 +515,13 @@ export default function CaseVoiceInterview({
     setProjection(null);
     setCapability(null);
     setLiveCaption(null);
+    setShowTranscript(false);
+    setTimerEndedAt(null);
+    setTimerNow(Date.now());
+    lastFinalTranscriptAtRef.current = null;
+    endedReasonRef.current = null;
     setError(null);
+    setNotice(null);
     setSyncError(null);
     setStatus("connecting");
     setCallIsActive(true);
@@ -496,6 +571,14 @@ export default function CaseVoiceInterview({
       });
       vapi.on("speech-start", () => {
         if (attempt !== startAttemptRef.current) return;
+        const now = Date.now();
+        const finalizedAt = lastFinalTranscriptAtRef.current;
+        console.info("[case-voice] latency", {
+          event: "vapi-tts-started",
+          finalizedUserToTtsMs: finalizedAt === null ? null : now - finalizedAt,
+          timestamp: new Date(now).toISOString(),
+        });
+        lastFinalTranscriptAtRef.current = null;
         setLiveCaption(null);
         setStatus((current) => (current === "completed" ? current : "speaking"));
       });
@@ -503,25 +586,65 @@ export default function CaseVoiceInterview({
         if (attempt !== startAttemptRef.current) return;
         setStatus((current) => (current === "completed" ? current : "listening"));
       });
-      vapi.on("call-end", () => {
+      vapi.on("call-end", (payload) => {
         if (attempt !== startAttemptRef.current) return;
-        handleCallEnd();
+        handleCallEnd(payload);
       });
-      vapi.on("error", () => {
+      vapi.on("error", (payload) => {
         if (attempt !== startAttemptRef.current) return;
+        console.info("[case-voice] lifecycle", {
+          event: "connection-error",
+          endedReason: caseVoiceEndedReason(payload) ?? "unavailable",
+          timestamp: new Date().toISOString(),
+        });
         startAttemptRef.current += 1;
         teardown();
+        const failedAt = Date.now();
+        endedAtRef.current = failedAt;
+        setTimerEndedAt(failedAt);
+        clearCaseVoicePending();
+        setCapability(null);
+        setNotice(null);
         setStatus("error");
         setError("The Vapi connection failed. Start a new voice interview.");
       });
       vapi.on("message", (message) => {
         if (attempt !== startAttemptRef.current) return;
+        const endedReason = caseVoiceEndedReason(message);
+        if (endedReason) endedReasonRef.current = endedReason;
+        const transcript = message as { role?: unknown; transcriptType?: unknown } | null;
+        if (transcript?.role === "user" && transcript.transcriptType === "final") {
+          const finalizedAt = Date.now();
+          lastFinalTranscriptAtRef.current = finalizedAt;
+          console.info("[case-voice] latency", {
+            event: "user-transcript-finalized",
+            timestamp: new Date(finalizedAt).toISOString(),
+          });
+        }
         const text = caseVoiceLiveCaption(message);
         if (!text) return;
         setLiveCaption(text);
       });
 
-      await vapi.start(ASSISTANT_ID!, caseVoiceStartOverrides(bootstrap as CaseBootstrap));
+      const startedCall = await vapi.start(
+        ASSISTANT_ID!,
+        caseVoiceStartOverrides(bootstrap as CaseBootstrap),
+      ) as {
+        id?: unknown;
+        assistant?: { maxDurationSeconds?: unknown };
+        maxDurationSeconds?: unknown;
+      } | null;
+      console.info("[case-voice] lifecycle", {
+        event: "call-started",
+        callIdPresent: typeof startedCall?.id === "string",
+        maxDurationSeconds:
+          typeof startedCall?.assistant?.maxDurationSeconds === "number"
+            ? startedCall.assistant.maxDurationSeconds
+            : typeof startedCall?.maxDurationSeconds === "number"
+              ? startedCall.maxDurationSeconds
+              : "unavailable",
+        timestamp: new Date().toISOString(),
+      });
       if (attempt !== startAttemptRef.current) {
         try {
           vapi.removeAllListeners?.();
@@ -547,12 +670,15 @@ export default function CaseVoiceInterview({
     startAttemptRef.current += 1;
     teardown();
     endedAtRef.current = Date.now();
+    setTimerEndedAt(endedAtRef.current);
+    clearCaseVoicePending();
     if (latest?.complete && latest.score) {
       setStatus("completed");
       reportCompletion(latest.score);
     } else {
       setStatus("ended");
-      setError("You ended the call before the Case was complete. Your backend progress is preserved.");
+      setError(null);
+      setNotice("You ended the voice call. Your backend progress from this session is preserved.");
     }
   }, [reportCompletion, teardown]);
 
@@ -572,6 +698,7 @@ export default function CaseVoiceInterview({
     const { pending, expired } = readCaseVoicePending();
     if (pending) {
       recoveredRef.current = true;
+      endedAtRef.current = Date.now();
       setCapability(pending);
       setStatus("recovering");
     } else if (expired) {
@@ -601,6 +728,7 @@ export default function CaseVoiceInterview({
           setProjection(next);
           if (
             next.turnSeq > (previous?.turnSeq ?? 0) ||
+            next.responseSeq > (previous?.responseSeq ?? 0) ||
             next.openingText !== previous?.openingText
           ) {
             setLiveCaption(null);
@@ -608,15 +736,20 @@ export default function CaseVoiceInterview({
         }
 
         if (next.complete && next.score) {
+          setTimerEndedAt((current) => current ?? Date.parse(next.updatedAt));
           setStatus("completed");
           if (!callActiveRef.current) reportCompletion(next.score);
           return;
         }
         if (recoveredRef.current && statusRef.current === "recovering") {
           recoveredRef.current = false;
-          endedAtRef.current = Date.now();
+          const recoveredEnd = endedAtRef.current ?? Date.now();
+          endedAtRef.current = recoveredEnd;
+          setTimerEndedAt(recoveredEnd);
+          clearCaseVoicePending();
           setStatus("ended");
-          setError(caseVoiceRecoveryMessage(next));
+          setError(null);
+          setNotice(caseVoiceRecoveryMessage(next));
         }
       } catch (cause) {
         if (cancelled) return;
@@ -649,6 +782,18 @@ export default function CaseVoiceInterview({
     };
   }, [capability, expireSession, reportCompletion]);
 
+  useEffect(() => {
+    const running =
+      projection?.readinessStatus === "confirmed" &&
+      callActive &&
+      !projection.complete &&
+      timerEndedAt === null;
+    if (!running) return;
+    setTimerNow(Date.now());
+    const timer = setInterval(() => setTimerNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [callActive, projection?.complete, projection?.readinessStatus, timerEndedAt]);
+
   const transcript = useMemo(() => {
     const openingText = projection?.openingText ?? capability?.openingPrompt ?? "";
     return openingText ? caseVoiceTranscript(openingText, projection?.turns ?? []) : [];
@@ -659,6 +804,13 @@ export default function CaseVoiceInterview({
   );
   const controls = caseVoiceControls(status, callActive, sdkReady);
   const active = status === "listening" || status === "speaking" || status === "connecting";
+  const elapsed = formatCaseVoiceElapsed(
+    caseVoiceElapsedMilliseconds(
+      projection?.readinessConfirmedAt ?? null,
+      timerNow,
+      timerEndedAt,
+    ),
+  );
 
   if (caseId !== "beautify") {
     return (
@@ -702,6 +854,22 @@ export default function CaseVoiceInterview({
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div
+            aria-label="Case interview timer"
+            style={{
+              minWidth: 62,
+              padding: "7px 10px",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              background: "var(--surface-2)",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 9, color: "var(--ink-4)", fontWeight: 600 }}>CASE TIME</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--ink)", fontWeight: 600 }}>
+              {elapsed}
+            </div>
+          </div>
           {controls.start && (
             <button type="button" onClick={start} disabled={!configured} style={buttonStyle("solid", !configured)}>
               {status === "idle" ? "Start voice interview" : "Start new interview"}
@@ -730,6 +898,11 @@ export default function CaseVoiceInterview({
           {error}
         </p>
       )}
+      {notice && (
+        <p role="status" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--ink-3)" }}>
+          {notice}
+        </p>
+      )}
       {syncError && (
         <p role="status" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--partial)" }}>
           {syncError}
@@ -746,10 +919,32 @@ export default function CaseVoiceInterview({
             />
           </div>
 
-          <div className="case-grid" style={{ marginTop: 16 }}>
-            <div style={{ border: "1px solid var(--line)", borderRadius: 12, background: "var(--surface)", minWidth: 0 }}>
+          {liveCaption && (
+            <div
+              style={{ marginTop: 14, maxWidth: 720, opacity: 0.78 }}
+              aria-label="Temporary live caption"
+              aria-live="polite"
+            >
+              <ChatBubble role="candidate" text={liveCaption} label="Live caption" />
+            </div>
+          )}
+
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              aria-expanded={showTranscript}
+              onClick={() => setShowTranscript((current) => !current)}
+              style={buttonStyle("ghost")}
+            >
+              {showTranscript ? "Hide transcript" : "Show transcript"} ({transcript.length})
+            </button>
+          </div>
+
+          <div className={showTranscript ? "case-grid" : undefined} style={{ marginTop: 16 }}>
+            {showTranscript && (
+              <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-                <SectionLabel>Live transcript</SectionLabel>
+                <SectionLabel>Transcript</SectionLabel>
               </div>
               <div
                 style={{
@@ -770,13 +965,9 @@ export default function CaseVoiceInterview({
                     label={line.action ? ACTION_LABEL[line.action] : undefined}
                   />
                 ))}
-                {liveCaption && (
-                  <div style={{ opacity: 0.72 }} aria-label="Temporary live caption">
-                    <ChatBubble role="candidate" text={liveCaption} label="Live caption" />
-                  </div>
-                )}
               </div>
-            </div>
+              </div>
+            )}
 
             <div style={{ minWidth: 0 }}>
               <SectionLabel style={{ marginBottom: 10 }}>Exhibits</SectionLabel>

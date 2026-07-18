@@ -1,20 +1,31 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { mockCase } from "@/lib/__mocks__/fixtures";
-import { respondToCase } from "@/lib/fsm/case-runner";
+import { respondToCase, type CaseRunnerTimings } from "@/lib/fsm/case-runner";
 import {
   CASE_ALREADY_READY_RESPONSE,
   CASE_NOT_READY_RESPONSE,
   CASE_READINESS_PROMPT,
   caseConversationText,
+  caseMetaConversationText,
   caseOpeningAfterReadiness,
 } from "@/lib/voice/case-conversation";
 import {
+  caseIntentUsesEvaluator,
+  classifyCaseCandidateIntent,
+  type CaseCandidateIntent,
+} from "@/lib/voice/case-intent";
+import {
+  addCaseTurnDuration,
+  caseServerTiming,
+  logCaseLatency,
+  newCaseTurnTimings,
+  type CaseTurnTimings,
+} from "@/lib/voice/case-latency";
+import {
   candidateRevisionRelation,
-  isReadinessOnlyConfirmation,
   isCandidateRevision,
   normalizeCandidateText,
-  readinessDisposition,
   type CandidateRevisionRelation,
 } from "@/lib/voice/case-turn-sync";
 import {
@@ -334,6 +345,7 @@ function openAIResponse(
   cacheKey: string,
   requestedModel: unknown,
   stream: boolean,
+  timings: CaseTurnTimings,
 ): Response {
   const id = completionId(cacheKey);
   const model = typeof requestedModel === "string" && requestedModel.trim()
@@ -342,19 +354,23 @@ function openAIResponse(
   const created = Math.floor(Date.now() / 1000);
 
   if (!stream) {
-    return NextResponse.json({
-      id,
-      object: "chat.completion",
-      created,
-      model,
-      choices: [
-        {
-          index: 0,
-          message: { role: "assistant", content: result.spokenText },
-          finish_reason: "stop",
-        },
-      ],
-    });
+    timings.firstSseChunkMs = Date.now() - timings.startedAt;
+    return NextResponse.json(
+      {
+        id,
+        object: "chat.completion",
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: result.spokenText },
+            finish_reason: "stop",
+          },
+        ],
+      },
+      { headers: { "Server-Timing": caseServerTiming(timings) } },
+    );
   }
 
   const contentChunk = {
@@ -378,6 +394,7 @@ function openAIResponse(
     choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
   };
   const body = `data: ${JSON.stringify(contentChunk)}\n\ndata: ${JSON.stringify(stopChunk)}\n\ndata: [DONE]\n\n`;
+  timings.firstSseChunkMs = Date.now() - timings.startedAt;
 
   return new Response(body, {
     status: 200,
@@ -386,6 +403,7 @@ function openAIResponse(
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      "Server-Timing": caseServerTiming(timings),
     },
   });
 }
@@ -440,10 +458,15 @@ function pendingCandidate(
   };
 }
 
-async function registerPendingCandidate(candidate: CandidateRequest): Promise<CaseVoiceModelResponse | null> {
+async function registerPendingCandidate(
+  candidate: CandidateRequest,
+  timings: CaseTurnTimings,
+): Promise<CaseVoiceModelResponse | null> {
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
   while (Date.now() < deadline) {
+    const lockStartedAt = Date.now();
     const claim = await acquirePendingLock(candidate.sessionId);
+    addCaseTurnDuration(timings, "redisLockMs", lockStartedAt);
     let waitForPrior = false;
     try {
       const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
@@ -509,17 +532,59 @@ interface CandidateEvaluation {
   commit: (current: CaseVoiceSession) => CaseVoiceSession;
 }
 
+function currentInterviewerPrompt(current: CaseVoiceSession): string {
+  const turns = current.projectedTurns ?? [];
+  return turns.at(-1)?.interviewerText ?? current.openingText ?? CASE_READINESS_PROMPT;
+}
+
+function metaConversationEvaluation(
+  current: CaseVoiceSession,
+  intent: CaseCandidateIntent,
+): CandidateEvaluation {
+  const conversationStatus = intent === "thinking-pause-request"
+    ? "paused"
+    : intent === "readiness-confirmation"
+      ? "active"
+      : current.conversationStatus ?? "active";
+  return {
+    result: {
+      spokenText: caseMetaConversationText(
+        intent,
+        current.session.fsm_state,
+        currentInterviewerPrompt(current),
+      ),
+      stage: current.session.fsm_state,
+      action: "conversation",
+      exhibit: null,
+      complete: false,
+      score: current.score ?? null,
+      turnSeq: current.turnSeq ?? 0,
+    },
+    commit: (latest) => ({ ...latest, conversationStatus }),
+  };
+}
+
 async function evaluateCandidate(
   current: CaseVoiceSession,
   candidate: CandidateRequest,
+  timings: CaseTurnTimings,
 ): Promise<CandidateEvaluation> {
   const c = mockCase(current.caseId);
   if (!c) {
     throw new CaseModelRequestError("case_not_found", 404, "The Case content is unavailable");
   }
 
+  const intentStartedAt = Date.now();
+  const intent = classifyCaseCandidateIntent(candidate.answer, {
+    readinessStatus: current.readinessStatus ?? "confirmed",
+    conversationStatus: current.conversationStatus ?? "active",
+    stage: current.session.fsm_state,
+  });
+  timings.intent = intent;
+  timings.intentMs += Date.now() - intentStartedAt;
+
   if (current.readinessStatus === "awaiting") {
-    const ready = readinessDisposition(candidate.answer) === "ready";
+    const ready = intent === "readiness-confirmation";
     const authoredPrompt = firstString(c.prompt, c.content);
     if (ready && !authoredPrompt) {
       throw new CaseModelRequestError("case_not_found", 404, "The Case opening is unavailable");
@@ -545,14 +610,16 @@ async function evaluateCandidate(
           : latest.openingText,
         readinessStatus: ready ? "confirmed" : "awaiting",
         readinessConfirmedAt: ready ? new Date().toISOString() : null,
+        conversationStatus: "active",
       }),
     };
   }
 
   if (
+    intent === "readiness-confirmation" &&
+    (current.conversationStatus ?? "active") !== "paused" &&
     (current.turnSeq ?? 0) === 0 &&
-    (current.projectedTurns?.length ?? 0) === 0 &&
-    isReadinessOnlyConfirmation(candidate.answer)
+    (current.projectedTurns?.length ?? 0) === 0
   ) {
     return {
       result: {
@@ -568,8 +635,21 @@ async function evaluateCandidate(
     };
   }
 
+  if (!caseIntentUsesEvaluator(intent)) {
+    return metaConversationEvaluation(current, intent);
+  }
+
   const stageBefore = current.session.fsm_state;
-  const turn = await respondToCase(c, current.session, candidate.answer);
+  const evaluatorStartedAt = Date.now();
+  const runnerTimings: CaseRunnerTimings = {};
+  const turn = await respondToCase(c, current.session, candidate.answer, {
+    prefetchOnAdvance: false,
+    timings: runnerTimings,
+  });
+  timings.respondToCaseMs += Date.now() - evaluatorStartedAt;
+  timings.evaluatorMs += runnerTimings.evaluationMs ?? 0;
+  timings.prefetchMs += runnerTimings.prefetchMs ?? 0;
+  timings.scoringMs += runnerTimings.scoringMs ?? 0;
   const turnSeq = (current.turnSeq ?? 0) + 1;
   const score = turn.score ?? current.score ?? null;
   const timestamp = new Date().toISOString();
@@ -581,6 +661,8 @@ async function evaluateCandidate(
     backendText: turn.interviewer.text,
     exhibit: turn.interviewer.exhibit,
     complete: turn.session.complete || turn.session.fsm_state === "scoring",
+    evaluation: turn.evaluation,
+    variationSeed: candidate.cacheKey,
   });
   const result: CaseVoiceModelResponse = {
     spokenText,
@@ -609,16 +691,22 @@ async function evaluateCandidate(
       turnSeq,
       score,
       invalidRetries: 0,
+      conversationStatus: "active",
       projectedTurns: [...(latest.projectedTurns ?? []), projectedTurn],
     }),
   };
 }
 
-async function processStableCandidate(candidate: CandidateRequest): Promise<CaseVoiceModelResponse> {
+async function processStableCandidate(
+  candidate: CandidateRequest,
+  timings: CaseTurnTimings,
+): Promise<CaseVoiceModelResponse> {
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
+  const stabilizationStartedAt = Date.now();
   while (Date.now() < deadline) {
     const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
     assertCaseSession(current, candidate);
+    timings.stage = current.session.fsm_state;
     const cached = current.processedModelRequests?.[candidate.cacheKey];
     if (cached) return cached;
     const pending = current.pendingCandidate;
@@ -633,15 +721,20 @@ async function processStableCandidate(candidate: CandidateRequest): Promise<Case
       continue;
     }
 
+    timings.stabilizationMs = Date.now() - stabilizationStartedAt;
+    const turnLockStartedAt = Date.now();
     const processClaim = await acquireTurnLock(
       candidate.sessionId,
       candidate.callId,
       candidate.cacheKey,
     );
+    addCaseTurnDuration(timings, "redisLockMs", turnLockStartedAt);
     if ("cached" in processClaim) return processClaim.cached;
 
     try {
+      const guardStartedAt = Date.now();
       const guard = await acquirePendingLock(candidate.sessionId);
+      addCaseTurnDuration(timings, "redisLockMs", guardStartedAt);
       let snapshot: CaseVoiceSession;
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
@@ -660,8 +753,10 @@ async function processStableCandidate(candidate: CandidateRequest): Promise<Case
         await releaseLock(guard.lockKey, guard.lockToken).catch(() => {});
       }
 
-      const evaluation = await evaluateCandidate(snapshot, candidate);
+      const evaluation = await evaluateCandidate(snapshot, candidate, timings);
+      const commitGuardStartedAt = Date.now();
       const commitGuard = await acquirePendingLock(candidate.sessionId);
+      addCaseTurnDuration(timings, "redisLockMs", commitGuardStartedAt);
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
@@ -687,6 +782,7 @@ async function processStableCandidate(candidate: CandidateRequest): Promise<Case
         const updated: CaseVoiceSession = {
           ...committed,
           callId: latest.callId ?? candidate.callId,
+          responseSeq: (latest.responseSeq ?? 0) + 1,
           pendingCandidate: null,
           processedModelRequests: cacheWith(
             latest.processedModelRequests,
@@ -695,7 +791,9 @@ async function processStableCandidate(candidate: CandidateRequest): Promise<Case
           ),
           updatedAt: new Date().toISOString(),
         };
+        const persistenceStartedAt = Date.now();
         await saveSession(candidate.sessionId, updated);
+        addCaseTurnDuration(timings, "persistenceMs", persistenceStartedAt);
         logTurnDiagnostic(candidate, snapshot.session.fsm_state, "processed");
         return evaluation.result;
       } finally {
@@ -711,12 +809,17 @@ async function processStableCandidate(candidate: CandidateRequest): Promise<Case
 async function processTurn(
   req: NextRequest,
   body: OpenAIChatRequest,
+  timings: CaseTurnTimings,
 ): Promise<{ result: CaseVoiceModelResponse; cacheKey: string }> {
   const candidate = parseCandidateRequest(req, body);
+  timings.requestId = candidate.requestId;
+  timings.callId = candidate.callId;
+  timings.messageCount = candidate.messages.length;
   logTurnDiagnostic(candidate, "unknown", "received");
 
   const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
   assertCaseSession(initial, candidate);
+  timings.stage = initial.session.fsm_state;
   const cached = initial.processedModelRequests?.[candidate.cacheKey];
   if (cached) {
     logTurnDiagnostic(
@@ -727,7 +830,7 @@ async function processTurn(
     return { result: cached, cacheKey: candidate.cacheKey };
   }
 
-  const registered = await registerPendingCandidate(candidate);
+  const registered = await registerPendingCandidate(candidate, timings);
   if (registered) {
     logTurnDiagnostic(
       candidate,
@@ -736,11 +839,12 @@ async function processTurn(
     );
     return { result: registered, cacheKey: candidate.cacheKey };
   }
-  const result = await processStableCandidate(candidate);
+  const result = await processStableCandidate(candidate, timings);
   return { result, cacheKey: candidate.cacheKey };
 }
 
 export async function POST(req: NextRequest) {
+  const timings = newCaseTurnTimings();
   const unauthorized = authorizeVapi(req);
   if (unauthorized) {
     const diagnosticBody = process.env.VAPI_CASE_AUTH_DEBUG === "true"
@@ -759,9 +863,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { result, cacheKey } = await processTurn(req, body);
-    const response = openAIResponse(result, cacheKey, body.model, body.stream !== false);
+    const { result, cacheKey } = await processTurn(req, body, timings);
+    const response = openAIResponse(
+      result,
+      cacheKey,
+      body.model,
+      body.stream !== false,
+      timings,
+    );
     logRequestDiagnostic(req, body, response.status);
+    logCaseLatency(timings, response.status);
     return response;
   } catch (error) {
     const response = error instanceof CaseModelRequestError
@@ -769,7 +880,10 @@ export async function POST(req: NextRequest) {
       : openAIError(
         new CaseModelRequestError("internal_error", 500, "The Case turn could not be processed"),
       );
+    timings.firstSseChunkMs = Date.now() - timings.startedAt;
+    response.headers.set("Server-Timing", caseServerTiming(timings));
     logRequestDiagnostic(req, body, response.status);
+    logCaseLatency(timings, response.status);
     return response;
   }
 }
