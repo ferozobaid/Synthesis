@@ -12,6 +12,7 @@ import { useMocks } from "@/lib/config";
 import { saveSession } from "@/lib/voice/session-store";
 import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
+import { CASE_READINESS_PROMPT } from "@/lib/voice/case-conversation";
 
 // POST /api/vapi/session — bootstrap a voice session (called when a call starts).
 //   { module: "behavioural", jdText, candidateName?, targetRole?, companyName? }
@@ -25,11 +26,6 @@ import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/type
 const MAX_JD_LENGTH = 20_000;
 const MAX_NAME_LENGTH = 200;
 const MAX_CASE_ID_LENGTH = 100;
-const CASE_INTERVIEWER_INTRODUCTION =
-  "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Ready whenever you are? Let’s begin.";
-const CASE_OPENING_QUESTION =
-  "What would you like to clarify before structuring your approach?";
-
 function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
@@ -146,11 +142,11 @@ export async function POST(req: NextRequest) {
     }
 
     const started = await startCase(c, MOCK_USER_ID);
-    // The spoken opening already frames the case and asks for clarifications, so
-    // the first voice answer must be evaluated by that existing FSM stage.
+    // Readiness is a voice-only pre-case gate. The first scored answer still uses
+    // the existing clarification stage, but the authored prompt is withheld until
+    // the candidate confirms they are ready.
     const voiceSession = { ...started.session, fsm_state: "clarification" as const };
-    const openingText =
-      `${CASE_INTERVIEWER_INTRODUCTION}\n\n${started.interviewer.text}\n\n${CASE_OPENING_QUESTION}`;
+    const openingText = CASE_READINESS_PROMPT;
     const now = new Date().toISOString();
     const sessionId = newSessionId();
     const projectionToken = randomBytes(32).toString("hex");
@@ -160,11 +156,14 @@ export async function POST(req: NextRequest) {
       session: voiceSession,
       caseId,
       openingText,
+      readinessStatus: "awaiting",
+      readinessConfirmedAt: null,
       callId: null,
       turnSeq: 0,
       score: null,
       processedToolCalls: {},
       processedModelRequests: {},
+      pendingCandidate: null,
       projectedTurns: [],
       projectionTokenHash,
       invalidRetries: 0,

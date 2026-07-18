@@ -47,6 +47,7 @@ export async function GET(
     caseId: record.caseId,
     caseTitle: c.title,
     openingText: record.openingText ?? c.prompt ?? "Let's begin.",
+    readinessStatus: record.readinessStatus ?? "confirmed",
     stage,
     stageIndex: CASE_STATES.indexOf(stage),
     complete: record.session.complete,

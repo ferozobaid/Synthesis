@@ -81,15 +81,32 @@ export interface CaseVoiceProjectedTurn {
   timestamp: string;
 }
 
+export type CaseVoiceModelAction = CaseAction | "readiness" | "suppressed";
+
 /** Cached backend result for one OpenAI-compatible custom-LLM request. */
 export interface CaseVoiceModelResponse {
   spokenText: string;
   stage: CaseState;
-  action: CaseAction;
+  action: CaseVoiceModelAction;
   exhibit: CaseExhibit | null;
   complete: boolean;
   score: CaseScore | null;
   turnSeq: number;
+  suppressed?: boolean;
+}
+
+/** One not-yet-evaluated Vapi candidate revision awaiting a short stability window. */
+export interface CaseVoicePendingCandidate {
+  requestKey: string;
+  requestId: string | null;
+  messageId: string | null;
+  callId: string;
+  stage: CaseState;
+  candidateText: string;
+  normalizedText: string;
+  messageCount: number;
+  receivedAt: number;
+  updatedAt: number;
 }
 
 export interface CaseVoiceSession {
@@ -97,8 +114,11 @@ export interface CaseVoiceSession {
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
-  /** Exact introduction plus authored case prompt spoken before the first answer. */
+  /** Spoken pre-case opening; authored prompt is appended only after readiness. */
   openingText?: string;
+  /** Readiness is outside the scored FSM and never creates a projected Case turn. */
+  readinessStatus?: "awaiting" | "confirmed";
+  readinessConfirmedAt?: string | null;
   /** Bound to the first valid Vapi call id that successfully advances the session. */
   callId?: string | null;
   /** Monotonic sequence for backend-authored interviewer turns returned to Vapi. */
@@ -109,6 +129,8 @@ export interface CaseVoiceSession {
   processedToolCalls?: Record<string, CaseVoiceToolResponse>;
   /** Cached custom-LLM results keyed by a stable call/message-history digest. */
   processedModelRequests?: Record<string, CaseVoiceModelResponse>;
+  /** Candidate text held briefly so progressive Vapi revisions replace rather than advance. */
+  pendingCandidate?: CaseVoicePendingCandidate | null;
   /** Permanent browser transcript source, ordered by turnSeq. */
   projectedTurns?: CaseVoiceProjectedTurn[];
   /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */

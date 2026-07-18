@@ -75,6 +75,7 @@ export interface CaseVoiceProjection {
   caseId: "beautify";
   caseTitle: string;
   openingText: string;
+  readinessStatus: "awaiting" | "confirmed";
   stage: CaseState;
   stageIndex: number;
   complete: boolean;
@@ -221,6 +222,8 @@ export function shouldApplyCaseProjection(
 ): boolean {
   if (!current) return true;
   if (next.turnSeq !== current.turnSeq) return next.turnSeq > current.turnSeq;
+  if (next.openingText !== current.openingText) return true;
+  if (next.readinessStatus !== current.readinessStatus) return true;
   if (!current.complete && next.complete) return true;
   if (!current.score && next.score) return true;
   if (next.turns.length > current.turns.length) return true;
@@ -254,6 +257,33 @@ export function caseVoiceTranscript(
     });
   }
   return lines.length > TRANSCRIPT_CAP ? lines.slice(-TRANSCRIPT_CAP) : lines;
+}
+
+export function caseVoiceLiveCaption(message: unknown): string | null {
+  const value = message as {
+    type?: string;
+    role?: string;
+    transcriptType?: string;
+    transcript?: string;
+  } | null;
+  if (
+    !value ||
+    (value.type !== "transcript" && !value.type?.startsWith("transcript[")) ||
+    value.role !== "user" ||
+    (value.transcriptType !== undefined &&
+      value.transcriptType !== "partial" &&
+      value.transcriptType !== "final")
+  ) {
+    return null;
+  }
+  const text = typeof value.transcript === "string" ? value.transcript.trim() : "";
+  return text || null;
+}
+
+export function caseVoiceRecoveryMessage(projection: CaseVoiceProjection): string {
+  return projection.readinessStatus === "awaiting"
+    ? "The prior call ended before the Case began. Start a new interview when you’re ready."
+    : "Your Case progress was recovered. The prior voice connection is no longer active.";
 }
 
 function isCaseState(value: unknown): value is CaseState {
@@ -466,6 +496,7 @@ export default function CaseVoiceInterview({
       });
       vapi.on("speech-start", () => {
         if (attempt !== startAttemptRef.current) return;
+        setLiveCaption(null);
         setStatus((current) => (current === "completed" ? current : "speaking"));
       });
       vapi.on("speech-end", () => {
@@ -485,18 +516,7 @@ export default function CaseVoiceInterview({
       });
       vapi.on("message", (message) => {
         if (attempt !== startAttemptRef.current) return;
-        const value = message as {
-          type?: string;
-          role?: string;
-          transcriptType?: string;
-          transcript?: string;
-        } | null;
-        if (
-          !value ||
-          (value.type !== "transcript" && !value.type?.startsWith("transcript[")) ||
-          value.role !== "user"
-        ) return;
-        const text = typeof value.transcript === "string" ? value.transcript.trim() : "";
+        const text = caseVoiceLiveCaption(message);
         if (!text) return;
         setLiveCaption(text);
       });
@@ -579,7 +599,12 @@ export default function CaseVoiceInterview({
         if (shouldApplyCaseProjection(previous, next)) {
           projectionRef.current = next;
           setProjection(next);
-          if (next.turnSeq > (previous?.turnSeq ?? 0)) setLiveCaption(null);
+          if (
+            next.turnSeq > (previous?.turnSeq ?? 0) ||
+            next.openingText !== previous?.openingText
+          ) {
+            setLiveCaption(null);
+          }
         }
 
         if (next.complete && next.score) {
@@ -591,7 +616,7 @@ export default function CaseVoiceInterview({
           recoveredRef.current = false;
           endedAtRef.current = Date.now();
           setStatus("ended");
-          setError("Your Case progress was recovered. The prior voice connection is no longer active.");
+          setError(caseVoiceRecoveryMessage(next));
         }
       } catch (cause) {
         if (cancelled) return;

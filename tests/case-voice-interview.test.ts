@@ -4,6 +4,8 @@ import {
   CASE_VOICE_PENDING_TTL_MS,
   CaseProjectionUnavailableError,
   caseVoiceControls,
+  caseVoiceLiveCaption,
+  caseVoiceRecoveryMessage,
   caseVoiceStartOverrides,
   caseVoiceTranscript,
   fetchCaseVoiceProjection,
@@ -52,6 +54,7 @@ function projection(overrides: Partial<CaseVoiceProjection> = {}): CaseVoiceProj
     caseId: "beautify",
     caseTitle: "Beautify - Virtual Beauty Advisors",
     openingText: "Opening prompt",
+    readinessStatus: "awaiting",
     stage: "intro",
     stageIndex: 0,
     complete: false,
@@ -147,6 +150,20 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     expect(shouldApplyCaseProjection(current, next)).toBe(true);
   });
 
+  it("applies the readiness opening without requiring a scored turn", () => {
+    const awaiting = projection({ openingText: "Are you ready?", readinessStatus: "awaiting" });
+    const confirmed = projection({
+      openingText: "Are you ready?\n\nGreat, let’s begin.\n\nAuthored prompt",
+      readinessStatus: "confirmed",
+    });
+
+    expect(shouldApplyCaseProjection(awaiting, confirmed)).toBe(true);
+    expect(confirmed.turnSeq).toBe(0);
+    expect(confirmed.turns).toEqual([]);
+    expect(caseVoiceRecoveryMessage(awaiting)).toContain("before the Case began");
+    expect(caseVoiceRecoveryMessage(confirmed)).toContain("progress was recovered");
+  });
+
   it("renders exhibits once and preserves backend-authored order", () => {
     const result = uniqueCaseExhibits([
       EXHIBITS[0],
@@ -201,6 +218,28 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     expect(transcript).toEqual([
       { role: "assistant", text: "Opening prompt", turnSeq: 0, action: null },
     ]);
+  });
+
+  it("keeps partial and final Vapi transcripts as temporary captions only", () => {
+    expect(caseVoiceLiveCaption({
+      type: "transcript",
+      role: "user",
+      transcriptType: "partial",
+      transcript: "What time",
+    })).toBe("What time");
+    expect(caseVoiceLiveCaption({
+      type: "transcript",
+      role: "user",
+      transcriptType: "final",
+      transcript: "What time horizon should we use?",
+    })).toBe("What time horizon should we use?");
+    expect(caseVoiceLiveCaption({
+      type: "transcript",
+      role: "assistant",
+      transcriptType: "final",
+      transcript: "Assistant speech",
+    })).toBeNull();
+    expect(caseVoiceTranscript("Opening prompt", [])).toHaveLength(1);
   });
 
   it("treats the completed scoring projection as a terminal update", () => {

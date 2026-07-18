@@ -37,7 +37,8 @@ import type { CaseVoiceSession } from "@/lib/voice/types";
 const SECRET = "test-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
 const INTRODUCTION =
-  "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Ready whenever you are? Let’s begin.";
+  "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Are you ready to begin?";
+const READINESS_CONFIRMED = "Great, let’s begin.";
 const OPENING_QUESTION =
   "What would you like to clarify before structuring your approach?";
 
@@ -59,6 +60,7 @@ const ANSWERS = {
 };
 
 interface ChatMessage {
+  id?: string;
   role: "assistant" | "user";
   content: string;
 }
@@ -93,8 +95,14 @@ async function bootstrap() {
   };
 }
 
-function modelBody(sessionId: string, callId: string, messages: ChatMessage[]) {
+function modelBody(
+  sessionId: string,
+  callId: string,
+  messages: ChatMessage[],
+  requestId?: string,
+) {
   return {
+    id: requestId,
     model: "synthesis-case-fsm",
     stream: true,
     messages,
@@ -103,13 +111,17 @@ function modelBody(sessionId: string, callId: string, messages: ChatMessage[]) {
   };
 }
 
-async function spokenText(response: Response): Promise<string> {
+async function ssePayloads(response: Response): Promise<Array<Record<string, any>>> {
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toContain("text/event-stream");
-  const payloads = (await response.text())
+  return (await response.text())
     .split("\n")
     .filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
     .map((line) => JSON.parse(line.slice(6)));
+}
+
+async function spokenText(response: Response): Promise<string> {
+  const payloads = await ssePayloads(response);
   return payloads
     .map((payload) => payload.choices?.[0]?.delta?.content ?? "")
     .join("");
@@ -121,6 +133,9 @@ async function sendTurn(
   history: ChatMessage[],
   answer: string,
 ): Promise<string> {
+  if (stored(sessionId).readinessStatus !== "confirmed") {
+    await confirmReadiness(sessionId, callId, history);
+  }
   history.push({ role: "user", content: answer });
   const response = await customLlmPOST(
     request(modelBody(sessionId, callId, history), authHeader) as never,
@@ -130,25 +145,114 @@ async function sendTurn(
   return text;
 }
 
+async function confirmReadiness(
+  sessionId: string,
+  callId: string,
+  history: ChatMessage[],
+  answer = "Yes, I’m ready.",
+): Promise<string> {
+  history.push({ role: "user", content: answer });
+  const response = await customLlmPOST(
+    request(modelBody(sessionId, callId, history), authHeader) as never,
+  );
+  const text = await spokenText(response);
+  history.push({ role: "assistant", content: text });
+  return text;
+}
+
+async function pause(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 beforeEach(() => {
   redisStore.clear();
   process.env.UPSTASH_REDIS_REST_KV_REST_API_URL = "https://example.upstash.io";
   process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN = "test-token";
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
   process.env.SYNTHESIS_USE_MOCKS = "true";
+  process.env.CASE_VOICE_REVISION_WINDOW_MS = "5";
   delete process.env.VAPI_CASE_AUTH_DEBUG;
+  delete process.env.VAPI_CASE_TURN_DEBUG;
 });
 
 describe("Case custom-LLM deterministic turn loop", () => {
-  it("puts the required introduction before the existing authored Beautify prompt", async () => {
+  it("withholds the authored Beautify prompt until readiness is confirmed", async () => {
     const bootstrapData = await bootstrap();
     const authoredPrompt = mockCase("beautify")!.prompt!;
 
-    expect(bootstrapData.openingPrompt.startsWith(`${INTRODUCTION}\n\n`)).toBe(true);
-    expect(bootstrapData.openingPrompt.indexOf(authoredPrompt)).toBeGreaterThan(INTRODUCTION.length);
-    expect(bootstrapData.openingPrompt.endsWith(`\n\n${OPENING_QUESTION}`)).toBe(true);
+    expect(bootstrapData.openingPrompt).toBe(INTRODUCTION);
+    expect(bootstrapData.openingPrompt).not.toContain(authoredPrompt);
     expect(stored(bootstrapData.sessionId).openingText).toBe(bootstrapData.openingPrompt);
+    expect(stored(bootstrapData.sessionId).readinessStatus).toBe("awaiting");
     expect(stored(bootstrapData.sessionId).session.fsm_state).toBe("clarification");
+  });
+
+  it("confirms readiness without scoring or advancing the Case FSM", async () => {
+    const started = await bootstrap();
+    const authoredPrompt = mockCase("beautify")!.prompt!;
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await confirmReadiness(started.sessionId, "call-1", history, "Let’s begin");
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe(`${READINESS_CONFIRMED}\n\n${authoredPrompt}\n\n${OPENING_QUESTION}`);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(session.openingText).toBe(`${INTRODUCTION}\n\n${reply}`);
+  });
+
+  it("returns the cached readiness response when the confirmation request is repeated", async () => {
+    const started = await bootstrap();
+    const messages: ChatMessage[] = [
+      { role: "assistant", content: started.openingPrompt },
+      { role: "user", content: "Yes, I’m ready" },
+    ];
+    const body = modelBody(started.sessionId, "call-1", messages);
+
+    const first = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+    const retry = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+    const session = stored(started.sessionId);
+
+    expect(retry).toBe(first);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
+  it("does not score a repeated readiness confirmation with different wording", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history, "Yes, I’m ready");
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, "Ready");
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe(
+      "The case has begun. What would you like to clarify before structuring your approach?",
+    );
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
+  it("stays in readiness when the candidate is not ready", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await confirmReadiness(started.sessionId, "call-1", history, "Not yet");
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe("No problem. Let me know when you’re ready.");
+    expect(session.readinessStatus).toBe("awaiting");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
   });
 
   it("logs only safe request authentication diagnostics when explicitly enabled", async () => {
@@ -190,6 +294,27 @@ describe("Case custom-LLM deterministic turn loop", () => {
     info.mockRestore();
   });
 
+  it("logs safe turn synchronization diagnostics only when explicitly enabled", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    process.env.VAPI_CASE_TURN_DEBUG = "true";
+
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+
+    const turnCalls = info.mock.calls.filter(([label]) => label === "[case-custom-llm] turn");
+    expect(turnCalls.length).toBeGreaterThan(0);
+    expect(turnCalls.at(-1)?.[1]).toMatchObject({
+      callId: "call-1",
+      messageCount: history.length - 1,
+      outcome: "processed",
+    });
+    expect(JSON.stringify(turnCalls)).not.toContain(ANSWERS.clarification);
+    expect(JSON.stringify(turnCalls)).not.toContain(SECRET);
+    info.mockRestore();
+  });
+
   it("evaluates every finalized non-empty candidate turn exactly once", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
@@ -206,10 +331,9 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
   it("returns a cached retry without evaluating or advancing the FSM twice", async () => {
     const started = await bootstrap();
-    const messages: ChatMessage[] = [
-      { role: "assistant", content: started.openingPrompt },
-      { role: "user", content: ANSWERS.clarification },
-    ];
+    const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", messages);
+    messages.push({ role: "user", content: ANSWERS.clarification });
     const body = modelBody(started.sessionId, "call-1", messages);
 
     const first = await spokenText(
@@ -227,10 +351,9 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
   it("coalesces overlapping delivery of the same model request", async () => {
     const started = await bootstrap();
-    const messages: ChatMessage[] = [
-      { role: "assistant", content: started.openingPrompt },
-      { role: "user", content: ANSWERS.clarification },
-    ];
+    const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", messages);
+    messages.push({ role: "user", content: ANSWERS.clarification });
     const body = modelBody(started.sessionId, "call-1", messages);
 
     const [firstResponse, secondResponse] = await Promise.all([
@@ -246,6 +369,87 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(stored(started.sessionId).session.history).toHaveLength(2);
     expect(stored(started.sessionId).projectedTurns).toHaveLength(1);
     expect(stored(started.sessionId).turnSeq).toBe(1);
+  });
+
+  it("replaces progressive revisions with one stable canonical candidate turn", async () => {
+    process.env.CASE_VOICE_REVISION_WINDOW_MS = "50";
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const partial =
+      "I have three clarifying questions. What factors should Beautify consider?";
+    const corrected =
+      `${partial} No, actually, cut that. What time horizon should we use, which markets and brands are in scope, and will Beautify bear the technology, training, and operating costs?`;
+
+    const firstRequest = customLlmPOST(
+      request(
+        modelBody(started.sessionId, "call-1", [
+          ...history,
+          { id: "user-turn-1", role: "user", content: partial },
+        ], "model-request-1"),
+        authHeader,
+      ) as never,
+    );
+    await pause(5);
+    const revisedRequest = customLlmPOST(
+      request(
+        modelBody(started.sessionId, "call-1", [
+          ...history,
+          { id: "user-turn-1", role: "user", content: corrected },
+        ], "model-request-2"),
+        authHeader,
+      ) as never,
+    );
+
+    const [superseded, stableReply] = await Promise.all([
+      firstRequest.then(ssePayloads),
+      revisedRequest.then(spokenText),
+    ]);
+    const session = stored(started.sessionId);
+    const supersededReply = superseded
+      .map((payload) => payload.choices?.[0]?.delta?.content ?? "")
+      .join("");
+
+    expect(supersededReply).toBe("");
+    expect(superseded[0].choices[0]).toMatchObject({
+      delta: { role: "assistant", content: "" },
+      finish_reason: null,
+    });
+    expect(superseded.at(-1)?.choices[0].finish_reason).toBe("stop");
+    expect(stableReply).toBe(session.projectedTurns?.[0].interviewerText);
+    expect(session.projectedTurns).toHaveLength(1);
+    expect(session.projectedTurns?.[0].candidateText).toBe(corrected);
+    expect(session.session.history.filter((message) => message.role === "candidate")).toHaveLength(1);
+    expect(session.turnSeq).toBe(1);
+
+    const suppressedRetry = await spokenText(
+      await customLlmPOST(
+        request(
+          modelBody(started.sessionId, "call-1", [
+            ...history,
+            { id: "user-turn-1", role: "user", content: partial },
+            { role: "assistant", content: "" },
+          ]),
+          authHeader,
+        ) as never,
+      ),
+    );
+    expect(suppressedRetry).toBe("");
+    expect(stored(started.sessionId).turnSeq).toBe(1);
+  });
+
+  it("keeps genuinely separate answers on distinct turn sequences", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.framework);
+
+    expect(stored(started.sessionId).projectedTurns?.map((turn) => turn.turnSeq)).toEqual([1, 2]);
+    expect(stored(started.sessionId).projectedTurns?.map((turn) => turn.candidateText)).toEqual([
+      ANSWERS.clarification,
+      ANSWERS.framework,
+    ]);
   });
 
   it("returns only the exact persisted backend interviewer text as assistant speech", async () => {
@@ -265,13 +469,13 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
 
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification)).toBe(
-      "Good. Let's move to your structure. What factors should Beautify consider as it shifts consultants into virtual-advisor roles?",
+      "Those are useful clarifications. The case does not specify a fixed profitability horizon, so use a three-year assessment horizon as a transparent working assumption. Beautify is a global, multi-brand business; for this interview, assume the initial scope covers its major brands and priority markets. Assume Beautify bears the technology, training, and ongoing operating costs; the case does not assign those costs to retail partners. Unless you have another clarification, please walk me through how you would structure the problem.",
     );
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.framework)).toBe(
-      "That's a sensible structure. Let's start with the customer. What would make a high-touch in-store customer switch to a mostly virtual experience?",
+      "That gives us a workable structure. Start with the customer: what would make someone who values high-touch service switch to a mostly virtual experience?",
     );
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.analysis)).toBe(
-      "Good. Let's ground the case in data. Are you ready for the first exhibit?",
+      "You’ve identified the key customer needs. Now let’s test the economics and market evidence, one exhibit at a time.",
     );
 
     const firstExhibit = await sendTurn(
@@ -292,13 +496,13 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(secondExhibit).toContain("Effect of top-4 competitors' AI chatbots");
 
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.data_reveal)).toBe(
-      "Good. Now pressure-test your conclusion. What is the strongest argument against this shift, and how would you address it?",
+      "We’ve grounded the opportunity in the exhibits. What is the strongest argument against the shift, and how would you address it?",
     );
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.pressure_test)).toBe(
-      "Understood. Please give me your concise final recommendation, supported by the key evidence and next steps.",
+      "Bring the analysis together in a concise final recommendation, including the main evidence, risks, and next steps.",
     );
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.recommendation)).toBe(
-      "Thank you. That concludes the case.",
+      "Thank you. That concludes the case. Your score is ready on screen.",
     );
   });
 
@@ -314,7 +518,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     );
 
     expect(reply).toBe(
-      "No fixed time horizon is provided, so state a reasonable assumption and test it against the case economics. What else would you like to clarify before structuring your approach?",
+      "Those are useful clarifications. The case does not specify a fixed profitability horizon, so use a three-year assessment horizon as a transparent working assumption. Do you have another clarification, or are you ready to structure your approach?",
     );
     expect(stored(started.sessionId).session.fsm_state).toBe("clarification");
     expect(stored(started.sessionId).projectedTurns?.[0]).toMatchObject({
@@ -322,6 +526,22 @@ describe("Case custom-LLM deterministic turn loop", () => {
       action: "probe",
       interviewerText: reply,
     });
+  });
+
+  it("frames unsupported clarification facts as assumptions instead of inventing data", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "What is the exact market size, growth rate, and revenue target for the priority markets?",
+    );
+
+    expect(reply).toContain("The case does not provide an exact figure");
+    expect(reply).toContain("state a reasonable assumption rather than inventing data");
+    expect(reply).not.toMatch(/€|\$|\b\d+(?:\.\d+)?%\b/);
   });
 
   it("commits candidate and interviewer text under the same turnSeq", async () => {
