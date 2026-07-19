@@ -16,6 +16,7 @@ import type {
   CaseState,
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
+import type { FrameworkProbeObjective } from "@/lib/fsm/case-framework";
 
 /** Lifecycle of the post-call scoring report for a behavioural voice session. */
 export type ReportStatus = "pending" | "processing" | "done" | "failed";
@@ -135,6 +136,8 @@ export interface CaseVoiceSession {
   processedModelRequests?: Record<string, CaseVoiceModelResponse>;
   /** Candidate text held briefly so progressive Vapi revisions replace rather than advance. */
   pendingCandidate?: CaseVoicePendingCandidate | null;
+  /** Last bounded Framework objective, used to prevent equivalent repeated probes. */
+  lastProbeObjective?: FrameworkProbeObjective | null;
   /** Permanent browser transcript source, ordered by turnSeq. */
   projectedTurns?: CaseVoiceProjectedTurn[];
   /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */

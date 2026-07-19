@@ -20,6 +20,7 @@
  */
 import { complete, extractJSON } from "@/lib/claude";
 import { useMocks } from "@/lib/config";
+import { assessCaseFramework } from "@/lib/fsm/case-framework";
 import { getStage } from "@/lib/fsm/case-fsm";
 import type { CaseRecord, CaseState, Evaluation } from "@/lib/types";
 
@@ -318,7 +319,16 @@ export async function evaluateResponse(c: CaseRecord, stage: CaseState, answer: 
 }
 
 /** Collapse an Evaluation into the FSM's advance/weak decision for `stage`. */
-export function isStrong(ev: Evaluation, stage: CaseState, c: CaseRecord): boolean {
+export function isStrong(
+  ev: Evaluation,
+  stage: CaseState,
+  c: CaseRecord,
+  semanticEvidence = "",
+): boolean {
+  if (stage === "framework" && semanticEvidence) {
+    const framework = assessCaseFramework(c, semanticEvidence);
+    if (framework.configured && framework.accepted) return true;
+  }
   const emphasized = emphasisFor(c, stage);
   const get = (d: CaseDimension) => ev.dimension_scores.find((x) => x.dimension === d)?.score ?? 0;
   const primary = get(emphasized[0]);

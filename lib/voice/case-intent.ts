@@ -1,4 +1,5 @@
 import type { CaseState } from "@/lib/types";
+import { nextState } from "@/lib/fsm/case-fsm";
 import { isValidClarificationQuestion } from "@/lib/voice/case-conversation";
 import {
   isReadinessOnlyConfirmation,
@@ -14,13 +15,22 @@ export type CaseCandidateIntent =
   | "clarification-question"
   | "substantive-case-answer"
   | "self-correction-revision"
+  | "frustration"
   | "off-topic-or-confused"
+  | "stage-transition-request"
   | "end-interview";
 
 export interface CaseIntentContext {
   readinessStatus: "awaiting" | "confirmed";
   conversationStatus: "active" | "paused";
   stage: CaseState;
+}
+
+export interface RoutedCaseCandidateTurn {
+  intent: CaseCandidateIntent;
+  evaluationText: string;
+  transitionTo: CaseState | null;
+  compoundTransition: boolean;
 }
 
 const THINKING_REQUEST =
@@ -32,11 +42,30 @@ const REPEAT_REQUEST = [
 ];
 const GENERIC_MEANING_REQUEST = /^what do you mean(?: by (?:that|the question))?$/;
 const END_REQUEST =
-  /^(?:please )?(?:end|stop|finish)(?: the| this)? (?:case|interview|call)(?: now)?$|^(?:i(?:'d| would) like to|can we|let'?s) (?:end|stop|finish)(?: the| this)? (?:case|interview|call)(?: now)?$/;
+  /^(?:please )?(?:end|stop|finish)(?: the| this)? (?:case|interview|call|session)(?: now)?$|^(?:i(?:'d| would) like to|i want to|can we|let'?s) (?:(?:end|stop|finish)(?: the| this)? (?:case|interview|call|session)|quit)(?: now)?$/;
+const FRUSTRATION_RESPONSE =
+  /\b(?:i (?:already|just) (?:answered|gave|provided|covered)|i gave you (?:those|these|the) (?:points|branches|factors|answers?)|you(?:'re| are) asking (?:me )?(?:the same|that) (?:thing|question) again|why (?:do you|are you) keep (?:asking|repeating)|i don'?t understand why you keep (?:asking|repeating))\b/;
 const CONFUSED_RESPONSE =
   /^(?:i(?: am|'m) confused|i don'?t understand|i do not understand|i have no idea|i don'?t know what to do|what are we doing)(?: here)?$/;
 const CORRECTION_MARKER =
   /\b(?:actually|i mean|let me correct|let me rephrase|scratch that|cut that|correction)\b/;
+const COMPOUND_TRANSITION_PREFIXES = [
+  /^\s*(?:(?:i think\s+)?i(?:['’]m| am)\s+ready(?:\s+now)?\s+to\s+(?:structure|outline|lay out|share|walk through)(?:\s+(?:(?:my|the)\s+)?(?:approach|framework))?(?:\s+now)?)(?:\s*[.!;,:-]\s*(?:(?:and|so)\s+)?|\s+(?:and|so)\s+)([\s\S]+)$/i,
+  /^\s*(?:let(?:['’]s| us)\s+continue|we can continue|i(?:['’]m| am)\s+ready\s+to\s+continue)(?:\s*[.!;,:-]\s*(?:(?:and|so)\s+)?|\s+(?:and|so)\s+)([\s\S]+)$/i,
+  /^\s*i(?:['’]m| am)\s+ready\s+now(?:\s*[.!;,:-]\s*(?:(?:and|so)\s+)?|\s+(?:and|so)\s+)([\s\S]+)$/i,
+];
+const FRAMEWORK_TRANSITION_REQUEST =
+  /^(?:(?:i think )?i(?:'m| am) ready(?: now)? to (?:structure|outline|lay out|share|walk through)(?: (?:(?:my|the) )?(?:approach|framework))?(?: now)?|i(?:'d| would) like to (?:structure|outline|lay out|share|walk through) (?:my|the) (?:approach|framework))$/;
+
+function compoundSubstantiveText(text: string): string | null {
+  for (const pattern of COMPOUND_TRANSITION_PREFIXES) {
+    const remainder = text.match(pattern)?.[1]?.trim() ?? "";
+    if (normalizeCandidateText(remainder).split(" ").filter(Boolean).length >= 4) {
+      return remainder;
+    }
+  }
+  return null;
+}
 
 export function classifyCaseCandidateIntent(
   text: string,
@@ -50,6 +79,7 @@ export function classifyCaseCandidateIntent(
   }
 
   if (END_REQUEST.test(normalized)) return "end-interview";
+  if (FRUSTRATION_RESPONSE.test(normalized)) return "frustration";
   if (THINKING_REQUEST.test(normalized)) return "thinking-pause-request";
   if (REPEAT_REQUEST.some((pattern) => pattern.test(normalized)) || GENERIC_MEANING_REQUEST.test(normalized)) {
     return "repeat-question-request";
@@ -64,6 +94,52 @@ export function classifyCaseCandidateIntent(
   if (CONFUSED_RESPONSE.test(normalized)) return "off-topic-or-confused";
   if (CORRECTION_MARKER.test(normalized)) return "self-correction-revision";
   return "substantive-case-answer";
+}
+
+export function routeCaseCandidateTurn(
+  text: string,
+  context: CaseIntentContext,
+): RoutedCaseCandidateTurn {
+  if (context.readinessStatus !== "confirmed") {
+    return {
+      intent: classifyCaseCandidateIntent(text, context),
+      evaluationText: text.trim(),
+      transitionTo: null,
+      compoundTransition: false,
+    };
+  }
+
+  if (
+    context.stage === "clarification" &&
+    context.conversationStatus === "active" &&
+    FRAMEWORK_TRANSITION_REQUEST.test(normalizeCandidateText(text))
+  ) {
+    return {
+      intent: "stage-transition-request",
+      evaluationText: "",
+      transitionTo: nextState(context.stage),
+      compoundTransition: false,
+    };
+  }
+
+  const substantive = compoundSubstantiveText(text);
+  if (!substantive) {
+    return {
+      intent: classifyCaseCandidateIntent(text, context),
+      evaluationText: text.trim(),
+      transitionTo: null,
+      compoundTransition: false,
+    };
+  }
+
+  const transitionTo = context.stage === "clarification" ? nextState(context.stage) : null;
+  const evaluationContext = transitionTo ? { ...context, stage: transitionTo } : context;
+  return {
+    intent: classifyCaseCandidateIntent(substantive, evaluationContext),
+    evaluationText: substantive,
+    transitionTo,
+    compoundTransition: true,
+  };
 }
 
 export function caseIntentUsesEvaluator(intent: CaseCandidateIntent): boolean {

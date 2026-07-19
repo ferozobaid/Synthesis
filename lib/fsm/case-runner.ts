@@ -11,12 +11,15 @@
  */
 import { useMocks } from "@/lib/config";
 import {
+  applyDecision,
   getStage,
   initSession,
+  nextState,
   step,
   type TurnDecision,
 } from "@/lib/fsm/case-fsm";
 import { evaluateResponse, isStrong } from "@/lib/fsm/case-evaluator";
+import { collectCaseFrameworkEvidence } from "@/lib/fsm/case-framework";
 import { scoreCase } from "@/lib/fsm/case-scoring";
 import { prefetchCaseStage, type StageContext } from "@/lib/rag";
 import type {
@@ -65,6 +68,18 @@ export interface RespondToCaseOptions {
   /** Voice already has all authored prompts and does not consume StageContext. */
   prefetchOnAdvance?: boolean;
   timings?: CaseRunnerTimings;
+  /** A compound voice turn may request only the immediate next FSM stage. */
+  transitionBeforeEvaluation?: CaseState;
+}
+
+export function transitionCaseSession(
+  prior: CaseSessionState,
+  target: CaseState,
+): CaseSessionState {
+  if (nextState(prior.fsm_state) !== target) {
+    throw new Error(`Invalid Case stage transition: ${prior.fsm_state} -> ${target}`);
+  }
+  return applyDecision(prior, { action: "advance", nextState: target });
 }
 
 /** The interviewer's spoken line for a decision (reads prompts/hints/probes from the case JSON). */
@@ -116,17 +131,23 @@ export async function respondToCase(
   answer: string,
   options: RespondToCaseOptions = {},
 ): Promise<CaseTurnResult> {
-  const stageBefore = prior.fsm_state;
+  const evaluationPrior = options.transitionBeforeEvaluation
+    ? transitionCaseSession(prior, options.transitionBeforeEvaluation)
+    : prior;
+  const stageBefore = evaluationPrior.fsm_state;
   const evaluationStartedAt = Date.now();
   const evaluation = await evaluateResponse(c, stageBefore, answer);
   if (options.timings) options.timings.evaluationMs = Date.now() - evaluationStartedAt;
-  const strong = isStrong(evaluation, stageBefore, c);
+  const semanticEvidence = stageBefore === "framework"
+    ? collectCaseFrameworkEvidence(evaluationPrior, answer)
+    : answer;
+  const strong = isStrong(evaluation, stageBefore, c, semanticEvidence);
 
   // Record the candidate's turn (tagged with the stage it was given at) so final
   // scoring can re-read the transcript.
   const withCandidate: CaseSessionState = {
-    ...prior,
-    history: [...prior.history, { role: "candidate", stage: stageBefore, text: answer }],
+    ...evaluationPrior,
+    history: [...evaluationPrior.history, { role: "candidate", stage: stageBefore, text: answer }],
   };
 
   const { decision, session: afterStep } = step(c, withCandidate, strong);

@@ -5,8 +5,15 @@ import {
   isCandidateRevision,
   readinessDisposition,
 } from "@/lib/voice/case-turn-sync";
-import { classifyCaseCandidateIntent } from "@/lib/voice/case-intent";
-import { frameworkCoverage } from "@/lib/voice/case-conversation";
+import {
+  classifyCaseCandidateIntent,
+  routeCaseCandidateTurn,
+} from "@/lib/voice/case-intent";
+import { assessCaseFramework } from "@/lib/fsm/case-framework";
+import beautify from "@/context/cases/beautify.json";
+import type { CaseRecord } from "@/lib/types";
+
+const beautifyCase = beautify as unknown as CaseRecord;
 
 describe("Case voice candidate turn synchronization", () => {
   it("recognizes a strict-superset transcript as a revision without message IDs", () => {
@@ -89,9 +96,99 @@ describe("Case voice candidate turn synchronization", () => {
   });
 
   it("recognizes singular and plural internal capability branches", () => {
-    expect(frameworkCoverage("I would assess Beautify's internal capability.").internalCapabilities)
-      .toBe(true);
-    expect(frameworkCoverage("I would assess Beautify's internal capabilities.").internalCapabilities)
-      .toBe(true);
+    expect(assessCaseFramework(
+      beautifyCase,
+      "I would assess Beautify's internal capability.",
+    ).coveredConcepts).toContain("people-training");
+    expect(assessCaseFramework(
+      beautifyCase,
+      "I would assess Beautify's internal capabilities.",
+    ).coveredConcepts).toContain("people-training");
+  });
+
+  it.each([
+    "I’m ready to structure. I would look at external demand, internal capabilities, and economics.",
+    "Let’s continue. My approach has three parts: external demand, internal feasibility, and financial viability.",
+    "I’m ready now; first I would analyze external demand, then internal technology and training, and finally payback.",
+  ])("routes compound transition content into Framework evaluation: %s", (answer) => {
+    const routed = routeCaseCandidateTurn(answer, {
+      readinessStatus: "confirmed",
+      conversationStatus: "active",
+      stage: "clarification",
+    });
+
+    expect(routed.compoundTransition).toBe(true);
+    expect(routed.transitionTo).toBe("framework");
+    expect(routed.intent).toBe("substantive-case-answer");
+    expect(routed.evaluationText).not.toMatch(/ready|let(?:'|’)s continue/i);
+  });
+
+  it.each([
+    "I’m ready to structure my approach",
+    "I think I’m ready to outline the framework",
+    "I’d like to walk through my framework",
+  ])("routes a transition-only phrase to Framework without evaluator text: %s", (answer) => {
+    const routed = routeCaseCandidateTurn(answer, {
+      readinessStatus: "confirmed",
+      conversationStatus: "active",
+      stage: "clarification",
+    });
+
+    expect(routed).toMatchObject({
+      intent: "stage-transition-request",
+      evaluationText: "",
+      transitionTo: "framework",
+      compoundTransition: false,
+    });
+  });
+
+  it("leaves a substantive answer without a transition phrase unchanged", () => {
+    const answer = "My approach has external, internal and financial branches.";
+    const routed = routeCaseCandidateTurn(answer, {
+      readinessStatus: "confirmed",
+      conversationStatus: "active",
+      stage: "framework",
+    });
+
+    expect(routed).toMatchObject({
+      intent: "substantive-case-answer",
+      evaluationText: answer,
+      transitionTo: null,
+      compoundTransition: false,
+    });
+  });
+
+  it("resumes a paused conversation without advancing the stage", () => {
+    const routed = routeCaseCandidateTurn("I’m ready to continue", {
+      readinessStatus: "confirmed",
+      conversationStatus: "paused",
+      stage: "clarification",
+    });
+
+    expect(routed.intent).toBe("readiness-confirmation");
+    expect(routed.transitionTo).toBeNull();
+  });
+
+  it("distinguishes frustration from explicit end intent", () => {
+    const context = {
+      readinessStatus: "confirmed" as const,
+      conversationStatus: "active" as const,
+      stage: "framework" as const,
+    };
+
+    expect(classifyCaseCandidateIntent("I already answered that", context)).toBe("frustration");
+    expect(classifyCaseCandidateIntent("I gave you those points", context)).toBe("frustration");
+    expect(classifyCaseCandidateIntent("You’re asking the same thing again", context)).toBe("frustration");
+    expect(classifyCaseCandidateIntent(
+      "I don’t understand why you keep repeating it",
+      context,
+    )).toBe("frustration");
+    expect(classifyCaseCandidateIntent("End the interview", context)).toBe("end-interview");
+    expect(classifyCaseCandidateIntent("I want to quit", context)).toBe("end-interview");
+    expect(classifyCaseCandidateIntent("Finish the session", context)).toBe("end-interview");
+    expect(classifyCaseCandidateIntent(
+      "A downside risk might make us stop the rollout after the pilot.",
+      context,
+    )).toBe("substantive-case-answer");
   });
 });

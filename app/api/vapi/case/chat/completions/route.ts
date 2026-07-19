@@ -1,18 +1,28 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { mockCase } from "@/lib/__mocks__/fixtures";
-import { respondToCase, type CaseRunnerTimings } from "@/lib/fsm/case-runner";
+import {
+  respondToCase,
+  transitionCaseSession,
+  type CaseRunnerTimings,
+} from "@/lib/fsm/case-runner";
+import {
+  assessCaseFramework,
+  collectCaseFrameworkEvidence,
+  frameworkProbeObjectiveAnswered,
+} from "@/lib/fsm/case-framework";
 import {
   CASE_ALREADY_READY_RESPONSE,
   CASE_NOT_READY_RESPONSE,
   CASE_READINESS_PROMPT,
   caseConversationText,
+  caseFrameworkFrustrationText,
   caseMetaConversationText,
   caseOpeningAfterReadiness,
 } from "@/lib/voice/case-conversation";
 import {
   caseIntentUsesEvaluator,
-  classifyCaseCandidateIntent,
+  routeCaseCandidateTurn,
   type CaseCandidateIntent,
 } from "@/lib/voice/case-intent";
 import {
@@ -40,6 +50,7 @@ import type {
   CaseVoiceProjectedTurn,
   CaseVoiceSession,
 } from "@/lib/voice/types";
+import type { CaseState } from "@/lib/types";
 import { authorizeVapi, MAX_ANSWER_LENGTH } from "@/lib/voice/vapi";
 
 export const maxDuration = 300;
@@ -564,6 +575,91 @@ function metaConversationEvaluation(
   };
 }
 
+function frustrationEvaluation(
+  current: CaseVoiceSession,
+  c: NonNullable<ReturnType<typeof mockCase>>,
+): CandidateEvaluation {
+  const objective = current.lastProbeObjective ?? null;
+  const framework = current.session.fsm_state === "framework"
+    ? assessCaseFramework(c, collectCaseFrameworkEvidence(current.session))
+    : null;
+  const advanced = Boolean(
+    objective &&
+      framework?.accepted &&
+      frameworkProbeObjectiveAnswered(objective, framework),
+  );
+  const session = advanced
+    ? transitionCaseSession(current.session, "analysis")
+    : current.session;
+  return {
+    result: {
+      spokenText: caseFrameworkFrustrationText(
+        objective,
+        advanced,
+        current.session.fsm_state,
+        currentInterviewerPrompt(current),
+      ),
+      stage: session.fsm_state,
+      action: advanced ? "advance" : "conversation",
+      exhibit: null,
+      complete: false,
+      score: current.score ?? null,
+      turnSeq: current.turnSeq ?? 0,
+    },
+    commit: (latest) => {
+      if (!advanced || latest.session.fsm_state !== "framework") {
+        return { ...latest, conversationStatus: "active" };
+      }
+      const latestFramework = assessCaseFramework(
+        c,
+        collectCaseFrameworkEvidence(latest.session),
+      );
+      const latestObjective = latest.lastProbeObjective ?? null;
+      if (
+        !latestObjective ||
+        !latestFramework.accepted ||
+        !frameworkProbeObjectiveAnswered(latestObjective, latestFramework)
+      ) {
+        return { ...latest, conversationStatus: "active" };
+      }
+      return {
+        ...latest,
+        session: transitionCaseSession(latest.session, "analysis"),
+        conversationStatus: "active",
+        lastProbeObjective: null,
+      };
+    },
+  };
+}
+
+function stageTransitionEvaluation(
+  current: CaseVoiceSession,
+  c: NonNullable<ReturnType<typeof mockCase>>,
+  target: CaseState,
+): CandidateEvaluation {
+  const stage = c.stages.find((candidateStage) => candidateStage.id === target);
+  if (!stage) {
+    throw new CaseModelRequestError("case_not_found", 404, "The requested Case stage is unavailable");
+  }
+  return {
+    result: {
+      spokenText: stage.interviewer_prompt,
+      stage: target,
+      action: "advance",
+      exhibit: null,
+      complete: false,
+      score: current.score ?? null,
+      turnSeq: current.turnSeq ?? 0,
+    },
+    commit: (latest) => ({
+      ...latest,
+      session: transitionCaseSession(latest.session, target),
+      conversationStatus: "active",
+      lastProbeObjective: null,
+    }),
+  };
+}
+
 async function evaluateCandidate(
   current: CaseVoiceSession,
   candidate: CandidateRequest,
@@ -575,11 +671,12 @@ async function evaluateCandidate(
   }
 
   const intentStartedAt = Date.now();
-  const intent = classifyCaseCandidateIntent(candidate.answer, {
+  const routed = routeCaseCandidateTurn(candidate.answer, {
     readinessStatus: current.readinessStatus ?? "confirmed",
     conversationStatus: current.conversationStatus ?? "active",
     stage: current.session.fsm_state,
   });
+  const intent = routed.intent;
   timings.intent = intent;
   timings.intentMs += Date.now() - intentStartedAt;
 
@@ -636,15 +733,38 @@ async function evaluateCandidate(
   }
 
   if (!caseIntentUsesEvaluator(intent)) {
+    if (intent === "frustration") return frustrationEvaluation(current, c);
+    if (intent === "stage-transition-request" && routed.transitionTo) {
+      return stageTransitionEvaluation(current, c, routed.transitionTo);
+    }
     return metaConversationEvaluation(current, intent);
   }
 
-  const stageBefore = current.session.fsm_state;
+  const evaluationText = routed.evaluationText;
+  const stageBefore = routed.transitionTo ?? current.session.fsm_state;
+  const frameworkAssessment = stageBefore === "framework"
+    ? assessCaseFramework(
+        c,
+        collectCaseFrameworkEvidence(current.session, evaluationText),
+      )
+    : undefined;
+  const directFrameworkAssessment = stageBefore === "framework"
+    ? assessCaseFramework(c, evaluationText)
+    : undefined;
+  const answeredLastProbe = Boolean(
+    current.lastProbeObjective &&
+      directFrameworkAssessment &&
+      frameworkProbeObjectiveAnswered(
+        current.lastProbeObjective,
+        directFrameworkAssessment,
+      ),
+  );
   const evaluatorStartedAt = Date.now();
   const runnerTimings: CaseRunnerTimings = {};
-  const turn = await respondToCase(c, current.session, candidate.answer, {
+  const turn = await respondToCase(c, current.session, evaluationText, {
     prefetchOnAdvance: false,
     timings: runnerTimings,
+    transitionBeforeEvaluation: routed.transitionTo ?? undefined,
   });
   timings.respondToCaseMs += Date.now() - evaluatorStartedAt;
   timings.evaluatorMs += runnerTimings.evaluationMs ?? 0;
@@ -663,6 +783,7 @@ async function evaluateCandidate(
     complete: turn.session.complete || turn.session.fsm_state === "scoring",
     evaluation: turn.evaluation,
     variationSeed: candidate.cacheKey,
+    frameworkAssessment,
   });
   const result: CaseVoiceModelResponse = {
     spokenText,
@@ -682,6 +803,16 @@ async function evaluateCandidate(
     exhibit: result.exhibit,
     timestamp,
   };
+  const lastProbeObjective =
+    stageBefore === "framework" &&
+      (turn.interviewer.action === "probe" ||
+        turn.interviewer.action === "redirect" ||
+        turn.interviewer.action === "hint")
+      ? answeredLastProbe &&
+          frameworkAssessment?.nextProbeObjective?.id === current.lastProbeObjective?.id
+        ? null
+        : frameworkAssessment?.nextProbeObjective ?? null
+      : null;
 
   return {
     result,
@@ -692,6 +823,7 @@ async function evaluateCandidate(
       score,
       invalidRetries: 0,
       conversationStatus: "active",
+      lastProbeObjective,
       projectedTurns: [...(latest.projectedTurns ?? []), projectedTurn],
     }),
   };

@@ -58,6 +58,8 @@ const ANSWERS = {
   recommendation:
     "My recommendation is to proceed with a phased rollout. The payback is about 1.28 years, and the exhibit shows virtual try-on drives conversion while reducing returns. I'd prioritize a Lena-like try-on capability, pilot in two markets, and share economics with retail partners.",
 };
+const COMPLETE_FRAMEWORK =
+  "I would organize the analysis into external attractiveness and internal feasibility. Externally, I would assess customer demand, digital adoption, competitor activity, and retailer channel dynamics. Internally, I would assess brand fit, customer experience, technology and data capability, consultant training, and the operating model. I would then test financial viability through upfront investment, recurring costs, productivity, incremental sales, margins, payback, and downside risk.";
 
 interface ChatMessage {
   id?: string;
@@ -321,6 +323,56 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.turnSeq).toBe(0);
   });
 
+  it("transitions and evaluates a compound Framework answer exactly once", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const compound =
+      `I think I’m ready to structure my approach now. ${COMPLETE_FRAMEWORK}`;
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, compound);
+    const session = stored(started.sessionId);
+    const candidateTurns = session.session.history.filter((turn) => turn.role === "candidate");
+
+    expect(session.session.fsm_state).toBe("analysis");
+    expect(session.turnSeq).toBe(1);
+    expect(candidateTurns).toHaveLength(1);
+    expect(candidateTurns[0].stage).toBe("framework");
+    expect(candidateTurns[0].text).toBe(COMPLETE_FRAMEWORK);
+    expect(session.session.history.map((turn) => turn.role)).toEqual([
+      "candidate",
+      "interviewer",
+    ]);
+    expect(session.projectedTurns).toHaveLength(1);
+    expect(session.projectedTurns?.[0]).toMatchObject({
+      turnSeq: 1,
+      candidateText: compound,
+    });
+    expect(reply).not.toContain("Those are useful clarifications");
+    expect(reply).toContain("Imagine a current customer who shops in-store");
+  });
+
+  it("moves a transition-only request to the authored Framework prompt without scoring a turn", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I’m ready to structure my approach",
+    );
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe(mockCase("beautify")?.stages.find((stage) => stage.id === "framework")?.interviewer_prompt);
+    expect(session.session.fsm_state).toBe("framework");
+    expect(session.session.history).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.score).toBeNull();
+  });
+
   it("logs only safe request authentication diagnostics when explicitly enabled", async () => {
     const started = await bootstrap();
     const messages: ChatMessage[] = [
@@ -557,9 +609,14 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification)).toBe(
       "Those are useful clarifications. The case does not specify a fixed profitability horizon, so use a three-year assessment horizon as a transparent working assumption. Beautify is a global, multi-brand business; for this interview, assume the initial scope covers its major brands and priority markets. Assume Beautify bears the technology, training, and ongoing operating costs; the case does not assign those costs to retail partners. Unless you have another clarification, please walk me through how you would structure the problem.",
     );
-    expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.framework)).toBe(
-      "That gives us a workable structure. Start with the customer: what would make someone who values high-touch service switch to a mostly virtual experience?",
+    const frameworkReply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      ANSWERS.framework,
     );
+    expect(frameworkReply).toContain("That is a workable structure.");
+    expect(frameworkReply).toContain("Imagine a current customer who shops in-store");
     expect(await sendTurn(started.sessionId, "call-1", history, ANSWERS.analysis)).toBe(
       "You’ve identified the key customer needs. Now let’s test the economics and market evidence, one exhibit at a time.",
     );
@@ -602,12 +659,155 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const session = stored(started.sessionId);
     const projected = session.projectedTurns?.at(-1);
 
-    expect(reply).toContain(
-      "You’ve covered demand, economics, competitive dynamics and implementation risk.",
-    );
-    expect(reply).not.toContain("You’ve listed external factors");
+    expect(reply).toContain("external demand, competition, and channel dynamics");
+    expect(reply).toContain("internal capabilities, customer experience, and brand fit");
+    expect(reply).toContain("financial viability and downside risk");
+    expect(reply).toContain("Separate the external market and channel questions");
     expect(projected).toMatchObject({ stage: "framework", action: "probe" });
     expect(session.session.fsm_state).toBe("framework");
+  });
+
+  it("advances the supplied complete Framework without requiring a hypothesis label", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, COMPLETE_FRAMEWORK);
+    const session = stored(started.sessionId);
+
+    expect(session.session.fsm_state).toBe("analysis");
+    expect(session.projectedTurns?.at(-1)).toMatchObject({
+      stage: "analysis",
+      action: "advance",
+    });
+    expect(reply).toContain("That is a workable structure.");
+    expect(reply).not.toContain("Separate the external market and channel questions");
+  });
+
+  it("does not repeat a Framework objective after the candidate answers it", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await sendTurn(started.sessionId, "call-1", history, ANSWERS.clarification);
+
+    const first = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I would structure an external branch around demand and competitors, then test investment cost and payback.",
+    );
+    expect(first).toContain("internal feasibility");
+    expect(stored(started.sessionId).lastProbeObjective?.id).toBe("framework:group:internal");
+
+    const second = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Internally, I would assess brand fit, customer experience, technology and data capability, consultant training, and the operating model.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(session.session.fsm_state).toBe("analysis");
+    expect(session.lastProbeObjective).toBeNull();
+    expect(second).not.toContain("Add Beautify's internal feasibility");
+
+    const fresh = await bootstrap();
+    expect(stored(fresh.sessionId).lastProbeObjective).toBeUndefined();
+  });
+
+  it("replaces a satisfied Framework objective with a different missing objective", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    await sendTurn(started.sessionId, "call-1", history, "I’m ready to structure my approach");
+
+    const first = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I would structure two branches around customer demand and competitors.",
+    );
+    expect(first).toContain("internal feasibility");
+    expect(stored(started.sessionId).lastProbeObjective?.id).toBe("framework:group:internal");
+
+    const second = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Internally, I would assess brand fit, technology capability, consultant training, and the operating model.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(session.session.fsm_state).toBe("framework");
+    expect(session.lastProbeObjective?.id).toBe("framework:group:economics");
+    expect(second).toContain("financial-viability branch");
+    expect(second).not.toContain("Add Beautify's internal feasibility");
+  });
+
+  it("acknowledges frustration and releases a previously satisfied Framework without scoring it", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const current = stored(started.sessionId);
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        session: {
+          ...current.session,
+          fsm_state: "framework",
+          history: [
+            { role: "candidate", stage: "framework", text: COMPLETE_FRAMEWORK },
+            { role: "interviewer", stage: "framework", text: "Separate external and internal factors.", action: "probe" },
+          ],
+        },
+        lastProbeObjective: {
+          id: "framework:organization",
+          stage: "framework",
+          prompt: "Separate the external market and channel questions from Beautify's internal feasibility and economics.",
+          acknowledgement: "you already separated the external and internal branches",
+          requiredGroupId: null,
+          coveredConcepts: [],
+        },
+      },
+    });
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, "I already answered that");
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe(
+      "You’re right—you already separated the external and internal branches. Let’s continue with the analysis.",
+    );
+    expect(session.session.fsm_state).toBe("analysis");
+    expect(session.session.history).toHaveLength(2);
+    expect(session.turnSeq).toBe(0);
+    expect(session.projectedTurns).toEqual([]);
+  });
+
+  it("does not let frustration advance insufficient prior Framework evidence", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    await sendTurn(started.sessionId, "call-1", history, "I’m ready to structure my approach");
+    await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I would look at customer demand.",
+    );
+    const before = stored(started.sessionId);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I already answered that",
+    );
+    const after = stored(started.sessionId);
+
+    expect(reply).toContain("Let’s reset and stay with the current question");
+    expect(after.session.fsm_state).toBe("framework");
+    expect(after.turnSeq).toBe(before.turnSeq);
+    expect(after.session.history).toEqual(before.session.history);
+    expect(after.projectedTurns).toEqual(before.projectedTurns);
   });
 
   it("keeps a weak clarification in-stage with one natural backend-owned probe", async () => {

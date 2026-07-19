@@ -1,4 +1,8 @@
 import type { CaseAction, CaseExhibit, CaseState, Evaluation } from "@/lib/types";
+import type {
+  CaseFrameworkAssessment,
+  FrameworkProbeObjective,
+} from "@/lib/fsm/case-framework";
 import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
 
 export const CASE_READINESS_PROMPT =
@@ -20,16 +24,7 @@ export interface CaseConversationTurn {
   complete: boolean;
   evaluation?: Evaluation;
   variationSeed?: string;
-}
-
-export interface FrameworkCoverage {
-  demand: boolean;
-  economics: boolean;
-  competition: boolean;
-  implementationRisk: boolean;
-  retailerChannel: boolean;
-  internalCapabilities: boolean;
-  brandFit: boolean;
+  frameworkAssessment?: CaseFrameworkAssessment;
 }
 
 interface ClarificationCoverage {
@@ -103,19 +98,6 @@ export function caseOpeningAfterReadiness(authoredPrompt: string): string {
   return `${CASE_READINESS_CONFIRMED}\n\n${authoredPrompt}\n\n${CASE_OPENING_QUESTION}`;
 }
 
-export function frameworkCoverage(candidateText: string): FrameworkCoverage {
-  const answer = candidateText.toLowerCase();
-  return {
-    demand: /\b(?:demand|customer|consumer|market attractiveness|willingness|adoption)\b/.test(answer),
-    economics: /\b(?:economic|economics|cost|revenue|profit|profitability|payback|roi|investment)\b/.test(answer),
-    competition: /\b(?:competitor|competition|competitive|rival)\b/.test(answer),
-    implementationRisk: /\b(?:implementation|execution|rollout|operational|operating risk|implementation risk)\b/.test(answer),
-    retailerChannel: /\b(?:retailer|retail partner|channel|department store|sephora|harrods)\b/.test(answer),
-    internalCapabilities: /\b(?:capabilit(?:y|ies)|training|technology|talent|consultant|operating model)\b/.test(answer),
-    brandFit: /\b(?:brand|positioning|reputation|image|prestige)\b/.test(answer),
-  };
-}
-
 function listWords(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
@@ -130,26 +112,34 @@ function variationIndex(seed: string, variants: number): number {
   return Math.abs(hash) % variants;
 }
 
-function frameworkFeedback(candidateText: string, seed: string): string {
-  const coverage = frameworkCoverage(candidateText);
-  const labels = [
-    coverage.demand ? "demand" : null,
-    coverage.economics ? "economics" : null,
-    coverage.competition ? "competitive dynamics" : null,
-    coverage.implementationRisk ? "implementation risk" : null,
-    coverage.retailerChannel ? "retailer and channel implications" : null,
-    coverage.internalCapabilities ? "internal capabilities" : null,
-    coverage.brandFit ? "brand fit" : null,
-  ].filter((item): item is string => Boolean(item));
-  const acknowledgement = labels.length > 0
+function frameworkAcknowledgement(assessment?: CaseFrameworkAssessment): string {
+  const labels = assessment?.coveredGroups ?? [];
+  return labels.length > 0
     ? `You’ve covered ${listWords(labels)}.`
     : "You have several relevant ideas on the table.";
+}
+
+function frameworkFeedback(
+  assessment: CaseFrameworkAssessment | undefined,
+  seed: string,
+): string {
+  const acknowledgement = frameworkAcknowledgement(assessment);
+  const objective = assessment?.nextProbeObjective?.prompt;
+  if (objective) return `${acknowledgement} ${objective}`;
   const objectives = [
-    "To sharpen the structure, separate the external market and retailer questions from Beautify’s internal capabilities, brand fit, and economics. How would you organize those branches?",
-    "Now group those ideas into external attractiveness and channel dynamics on one side, and Beautify’s internal feasibility and economics on the other. How would you lay out those two sides?",
-    "Let’s make the structure more mutually exclusive: what belongs externally, and what sits within Beautify’s control?",
+    "Please group those ideas into distinct branches and explain what each branch would test.",
+    "Make the structure explicit: name the branches, then place the relevant factors under each one.",
+    "Let’s make the structure more mutually exclusive. How would you organize the factors into distinct areas?",
   ];
   return `${acknowledgement} ${objectives[variationIndex(seed, objectives.length)]}`;
+}
+
+function frameworkAdvanceFeedback(turn: CaseConversationTurn): string {
+  const acknowledgement = frameworkAcknowledgement(turn.frameworkAssessment);
+  const refinement = turn.frameworkAssessment?.refinementNeeded
+    ? "The branches could be made more mutually exclusive, but the structure is sufficient to move forward."
+    : "That is a workable structure.";
+  return `${acknowledgement} ${refinement} ${turn.backendText}`;
 }
 
 function latestQuestion(text: string): string | null {
@@ -186,7 +176,23 @@ export function caseMetaConversationText(
   if (intent === "end-interview") {
     return "Of course. We’ll stop the interview here.";
   }
+  if (intent === "frustration") {
+    return `I hear you. Let’s reset and stay with the current question. ${caseRepeatQuestion(currentPrompt, stage).replace(/^Of course\. /, "")}`;
+  }
   return `No problem. Let’s stay with the current question. ${caseRepeatQuestion(currentPrompt, stage).replace(/^Of course\. /, "")}`;
+}
+
+export function caseFrameworkFrustrationText(
+  objective: FrameworkProbeObjective | null,
+  advanced: boolean,
+  stage: CaseState,
+  currentPrompt: string,
+): string {
+  if (advanced) {
+    const acknowledgement = objective?.acknowledgement ?? "you already provided a sufficient framework";
+    return `You’re right—${acknowledgement}. Let’s continue with the analysis.`;
+  }
+  return caseMetaConversationText("frustration", stage, currentPrompt);
 }
 
 function stageHint(stage: CaseState, backendText: string): string {
@@ -222,6 +228,10 @@ export function caseConversationText(turn: CaseConversationTurn): string {
     if (clarification) return clarification;
   }
 
+  if (turn.stageBefore === "framework" && turn.action === "advance") {
+    return frameworkAdvanceFeedback(turn);
+  }
+
   if (turn.action === "reveal") {
     const title = turn.exhibit?.title ?? "the next exhibit";
     return `I’m sharing ${title}. Take a moment to review it, then tell me what stands out and what it means for Beautify.`;
@@ -230,7 +240,7 @@ export function caseConversationText(turn: CaseConversationTurn): string {
   if (turn.action === "hint") {
     if (turn.stageBefore === "framework") {
       return frameworkFeedback(
-        turn.candidateText,
+        turn.frameworkAssessment,
         turn.variationSeed ?? turn.candidateText,
       );
     }
@@ -240,7 +250,7 @@ export function caseConversationText(turn: CaseConversationTurn): string {
   if (turn.action === "probe" || turn.action === "redirect") {
     if (turn.stageBefore === "framework") {
       return frameworkFeedback(
-        turn.candidateText,
+        turn.frameworkAssessment,
         turn.variationSeed ?? turn.candidateText,
       );
     }

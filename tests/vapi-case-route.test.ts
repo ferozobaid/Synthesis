@@ -164,6 +164,7 @@ describe("GET /api/case/voice/[sessionId]", () => {
     expect(body.processedModelRequests).toBeUndefined();
     expect(body.processedToolCalls).toBeUndefined();
     expect(body.pendingCandidate).toBeUndefined();
+    expect(body.lastProbeObjective).toBeUndefined();
     expect(body.readinessConfirmedAt).toBeNull();
     expect(body.conversationStatus).toBe("active");
     expect(body.responseSeq).toBe(0);
@@ -191,6 +192,29 @@ describe("manual /api/case regression", () => {
     expect(turn.status).toBe(200);
     const turnBody = await turn.json();
     expect(turnBody.stage).toBe("clarification");
+    expect(turnBody.session.fsm_state).toBe("clarification");
+  });
+
+  it("keeps Diconsa available through the unchanged manual Case API", async () => {
+    const started = await casePOST(
+      makeReq({ action: "start", caseId: "diconsa" }) as never,
+    );
+    expect(started.status).toBe(200);
+    const startBody = await started.json();
+
+    const turn = await casePOST(
+      makeReq({
+        action: "respond",
+        caseId: "diconsa",
+        session: startBody.session,
+        answer:
+          "I would frame the question in two parts. First, can Diconsa's rural network deliver basic financial services safely and reliably? Second, would doing so create enough value for recipients, government, the bank, and Diconsa to justify the operating risk?",
+      }) as never,
+    );
+
+    expect(turn.status).toBe(200);
+    const turnBody = await turn.json();
+    expect(turnBody.session.case_id).toBe("diconsa");
     expect(turnBody.session.fsm_state).toBe("clarification");
   });
 });
