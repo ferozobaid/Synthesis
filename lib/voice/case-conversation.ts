@@ -149,7 +149,7 @@ function latestQuestion(text: string): string | null {
 
 export function caseRepeatQuestion(currentPrompt: string, stage: CaseState): string {
   const question = latestQuestion(currentPrompt);
-  if (question) return `Of course. ${question}`;
+  if (question) return `Certainly. ${question}`;
   const fallback: Partial<Record<CaseState, string>> = {
     clarification: CASE_OPENING_QUESTION,
     framework: "What external and internal factors should Beautify consider in making this decision?",
@@ -158,7 +158,7 @@ export function caseRepeatQuestion(currentPrompt: string, stage: CaseState): str
     pressure_test: "What is the strongest risk to your view, and how would you mitigate it?",
     recommendation: "What is your recommendation, the supporting evidence, the main risk, and the next step?",
   };
-  return `Of course. ${fallback[stage] ?? "Please continue with your response."}`;
+  return `Certainly. ${fallback[stage] ?? "Please continue with your response."}`;
 }
 
 export function caseMetaConversationText(
@@ -167,19 +167,19 @@ export function caseMetaConversationText(
   currentPrompt: string,
 ): string {
   if (intent === "thinking-pause-request") {
-    return "Of course. Take your time—let me know when you’re ready to continue.";
+    return "Of course. Take your time and let me know when you’re ready.";
   }
   if (intent === "repeat-question-request") return caseRepeatQuestion(currentPrompt, stage);
   if (intent === "readiness-confirmation") {
-    return "Go ahead. Please continue with your response.";
+    return "Of course. Let’s continue.";
   }
   if (intent === "end-interview") {
     return "Of course. We’ll stop the interview here.";
   }
   if (intent === "frustration") {
-    return `I hear you. Let’s reset and stay with the current question. ${caseRepeatQuestion(currentPrompt, stage).replace(/^Of course\. /, "")}`;
+    return "I understand. Let’s focus on the current question.";
   }
-  return `No problem. Let’s stay with the current question. ${caseRepeatQuestion(currentPrompt, stage).replace(/^Of course\. /, "")}`;
+  return "I understand. Let’s focus on the current question.";
 }
 
 export function caseFrameworkFrustrationText(

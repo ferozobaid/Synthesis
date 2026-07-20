@@ -6,6 +6,7 @@ import {
   transitionCaseSession,
   type CaseRunnerTimings,
 } from "@/lib/fsm/case-runner";
+import { nextState } from "@/lib/fsm/case-fsm";
 import {
   assessCaseFramework,
   collectCaseFrameworkEvidence,
@@ -20,11 +21,26 @@ import {
   caseMetaConversationText,
   caseOpeningAfterReadiness,
 } from "@/lib/voice/case-conversation";
+import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
 import {
-  caseIntentUsesEvaluator,
-  routeCaseCandidateTurn,
-  type CaseCandidateIntent,
-} from "@/lib/voice/case-intent";
+  runCaseTurnController,
+  warnIfCaseTurnControllerUsesMocks,
+} from "@/lib/voice/case-turn-controller";
+import {
+  buildCaseVoiceLogicalTurnKey,
+  buildCaseVoiceRequestCacheKey,
+} from "@/lib/voice/case-turn-cache";
+import {
+  CASE_TURN_AMBIGUITY_RESPONSE,
+  authorizedCaseClarificationTopics,
+  caseVoiceControllerMode,
+  deterministicCaseTurnTriage,
+  safeAmbiguityPlan,
+  validateCaseTurnControllerDecision,
+  type CaseTurnControllerIntent,
+  type CaseTurnPlanContext,
+  type ValidatedCaseTurnPlan,
+} from "@/lib/voice/case-turn-plan";
 import {
   addCaseTurnDuration,
   caseServerTiming,
@@ -47,6 +63,7 @@ import {
 import type {
   CaseVoiceModelResponse,
   CaseVoicePendingCandidate,
+  CaseVoiceProcessedLogicalTurn,
   CaseVoiceProjectedTurn,
   CaseVoiceSession,
 } from "@/lib/voice/types";
@@ -98,6 +115,7 @@ interface CandidateRequest {
   messageId: string | null;
   requestId: string | null;
   cacheKey: string;
+  logicalTurnKey: string;
 }
 
 type TurnOutcome = "received" | "replaced" | "ignored" | "deduplicated" | "processed";
@@ -209,29 +227,11 @@ function normalizeMessages(value: unknown): NormalizedMessage[] {
   return messages;
 }
 
-function latestCandidateMessage(messages: NormalizedMessage[]): NormalizedMessage | null {
+function latestCandidateMessage(messages: NormalizedMessage[]): { message: NormalizedMessage; index: number } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i].role === "user") return messages[i];
+    if (messages[i].role === "user") return { message: messages[i], index: i };
   }
   return null;
-}
-
-function requestCacheKey(
-  sessionId: string,
-  callId: string,
-  messages: NormalizedMessage[],
-): string {
-  const materialMessages = messages.filter(
-    ({ role, content }) => role !== "assistant" || content.trim().length > 0,
-  );
-  const digest = createHash("sha256")
-    .update(JSON.stringify({
-      sessionId,
-      callId,
-      messages: materialMessages.map(({ role, content }) => ({ role, content })),
-    }))
-    .digest("hex");
-  return `${callId}:${digest}`;
 }
 
 function parseCandidateRequest(
@@ -245,7 +245,7 @@ function parseCandidateRequest(
   const requestedCaseId = firstString(metadata?.caseId, body.caseId);
   const messages = normalizeMessages(body.messages);
   const latestCandidate = latestCandidateMessage(messages);
-  const answer = latestCandidate?.content.trim() ?? "";
+  const answer = latestCandidate?.message.content.trim() ?? "";
 
   if (!sessionId) {
     throw new CaseModelRequestError("missing_session_id", 400, "sessionId metadata is required");
@@ -269,7 +269,7 @@ function parseCandidateRequest(
     requestedCaseId,
     messages,
     answer,
-    messageId: latestCandidate?.id ?? null,
+    messageId: latestCandidate?.message.id ?? null,
     requestId: firstString(
       req.headers.get("x-request-id"),
       req.headers.get("x-vapi-request-id"),
@@ -277,7 +277,8 @@ function parseCandidateRequest(
       body.id,
       req.headers.get("x-vercel-id"),
     ),
-    cacheKey: requestCacheKey(sessionId, callId, messages),
+    cacheKey: buildCaseVoiceRequestCacheKey(sessionId, callId, messages),
+    logicalTurnKey: buildCaseVoiceLogicalTurnKey(callId, messages, latestCandidate!.index),
   };
 }
 
@@ -288,6 +289,26 @@ function cacheWith(
 ): Record<string, CaseVoiceModelResponse> {
   const entries = Object.entries({ ...(prior ?? {}), [key]: result });
   return Object.fromEntries(entries.slice(Math.max(0, entries.length - CACHE_LIMIT)));
+}
+
+function logicalCacheWith(
+  prior: Record<string, CaseVoiceProcessedLogicalTurn> | undefined,
+  key: string,
+  value: CaseVoiceProcessedLogicalTurn,
+): Record<string, CaseVoiceProcessedLogicalTurn> {
+  const entries = Object.entries({ ...(prior ?? {}), [key]: value });
+  return Object.fromEntries(entries.slice(Math.max(0, entries.length - CACHE_LIMIT)));
+}
+
+function logicalCachedResult(
+  current: CaseVoiceSession,
+  candidate: CandidateRequest,
+): CaseVoiceModelResponse | null {
+  const logical = current.processedLogicalTurns?.[candidate.logicalTurnKey];
+  if (!logical) return null;
+  return logical.normalizedText === normalizeCandidateText(candidate.answer)
+    ? logical.result
+    : suppressedResult(current);
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -366,6 +387,7 @@ function openAIResponse(
 
   if (!stream) {
     timings.firstSseChunkMs = Date.now() - timings.startedAt;
+    timings.responseReadyMs = timings.firstSseChunkMs;
     return NextResponse.json(
       {
         id,
@@ -406,6 +428,7 @@ function openAIResponse(
   };
   const body = `data: ${JSON.stringify(contentChunk)}\n\ndata: ${JSON.stringify(stopChunk)}\n\ndata: [DONE]\n\n`;
   timings.firstSseChunkMs = Date.now() - timings.startedAt;
+  timings.responseReadyMs = timings.firstSseChunkMs;
 
   return new Response(body, {
     status: 200,
@@ -457,6 +480,7 @@ function pendingCandidate(
 ): CaseVoicePendingCandidate {
   return {
     requestKey: candidate.cacheKey,
+    logicalTurnKey: candidate.logicalTurnKey,
     requestId: candidate.requestId,
     messageId: candidate.messageId,
     callId: candidate.callId,
@@ -478,12 +502,26 @@ async function registerPendingCandidate(
     const lockStartedAt = Date.now();
     const claim = await acquirePendingLock(candidate.sessionId);
     addCaseTurnDuration(timings, "redisLockMs", lockStartedAt);
+    addCaseTurnDuration(timings, "pendingLockWaitMs", lockStartedAt);
     let waitForPrior = false;
     try {
       const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
       assertCaseSession(current, candidate);
       const cached = current.processedModelRequests?.[candidate.cacheKey];
       if (cached) return cached;
+      const logicalCached = logicalCachedResult(current, candidate);
+      if (logicalCached) {
+        await saveSession(candidate.sessionId, {
+          ...current,
+          processedModelRequests: cacheWith(
+            current.processedModelRequests,
+            candidate.cacheKey,
+            logicalCached,
+          ),
+          updatedAt: new Date().toISOString(),
+        });
+        return logicalCached;
+      }
 
       const existing = current.pendingCandidate ?? null;
       if (!existing) {
@@ -498,11 +536,12 @@ async function registerPendingCandidate(
       }
       if (existing.requestKey === candidate.cacheKey) return null;
 
+      const sameLogicalTurn = existing.logicalTurnKey === candidate.logicalTurnKey;
       const relation = candidateRevisionRelation(
         existing.candidateText,
         candidate.answer,
-        existing.messageId,
-        candidate.messageId,
+        sameLogicalTurn ? existing.messageId : null,
+        sameLogicalTurn ? candidate.messageId : null,
       );
       const now = Date.now();
       const sameTurnBoundary =
@@ -511,7 +550,7 @@ async function registerPendingCandidate(
         now - existing.updatedAt <= MAX_REVISION_ELAPSED_MILLISECONDS;
       const stale = now - existing.updatedAt > PENDING_STALE_MILLISECONDS;
 
-      if ((sameTurnBoundary && isCandidateRevision(relation)) || stale) {
+      if ((sameTurnBoundary && sameLogicalTurn && (isCandidateRevision(relation) || relation === "none")) || stale) {
         const ignored = suppressedResult(current);
         await saveSession(candidate.sessionId, {
           ...current,
@@ -546,6 +585,148 @@ interface CandidateEvaluation {
 function currentInterviewerPrompt(current: CaseVoiceSession): string {
   const turns = current.projectedTurns ?? [];
   return turns.at(-1)?.interviewerText ?? current.openingText ?? CASE_READINESS_PROMPT;
+}
+
+function candidateIntentForPlan(intent: CaseTurnControllerIntent): CaseCandidateIntent {
+  switch (intent) {
+    case "readiness_confirmation":
+    case "resume":
+      return "readiness-confirmation";
+    case "not_ready":
+    case "pause":
+      return "thinking-pause-request";
+    case "repeat":
+      return "repeat-question-request";
+    case "clarification_question":
+      return "clarification-question";
+    case "substantive_answer":
+      return "substantive-case-answer";
+    case "self_correction":
+      return "self-correction-revision";
+    case "frustration":
+      return "frustration";
+    case "off_topic_or_confused":
+      return "off-topic-or-confused";
+    case "stage_transition":
+    case "stage_transition_with_answer":
+      return "stage-transition-request";
+    case "end_interview":
+      return "end-interview";
+    case "ambiguous":
+      return "ambiguous";
+  }
+}
+
+function confidenceBucket(confidence: number | null): number {
+  if (confidence === null || !Number.isFinite(confidence)) return 0;
+  return Math.min(100, Math.max(0, Math.floor(confidence * 10) * 10));
+}
+
+function ambiguityEvaluation(current: CaseVoiceSession): CandidateEvaluation {
+  return {
+    result: {
+      spokenText: CASE_TURN_AMBIGUITY_RESPONSE,
+      stage: current.session.fsm_state,
+      action: "conversation",
+      exhibit: null,
+      complete: false,
+      score: current.score ?? null,
+      turnSeq: current.turnSeq ?? 0,
+    },
+    commit: (latest) => latest,
+  };
+}
+
+function controllerInput(
+  current: CaseVoiceSession,
+  candidate: CandidateRequest,
+  context: CaseTurnPlanContext,
+) {
+  return {
+    readinessStatus: context.readinessStatus,
+    conversationStatus: context.conversationStatus,
+    currentStage: context.stage,
+    candidateText: candidate.answer,
+    currentInterviewerPrompt: currentInterviewerPrompt(current),
+    recentTurns: (current.projectedTurns ?? []).slice(-2).map((turn) => ({
+      candidateText: turn.candidateText,
+      interviewerText: turn.interviewerText,
+    })),
+    lastProbeObjective: current.lastProbeObjective
+      ? {
+          id: current.lastProbeObjective.id,
+          prompt: current.lastProbeObjective.prompt,
+        }
+      : null,
+    immediateLegalNextStage: nextState(context.stage),
+    clarificationTopics: authorizedCaseClarificationTopics(context.caseId) ?? [],
+    caseId: context.caseId,
+  };
+}
+
+async function resolveTurnPlan(
+  current: CaseVoiceSession,
+  candidate: CandidateRequest,
+  timings: CaseTurnTimings,
+): Promise<ValidatedCaseTurnPlan> {
+  const context: CaseTurnPlanContext = {
+    caseId: current.caseId,
+    readinessStatus: current.readinessStatus ?? "confirmed",
+    conversationStatus: current.conversationStatus ?? "active",
+    stage: current.session.fsm_state,
+  };
+  const triageStartedAt = Date.now();
+  const triage = deterministicCaseTurnTriage(candidate.answer, context);
+  timings.deterministicTriageMs += Date.now() - triageStartedAt;
+  if (triage.kind === "resolved") {
+    timings.controllerOutcome = "not_required";
+    return triage.plan;
+  }
+
+  timings.controllerRequired = true;
+  const mode = caseVoiceControllerMode();
+  if (mode === "off") {
+    timings.controllerOutcome = "disabled";
+    return safeAmbiguityPlan();
+  }
+
+  const controller = await runCaseTurnController(controllerInput(current, candidate, context));
+  timings.controllerMs += controller.durationMs;
+  timings.controllerOutcome = controller.outcome;
+  timings.controllerTimeout = controller.outcome === "timeout";
+  timings.controllerConfidenceBucket = confidenceBucket(controller.decision?.confidence ?? null);
+
+  const validation = controller.outcome === "success" && controller.decision
+    ? validateCaseTurnControllerDecision(controller.decision, candidate.answer, context)
+    : { ok: false as const, reason: controller.outcome };
+  timings.controllerValidationFailure =
+    (controller.outcome === "success" && !validation.ok) ||
+    controller.outcome === "invalid_json" ||
+    controller.outcome === "schema_mismatch";
+
+  const applied = mode === "hybrid" && validation.ok;
+  if (mode === "shadow" || process.env.VAPI_CASE_TURN_DEBUG === "true") {
+    console.info("[case-custom-llm] controller", {
+      correlationId: shortHash(candidate.cacheKey),
+      mode,
+      deterministicTriage: triage.reason,
+      controllerRequired: true,
+      controllerIntent: controller.decision?.intent ?? "unavailable",
+      confidenceBucket: timings.controllerConfidenceBucket,
+      targetStage: controller.decision?.targetStage ?? "none",
+      validationPassed: validation.ok,
+      fallbackReason: validation.ok ? "none" : validation.reason,
+      decisionsAgree: controller.decision?.intent === "ambiguous",
+      applied,
+    });
+  }
+
+  if (!applied) {
+    if (mode === "shadow") timings.controllerOutcome = `shadow_${controller.outcome}`;
+    return safeAmbiguityPlan();
+  }
+  timings.controllerOutcome = "applied";
+  return validation.plan;
 }
 
 function metaConversationEvaluation(
@@ -643,7 +824,7 @@ function stageTransitionEvaluation(
   }
   return {
     result: {
-      spokenText: stage.interviewer_prompt,
+      spokenText: `Absolutely. Let’s move into your framework. ${stage.interviewer_prompt}`,
       stage: target,
       action: "advance",
       exhibit: null,
@@ -671,13 +852,9 @@ async function evaluateCandidate(
   }
 
   const intentStartedAt = Date.now();
-  const routed = routeCaseCandidateTurn(candidate.answer, {
-    readinessStatus: current.readinessStatus ?? "confirmed",
-    conversationStatus: current.conversationStatus ?? "active",
-    stage: current.session.fsm_state,
-  });
-  const intent = routed.intent;
-  timings.intent = intent;
+  const plan = await resolveTurnPlan(current, candidate, timings);
+  const intent = candidateIntentForPlan(plan.intent);
+  timings.intent = plan.intent;
   timings.intentMs += Date.now() - intentStartedAt;
 
   if (current.readinessStatus === "awaiting") {
@@ -732,16 +909,17 @@ async function evaluateCandidate(
     };
   }
 
-  if (!caseIntentUsesEvaluator(intent)) {
-    if (intent === "frustration") return frustrationEvaluation(current, c);
-    if (intent === "stage-transition-request" && routed.transitionTo) {
-      return stageTransitionEvaluation(current, c, routed.transitionTo);
+  if (!plan.shouldEvaluate) {
+    if (plan.intent === "ambiguous") return ambiguityEvaluation(current);
+    if (plan.intent === "frustration") return frustrationEvaluation(current, c);
+    if (plan.intent === "stage_transition" && plan.targetStage) {
+      return stageTransitionEvaluation(current, c, plan.targetStage);
     }
     return metaConversationEvaluation(current, intent);
   }
 
-  const evaluationText = routed.evaluationText;
-  const stageBefore = routed.transitionTo ?? current.session.fsm_state;
+  const evaluationText = plan.evaluationText;
+  const stageBefore = plan.targetStage ?? current.session.fsm_state;
   const frameworkAssessment = stageBefore === "framework"
     ? assessCaseFramework(
         c,
@@ -760,11 +938,15 @@ async function evaluateCandidate(
       ),
   );
   const evaluatorStartedAt = Date.now();
+  timings.evaluatorCalled = true;
   const runnerTimings: CaseRunnerTimings = {};
   const turn = await respondToCase(c, current.session, evaluationText, {
     prefetchOnAdvance: false,
     timings: runnerTimings,
-    transitionBeforeEvaluation: routed.transitionTo ?? undefined,
+    transitionBeforeEvaluation:
+      plan.intent === "stage_transition_with_answer"
+        ? plan.targetStage ?? undefined
+        : undefined,
   });
   timings.respondToCaseMs += Date.now() - evaluatorStartedAt;
   timings.evaluatorMs += runnerTimings.evaluationMs ?? 0;
@@ -841,6 +1023,8 @@ async function processStableCandidate(
     timings.stage = current.session.fsm_state;
     const cached = current.processedModelRequests?.[candidate.cacheKey];
     if (cached) return cached;
+    const logicalCached = logicalCachedResult(current, candidate);
+    if (logicalCached) return logicalCached;
     const pending = current.pendingCandidate;
     if (!pending || pending.requestKey !== candidate.cacheKey) {
       await delay(LOCK_POLL_MILLISECONDS);
@@ -861,18 +1045,22 @@ async function processStableCandidate(
       candidate.cacheKey,
     );
     addCaseTurnDuration(timings, "redisLockMs", turnLockStartedAt);
+    addCaseTurnDuration(timings, "turnLockWaitMs", turnLockStartedAt);
     if ("cached" in processClaim) return processClaim.cached;
 
     try {
       const guardStartedAt = Date.now();
       const guard = await acquirePendingLock(candidate.sessionId);
       addCaseTurnDuration(timings, "redisLockMs", guardStartedAt);
+      addCaseTurnDuration(timings, "pendingLockWaitMs", guardStartedAt);
       let snapshot: CaseVoiceSession;
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
         const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
         if (latestCached) return latestCached;
+        const latestLogicalCached = logicalCachedResult(latest, candidate);
+        if (latestLogicalCached) return latestLogicalCached;
         if (
           !latest.pendingCandidate ||
           latest.pendingCandidate.requestKey !== candidate.cacheKey ||
@@ -889,11 +1077,14 @@ async function processStableCandidate(
       const commitGuardStartedAt = Date.now();
       const commitGuard = await acquirePendingLock(candidate.sessionId);
       addCaseTurnDuration(timings, "redisLockMs", commitGuardStartedAt);
+      addCaseTurnDuration(timings, "pendingLockWaitMs", commitGuardStartedAt);
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
         const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
         if (latestCached) return latestCached;
+        const latestLogicalCached = logicalCachedResult(latest, candidate);
+        if (latestLogicalCached) return latestLogicalCached;
 
         if (!latest.pendingCandidate || latest.pendingCandidate.requestKey !== candidate.cacheKey) {
           const ignored = suppressedResult(latest);
@@ -921,6 +1112,19 @@ async function processStableCandidate(
             candidate.cacheKey,
             evaluation.result,
           ),
+          processedLogicalTurns: logicalCacheWith(
+            latest.processedLogicalTurns,
+            candidate.logicalTurnKey,
+            {
+              requestKey: candidate.cacheKey,
+              messageId: candidate.messageId,
+              stage: snapshot.session.fsm_state,
+              candidateText: candidate.answer,
+              normalizedText: normalizeCandidateText(candidate.answer),
+              processedAt: Date.now(),
+              result: evaluation.result,
+            },
+          ),
           updatedAt: new Date().toISOString(),
         };
         const persistenceStartedAt = Date.now();
@@ -945,8 +1149,10 @@ async function processTurn(
 ): Promise<{ result: CaseVoiceModelResponse; cacheKey: string }> {
   const candidate = parseCandidateRequest(req, body);
   timings.requestId = candidate.requestId;
+  timings.correlationId = shortHash(candidate.cacheKey);
   timings.callId = candidate.callId;
   timings.messageCount = candidate.messages.length;
+  warnIfCaseTurnControllerUsesMocks(caseVoiceControllerMode());
   logTurnDiagnostic(candidate, "unknown", "received");
 
   const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
@@ -960,6 +1166,11 @@ async function processTurn(
       cached.suppressed ? "ignored" : "deduplicated",
     );
     return { result: cached, cacheKey: candidate.cacheKey };
+  }
+  const logicalCached = logicalCachedResult(initial, candidate);
+  if (logicalCached) {
+    logTurnDiagnostic(candidate, initial.session.fsm_state, logicalCached.suppressed ? "ignored" : "deduplicated");
+    return { result: logicalCached, cacheKey: candidate.cacheKey };
   }
 
   const registered = await registerPendingCandidate(candidate, timings);
@@ -1013,6 +1224,7 @@ export async function POST(req: NextRequest) {
         new CaseModelRequestError("internal_error", 500, "The Case turn could not be processed"),
       );
     timings.firstSseChunkMs = Date.now() - timings.startedAt;
+    timings.responseReadyMs = timings.firstSseChunkMs;
     response.headers.set("Server-Timing", caseServerTiming(timings));
     logRequestDiagnostic(req, body, response.status);
     logCaseLatency(timings, response.status);

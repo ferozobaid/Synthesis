@@ -18,6 +18,11 @@ export interface CompleteOpts {
   maxTokens?: number;
   temperature?: number;
   model?: string;
+  /** Optional native Claude JSON-schema output constraint. */
+  outputSchema?: Record<string, unknown>;
+  /** Optional per-request controls. Existing callers retain SDK defaults. */
+  timeoutMs?: number;
+  maxRetries?: number;
 }
 
 let _client: Anthropic | null = null;
@@ -30,13 +35,26 @@ function client(): Anthropic {
 export async function complete(prompt: string, opts: CompleteOpts = {}): Promise<string> {
   if (useMocks()) return mockComplete(prompt, opts);
   const model = opts.model ?? activeModel();
-  const res = await client().messages.create({
-    model,
-    max_tokens: opts.maxTokens ?? 1500,
-    temperature: opts.temperature ?? 0,
-    system: opts.system,
-    messages: [{ role: "user", content: prompt }],
-  });
+  const res = await client().messages.create(
+    {
+      model,
+      max_tokens: opts.maxTokens ?? 1500,
+      temperature: opts.temperature ?? 0,
+      system: opts.system,
+      messages: [{ role: "user", content: prompt }],
+      ...(opts.outputSchema
+        ? {
+            output_config: {
+              format: { type: "json_schema" as const, schema: opts.outputSchema },
+            },
+          }
+        : {}),
+    },
+    {
+      ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+      ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+    },
+  );
   // Opt-in real-mode usage logging for cost/verification. Off by default; never reached
   // in mock mode (returns above). No effect on the response shape. See SYNTHESIS_LOG_USAGE.
   if (process.env.SYNTHESIS_LOG_USAGE === "true") {

@@ -99,6 +99,8 @@ export interface CaseVoiceModelResponse {
 /** One not-yet-evaluated Vapi candidate revision awaiting a short stability window. */
 export interface CaseVoicePendingCandidate {
   requestKey: string;
+  /** Candidate slot identity derived from prior conversation context, never message id alone. */
+  logicalTurnKey?: string;
   requestId: string | null;
   messageId: string | null;
   callId: string;
@@ -108,6 +110,16 @@ export interface CaseVoicePendingCandidate {
   messageCount: number;
   receivedAt: number;
   updatedAt: number;
+}
+
+export interface CaseVoiceProcessedLogicalTurn {
+  requestKey: string;
+  messageId: string | null;
+  stage: CaseState;
+  candidateText: string;
+  normalizedText: string;
+  processedAt: number;
+  result: CaseVoiceModelResponse;
 }
 
 export interface CaseVoiceSession {
@@ -134,6 +146,8 @@ export interface CaseVoiceSession {
   processedToolCalls?: Record<string, CaseVoiceToolResponse>;
   /** Cached custom-LLM results keyed by a stable call/message-history digest. */
   processedModelRequests?: Record<string, CaseVoiceModelResponse>;
+  /** Logical candidate slots prevent late revisions from advancing the FSM twice. */
+  processedLogicalTurns?: Record<string, CaseVoiceProcessedLogicalTurn>;
   /** Candidate text held briefly so progressive Vapi revisions replace rather than advance. */
   pendingCandidate?: CaseVoicePendingCandidate | null;
   /** Last bounded Framework objective, used to prevent equivalent repeated probes. */

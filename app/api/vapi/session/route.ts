@@ -165,6 +165,7 @@ export async function POST(req: NextRequest) {
       score: null,
       processedToolCalls: {},
       processedModelRequests: {},
+      processedLogicalTurns: {},
       pendingCandidate: null,
       projectedTurns: [],
       projectionTokenHash,

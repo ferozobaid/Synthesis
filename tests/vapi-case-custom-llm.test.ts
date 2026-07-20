@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { redisStore } = vi.hoisted(() => ({
+const { redisStore, controllerMock, controllerWarningMock } = vi.hoisted(() => ({
   redisStore: new Map<string, { value: unknown; ex?: number }>(),
+  controllerMock: vi.fn(),
+  controllerWarningMock: vi.fn(),
 }));
 
 vi.mock("@upstash/redis", () => ({
@@ -27,6 +29,15 @@ vi.mock("@upstash/redis", () => ({
     }
   },
 }));
+
+vi.mock("@/lib/voice/case-turn-controller", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/voice/case-turn-controller")>();
+  return {
+    ...actual,
+    runCaseTurnController: controllerMock,
+    warnIfCaseTurnControllerUsesMocks: controllerWarningMock,
+  };
+});
 
 import { GET as projectionGET } from "@/app/api/case/voice/[sessionId]/route";
 import { POST as customLlmPOST } from "@/app/api/vapi/case/chat/completions/route";
@@ -173,8 +184,11 @@ beforeEach(() => {
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
   process.env.SYNTHESIS_USE_MOCKS = "true";
   process.env.CASE_VOICE_REVISION_WINDOW_MS = "5";
+  delete process.env.CASE_VOICE_CONTROLLER_MODE;
   delete process.env.VAPI_CASE_AUTH_DEBUG;
   delete process.env.VAPI_CASE_TURN_DEBUG;
+  controllerMock.mockReset();
+  controllerWarningMock.mockReset();
 });
 
 describe("Case custom-LLM deterministic turn loop", () => {
@@ -290,7 +304,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     );
     const session = stored(started.sessionId);
 
-    expect(first).toBe("Of course. Take your time—let me know when you’re ready to continue.");
+    expect(first).toBe("Of course. Take your time and let me know when you’re ready.");
     expect(second).toBe(first);
     expect(session.conversationStatus).toBe("paused");
     expect(session.session.fsm_state).toBe("clarification");
@@ -313,14 +327,36 @@ describe("Case custom-LLM deterministic turn loop", () => {
     const ended = await sendTurn(started.sessionId, "call-1", history, "Please end the interview");
     const session = stored(started.sessionId);
 
-    expect(resumed).toBe("Go ahead. Please continue with your response.");
+    expect(resumed).toBe("Of course. Let’s continue.");
     expect(repeated).toContain("What would you like to clarify before structuring your approach?");
-    expect(confused).toContain("Let’s stay with the current question.");
+    expect(confused).toBe("I understand. Let’s focus on the current question.");
     expect(ended).toBe("Of course. We’ll stop the interview here.");
     expect(session.conversationStatus).toBe("active");
     expect(session.session.history).toEqual([]);
     expect(session.projectedTurns).toEqual([]);
     expect(session.turnSeq).toBe(0);
+  });
+
+  it.each([
+    "Give me a moment.",
+    "Could you repeat the question?",
+    "I already answered that.",
+    "I’m confused.",
+    "Stop the interview.",
+  ])("keeps scored Case state unchanged for meta intent: %s", async (answer) => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const before = stored(started.sessionId);
+
+    await sendTurn(started.sessionId, "call-1", history, answer);
+    const after = stored(started.sessionId);
+
+    expect(after.session).toEqual(before.session);
+    expect(after.turnSeq).toBe(before.turnSeq);
+    expect(after.score).toEqual(before.score);
+    expect(after.projectedTurns).toEqual(before.projectedTurns);
+    expect(after.invalidRetries).toBe(before.invalidRetries);
   });
 
   it("transitions and evaluates a compound Framework answer exactly once", async () => {
@@ -352,6 +388,25 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(reply).toContain("Imagine a current customer who shops in-store");
   });
 
+  it("transitions and evaluates a done-clarifying compound remainder exactly once", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const compound = `I’m done clarifying. ${COMPLETE_FRAMEWORK}`;
+
+    await sendTurn(started.sessionId, "call-1", history, compound);
+    const session = stored(started.sessionId);
+    const candidateTurns = session.session.history.filter((turn) => turn.role === "candidate");
+
+    expect(session.session.fsm_state).toBe("analysis");
+    expect(session.turnSeq).toBe(1);
+    expect(candidateTurns).toHaveLength(1);
+    expect(candidateTurns[0]).toMatchObject({ stage: "framework", text: COMPLETE_FRAMEWORK });
+    expect(session.projectedTurns).toHaveLength(1);
+    expect(session.projectedTurns?.[0].candidateText).toBe(compound);
+    expect(controllerMock).not.toHaveBeenCalled();
+  });
+
   it("moves a transition-only request to the authored Framework prompt without scoring a turn", async () => {
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
@@ -365,13 +420,231 @@ describe("Case custom-LLM deterministic turn loop", () => {
     );
     const session = stored(started.sessionId);
 
-    expect(reply).toBe(mockCase("beautify")?.stages.find((stage) => stage.id === "framework")?.interviewer_prompt);
+    expect(reply).toBe(
+      `Absolutely. Let’s move into your framework. ${mockCase("beautify")?.stages.find((stage) => stage.id === "framework")?.interviewer_prompt}`,
+    );
     expect(session.session.fsm_state).toBe("framework");
     expect(session.session.history).toEqual([]);
     expect(session.turnSeq).toBe(0);
     expect(session.projectedTurns).toEqual([]);
     expect(session.score).toBeNull();
   });
+
+  it.each([
+    "I’m done with clarification.",
+    "I would like to move to the framework now.",
+    "I’m done with the clarification. I would like to move to the framework now.",
+  ])("handles clear Framework navigation without scoring: %s", async (answer) => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, answer);
+    const session = stored(started.sessionId);
+
+    expect(reply).toContain("Absolutely. Let’s move into your framework.");
+    expect(session.session.fsm_state).toBe("framework");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(controllerMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "I think I’m ready, but give me another minute.",
+    "I’m ready to structure, but first give me a moment.",
+    "Can you give me a couple moments? I think I’m ready to structure. But just give me a couple of minutes.",
+  ])("uses the hybrid controller for mixed pause language without Case mutation: %s", async (answer) => {
+    process.env.CASE_VOICE_CONTROLLER_MODE = "hybrid";
+    controllerMock.mockResolvedValue({
+      outcome: "success",
+      durationMs: 4,
+      decision: {
+        intent: "pause",
+        targetStage: null,
+        shouldEvaluate: false,
+        substantiveRemainder: "",
+        confidence: 0.98,
+      },
+    });
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const before = stored(started.sessionId);
+
+    const reply = await sendTurn(started.sessionId, "call-1", history, answer);
+    const after = stored(started.sessionId);
+
+    expect(reply).toBe("Of course. Take your time and let me know when you’re ready.");
+    expect(controllerMock).toHaveBeenCalledOnce();
+    expect(after.conversationStatus).toBe("paused");
+    expect(after.session).toEqual(before.session);
+    expect(after.turnSeq).toBe(before.turnSeq);
+    expect(after.score).toEqual(before.score);
+    expect(after.projectedTurns).toEqual(before.projectedTurns);
+  });
+
+  it("fails closed in off mode instead of scoring unknown conversational language", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const before = stored(started.sessionId);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Could we change direction for a second?",
+    );
+    const after = stored(started.sessionId);
+
+    expect(reply).toBe(
+      "I may have misunderstood. Would you like a moment, a repeat of the question, or to continue with your answer?",
+    );
+    expect(controllerMock).not.toHaveBeenCalled();
+    expect(after.session).toEqual(before.session);
+    expect(after.turnSeq).toBe(0);
+    expect(after.projectedTurns).toEqual([]);
+  });
+
+  it("runs but does not apply the controller in shadow mode", async () => {
+    process.env.CASE_VOICE_CONTROLLER_MODE = "shadow";
+    controllerMock.mockResolvedValue({
+      outcome: "success",
+      durationMs: 3,
+      decision: {
+        intent: "stage_transition",
+        targetStage: "framework",
+        shouldEvaluate: false,
+        substantiveRemainder: "",
+        confidence: 0.97,
+      },
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Let’s leave that section and get onto structure.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe(
+      "I may have misunderstood. Would you like a moment, a repeat of the question, or to continue with your answer?",
+    );
+    expect(controllerMock).toHaveBeenCalledOnce();
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.turnSeq).toBe(0);
+    expect(info.mock.calls.find(([label]) => label === "[case-custom-llm] controller")?.[1])
+      .toMatchObject({ mode: "shadow", validationPassed: true, applied: false });
+    info.mockRestore();
+  });
+
+  it("applies a validated controller transition in hybrid mode", async () => {
+    process.env.CASE_VOICE_CONTROLLER_MODE = "hybrid";
+    controllerMock.mockResolvedValue({
+      outcome: "success",
+      durationMs: 2,
+      decision: {
+        intent: "stage_transition",
+        targetStage: "framework",
+        shouldEvaluate: true,
+        substantiveRemainder: "",
+        confidence: 0.96,
+      },
+    });
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "Let’s leave that section and get onto structure.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(reply).toContain("Absolutely. Let’s move into your framework.");
+    expect(session.session.fsm_state).toBe("framework");
+    expect(session.session.history).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
+  it.each(["off", "shadow"] as const)(
+    "does not reuse a %s ambiguity cache entry after switching to hybrid",
+    async (initialMode) => {
+      process.env.CASE_VOICE_CONTROLLER_MODE = initialMode;
+      controllerMock.mockResolvedValue({
+        outcome: "success",
+        durationMs: 2,
+        decision: {
+          intent: "pause",
+          targetStage: null,
+          shouldEvaluate: false,
+          substantiveRemainder: "",
+          confidence: 0.97,
+        },
+      });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const started = await bootstrap();
+      const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+      await confirmReadiness(started.sessionId, "call-1", history);
+      const messages = [
+        ...history,
+        { id: "mode-change-1", role: "user" as const, content: "Could we change direction for a second?" },
+      ];
+      const body = modelBody(started.sessionId, "call-1", messages, "mode-change-request");
+
+      const initial = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+      process.env.CASE_VOICE_CONTROLLER_MODE = "hybrid";
+      const hybrid = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+
+      expect(initial).toContain("I may have misunderstood");
+      expect(hybrid).toBe("Of course. Take your time and let me know when you’re ready.");
+      expect(controllerMock).toHaveBeenCalledTimes(initialMode === "shadow" ? 2 : 1);
+      expect(stored(started.sessionId)).toMatchObject({
+        conversationStatus: "paused",
+        turnSeq: 0,
+        projectedTurns: [],
+      });
+      info.mockRestore();
+    },
+  );
+
+  it.each(["timeout", "invalid_json", "refusal"] as const)(
+    "caches a controller %s fallback for an exact request retry",
+    async (outcome) => {
+      process.env.CASE_VOICE_CONTROLLER_MODE = "hybrid";
+      controllerMock.mockResolvedValue({
+        outcome,
+        durationMs: outcome === "timeout" ? 2_500 : 3,
+        decision: null,
+      });
+      const started = await bootstrap();
+      const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+      await confirmReadiness(started.sessionId, "call-1", history);
+      const messages = [
+        ...history,
+        { id: "ambiguous-1", role: "user" as const, content: "Could we change direction for a second?" },
+      ];
+      const body = modelBody(started.sessionId, "call-1", messages, "controller-timeout");
+
+      const first = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+      const retry = await spokenText(await customLlmPOST(request(body, authHeader) as never));
+      const session = stored(started.sessionId);
+
+      expect(retry).toBe(first);
+      expect(first).toContain("I may have misunderstood");
+      expect(controllerMock).toHaveBeenCalledOnce();
+      expect(session.turnSeq).toBe(0);
+      expect(session.projectedTurns).toEqual([]);
+    },
+  );
 
   it("logs only safe request authentication diagnostics when explicitly enabled", async () => {
     const started = await bootstrap();
@@ -461,9 +734,14 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
     expect(timing).toContain("stabilize;dur=");
     expect(timing).toContain("redis_lock;dur=");
+    expect(timing).toContain("pending_lock;dur=");
+    expect(timing).toContain("turn_lock;dur=");
+    expect(timing).toContain("triage;dur=");
+    expect(timing).toContain("controller;dur=");
     expect(timing).toContain("intent;dur=");
     expect(timing).toContain("evaluator;dur=");
     expect(timing).toContain("persist;dur=");
+    expect(timing).toContain("response_ready;dur=");
     expect(timing).not.toContain(ANSWERS.clarification);
   });
 
@@ -588,6 +866,56 @@ describe("Case custom-LLM deterministic turn loop", () => {
       ANSWERS.clarification,
       ANSWERS.framework,
     ]);
+  });
+
+  it("does not lose a later answer when Vapi reuses a message id", async () => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    history.push({ id: "reused-user-id", role: "user", content: ANSWERS.clarification });
+    const firstReply = await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", history), authHeader) as never,
+    ));
+    history.push({ role: "assistant", content: firstReply });
+    history.push({ id: "reused-user-id", role: "user", content: ANSWERS.framework });
+    await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", history), authHeader) as never,
+    ));
+
+    const session = stored(started.sessionId);
+    expect(session.turnSeq).toBe(2);
+    expect(session.projectedTurns?.map((turn) => turn.candidateText)).toEqual([
+      ANSWERS.clarification,
+      ANSWERS.framework,
+    ]);
+  });
+
+  it("suppresses a late revision after its logical turn has already committed", async () => {
+    const started = await bootstrap();
+    const baseHistory: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", baseHistory);
+    const first = "What time horizon should we use?";
+    const revised = `${first} Which brands and markets are in scope?`;
+
+    await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", [
+        ...baseHistory,
+        { id: "logical-user-1", role: "user", content: first },
+      ]), authHeader) as never,
+    ));
+    const late = await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", [
+        ...baseHistory,
+        { id: "logical-user-1", role: "user", content: revised },
+      ]), authHeader) as never,
+    ));
+
+    const session = stored(started.sessionId);
+    expect(late).toBe("");
+    expect(session.turnSeq).toBe(1);
+    expect(session.projectedTurns).toHaveLength(1);
+    expect(session.projectedTurns?.[0].candidateText).toBe(first);
   });
 
   it("returns only the exact persisted backend interviewer text as assistant speech", async () => {
@@ -803,7 +1131,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     );
     const after = stored(started.sessionId);
 
-    expect(reply).toContain("Let’s reset and stay with the current question");
+    expect(reply).toBe("I understand. Let’s focus on the current question.");
     expect(after.session.fsm_state).toBe("framework");
     expect(after.turnSeq).toBe(before.turnSeq);
     expect(after.session.history).toEqual(before.session.history);

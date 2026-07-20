@@ -1,15 +1,24 @@
-import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
-
 export interface CaseTurnTimings {
   startedAt: number;
   coldStart: boolean;
   requestId: string | null;
+  correlationId: string | null;
   callId: string | null;
   messageCount: number;
   stage: string;
-  intent: CaseCandidateIntent | "unknown";
+  intent: string;
   stabilizationMs: number;
   redisLockMs: number;
+  pendingLockWaitMs: number;
+  turnLockWaitMs: number;
+  deterministicTriageMs: number;
+  controllerRequired: boolean;
+  controllerMs: number;
+  controllerOutcome: string;
+  controllerConfidenceBucket: number;
+  controllerTimeout: boolean;
+  controllerValidationFailure: boolean;
+  evaluatorCalled: boolean;
   intentMs: number;
   evaluatorMs: number;
   respondToCaseMs: number;
@@ -17,6 +26,7 @@ export interface CaseTurnTimings {
   scoringMs: number;
   persistenceMs: number;
   firstSseChunkMs: number;
+  responseReadyMs: number;
 }
 
 let firstInvocation = true;
@@ -28,12 +38,23 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     startedAt: Date.now(),
     coldStart,
     requestId: null,
+    correlationId: null,
     callId: null,
     messageCount: 0,
     stage: "unknown",
     intent: "unknown",
     stabilizationMs: 0,
     redisLockMs: 0,
+    pendingLockWaitMs: 0,
+    turnLockWaitMs: 0,
+    deterministicTriageMs: 0,
+    controllerRequired: false,
+    controllerMs: 0,
+    controllerOutcome: "not_required",
+    controllerConfidenceBucket: 0,
+    controllerTimeout: false,
+    controllerValidationFailure: false,
+    evaluatorCalled: false,
     intentMs: 0,
     evaluatorMs: 0,
     respondToCaseMs: 0,
@@ -41,12 +62,13 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     scoringMs: 0,
     persistenceMs: 0,
     firstSseChunkMs: 0,
+    responseReadyMs: 0,
   };
 }
 
 export function addCaseTurnDuration(
   timings: CaseTurnTimings,
-  key: "redisLockMs" | "persistenceMs",
+  key: "redisLockMs" | "pendingLockWaitMs" | "turnLockWaitMs" | "persistenceMs",
   startedAt: number,
 ): void {
   timings[key] += Date.now() - startedAt;
@@ -58,6 +80,10 @@ export function caseServerTiming(timings: CaseTurnTimings): string {
     `total;dur=${total}`,
     `stabilize;dur=${timings.stabilizationMs}`,
     `redis_lock;dur=${timings.redisLockMs}`,
+    `pending_lock;dur=${timings.pendingLockWaitMs}`,
+    `turn_lock;dur=${timings.turnLockWaitMs}`,
+    `triage;dur=${timings.deterministicTriageMs}`,
+    `controller;dur=${timings.controllerMs}`,
     `intent;dur=${timings.intentMs}`,
     `evaluator;dur=${timings.evaluatorMs}`,
     `respond_to_case;dur=${timings.respondToCaseMs}`,
@@ -65,13 +91,14 @@ export function caseServerTiming(timings: CaseTurnTimings): string {
     `scoring;dur=${timings.scoringMs}`,
     `persist;dur=${timings.persistenceMs}`,
     `sse_ready;dur=${timings.firstSseChunkMs}`,
+    `response_ready;dur=${timings.responseReadyMs}`,
   ].join(", ");
 }
 
 export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): void {
   if (process.env.NODE_ENV === "test" && process.env.VAPI_CASE_LATENCY_DEBUG !== "true") return;
   console.info("[case-custom-llm] latency", {
-    requestId: timings.requestId ?? "absent",
+    correlationId: timings.correlationId ?? "absent",
     callId: timings.callId ?? "absent",
     messageCount: timings.messageCount,
     stage: timings.stage,
@@ -79,6 +106,16 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     coldStart: timings.coldStart,
     stabilizationMs: timings.stabilizationMs,
     redisLockMs: timings.redisLockMs,
+    pendingLockWaitMs: timings.pendingLockWaitMs,
+    turnLockWaitMs: timings.turnLockWaitMs,
+    deterministicTriageMs: timings.deterministicTriageMs,
+    controllerRequired: timings.controllerRequired,
+    controllerMs: timings.controllerMs,
+    controllerOutcome: timings.controllerOutcome,
+    controllerConfidenceBucket: timings.controllerConfidenceBucket,
+    controllerTimeout: timings.controllerTimeout,
+    controllerValidationFailure: timings.controllerValidationFailure,
+    evaluatorCalled: timings.evaluatorCalled,
     intentMs: timings.intentMs,
     evaluatorMs: timings.evaluatorMs,
     respondToCaseMs: timings.respondToCaseMs,
@@ -86,7 +123,8 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     scoringMs: timings.scoringMs,
     persistenceMs: timings.persistenceMs,
     firstSseChunkMs: timings.firstSseChunkMs,
-    totalMs: Date.now() - timings.startedAt,
+    responseReadyMs: timings.responseReadyMs,
+    totalBackendMs: Date.now() - timings.startedAt,
     statusCode,
     requestReceivedAt: new Date(timings.startedAt).toISOString(),
     firstSseChunkAt: new Date(timings.startedAt + timings.firstSseChunkMs).toISOString(),
