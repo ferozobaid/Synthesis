@@ -305,10 +305,8 @@ function logicalCachedResult(
   candidate: CandidateRequest,
 ): CaseVoiceModelResponse | null {
   const logical = current.processedLogicalTurns?.[candidate.logicalTurnKey];
-  if (!logical) return null;
-  return logical.normalizedText === normalizeCandidateText(candidate.answer)
-    ? logical.result
-    : suppressedResult(current);
+  if (!logical?.result.spokenText.trim()) return null;
+  return logical.result;
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -327,24 +325,24 @@ async function acquirePendingLock(sessionId: string): Promise<{ lockKey: string;
 }
 
 async function acquireTurnLock(
-  sessionId: string,
-  callId: string,
-  cacheKey: string,
+  candidate: CandidateRequest,
 ): Promise<{ lockKey: string; lockToken: string } | { cached: CaseVoiceModelResponse }> {
-  const lockKey = `lock:case:${sessionId}`;
+  const lockKey = `lock:case:${candidate.sessionId}`;
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
 
   while (Date.now() < deadline) {
     const lockToken = await acquireLock(lockKey, LOCK_LEASE_SECONDS);
     if (lockToken) return { lockKey, lockToken };
 
-    const current = await loadSession(sessionId);
+    const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
     if (!current || current.module !== "case") {
       throw new CaseModelRequestError("session_not_found", 404, "Case voice session not found or expired");
     }
-    const cached = current.processedModelRequests?.[cacheKey];
+    const logicalCached = logicalCachedResult(current, candidate);
+    if (logicalCached) return { cached: logicalCached };
+    const cached = current.processedModelRequests?.[candidate.cacheKey];
     if (cached) return { cached };
-    if (current.callId && current.callId !== callId) {
+    if (current.callId && current.callId !== candidate.callId) {
       throw new CaseModelRequestError("call_mismatch", 409, "Case voice session is bound to another call");
     }
 
@@ -507,8 +505,6 @@ async function registerPendingCandidate(
     try {
       const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
       assertCaseSession(current, candidate);
-      const cached = current.processedModelRequests?.[candidate.cacheKey];
-      if (cached) return cached;
       const logicalCached = logicalCachedResult(current, candidate);
       if (logicalCached) {
         await saveSession(candidate.sessionId, {
@@ -522,6 +518,8 @@ async function registerPendingCandidate(
         });
         return logicalCached;
       }
+      const cached = current.processedModelRequests?.[candidate.cacheKey];
+      if (cached) return cached;
 
       const existing = current.pendingCandidate ?? null;
       if (!existing) {
@@ -580,6 +578,11 @@ async function registerPendingCandidate(
 interface CandidateEvaluation {
   result: CaseVoiceModelResponse;
   commit: (current: CaseVoiceSession) => CaseVoiceSession;
+}
+
+interface ProcessedCandidateResult {
+  result: CaseVoiceModelResponse;
+  replayed: boolean;
 }
 
 function currentInterviewerPrompt(current: CaseVoiceSession): string {
@@ -1014,17 +1017,17 @@ async function evaluateCandidate(
 async function processStableCandidate(
   candidate: CandidateRequest,
   timings: CaseTurnTimings,
-): Promise<CaseVoiceModelResponse> {
+): Promise<ProcessedCandidateResult> {
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
   const stabilizationStartedAt = Date.now();
   while (Date.now() < deadline) {
     const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
     assertCaseSession(current, candidate);
     timings.stage = current.session.fsm_state;
-    const cached = current.processedModelRequests?.[candidate.cacheKey];
-    if (cached) return cached;
     const logicalCached = logicalCachedResult(current, candidate);
-    if (logicalCached) return logicalCached;
+    if (logicalCached) return { result: logicalCached, replayed: true };
+    const cached = current.processedModelRequests?.[candidate.cacheKey];
+    if (cached) return { result: cached, replayed: true };
     const pending = current.pendingCandidate;
     if (!pending || pending.requestKey !== candidate.cacheKey) {
       await delay(LOCK_POLL_MILLISECONDS);
@@ -1039,14 +1042,10 @@ async function processStableCandidate(
 
     timings.stabilizationMs = Date.now() - stabilizationStartedAt;
     const turnLockStartedAt = Date.now();
-    const processClaim = await acquireTurnLock(
-      candidate.sessionId,
-      candidate.callId,
-      candidate.cacheKey,
-    );
+    const processClaim = await acquireTurnLock(candidate);
     addCaseTurnDuration(timings, "redisLockMs", turnLockStartedAt);
     addCaseTurnDuration(timings, "turnLockWaitMs", turnLockStartedAt);
-    if ("cached" in processClaim) return processClaim.cached;
+    if ("cached" in processClaim) return { result: processClaim.cached, replayed: true };
 
     try {
       const guardStartedAt = Date.now();
@@ -1057,10 +1056,10 @@ async function processStableCandidate(
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
-        const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
-        if (latestCached) return latestCached;
         const latestLogicalCached = logicalCachedResult(latest, candidate);
-        if (latestLogicalCached) return latestLogicalCached;
+        if (latestLogicalCached) return { result: latestLogicalCached, replayed: true };
+        const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
+        if (latestCached) return { result: latestCached, replayed: true };
         if (
           !latest.pendingCandidate ||
           latest.pendingCandidate.requestKey !== candidate.cacheKey ||
@@ -1081,10 +1080,10 @@ async function processStableCandidate(
       try {
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
-        const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
-        if (latestCached) return latestCached;
         const latestLogicalCached = logicalCachedResult(latest, candidate);
-        if (latestLogicalCached) return latestLogicalCached;
+        if (latestLogicalCached) return { result: latestLogicalCached, replayed: true };
+        const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
+        if (latestCached) return { result: latestCached, replayed: true };
 
         if (!latest.pendingCandidate || latest.pendingCandidate.requestKey !== candidate.cacheKey) {
           const ignored = suppressedResult(latest);
@@ -1098,7 +1097,7 @@ async function processStableCandidate(
             updatedAt: new Date().toISOString(),
           });
           logTurnDiagnostic(candidate, latest.session.fsm_state, "ignored");
-          return ignored;
+          return { result: ignored, replayed: false };
         }
 
         const committed = evaluation.commit(latest);
@@ -1112,26 +1111,28 @@ async function processStableCandidate(
             candidate.cacheKey,
             evaluation.result,
           ),
-          processedLogicalTurns: logicalCacheWith(
-            latest.processedLogicalTurns,
-            candidate.logicalTurnKey,
-            {
-              requestKey: candidate.cacheKey,
-              messageId: candidate.messageId,
-              stage: snapshot.session.fsm_state,
-              candidateText: candidate.answer,
-              normalizedText: normalizeCandidateText(candidate.answer),
-              processedAt: Date.now(),
-              result: evaluation.result,
-            },
-          ),
+          processedLogicalTurns: evaluation.result.spokenText.trim()
+            ? logicalCacheWith(
+                latest.processedLogicalTurns,
+                candidate.logicalTurnKey,
+                {
+                  requestKey: candidate.cacheKey,
+                  messageId: candidate.messageId,
+                  stage: snapshot.session.fsm_state,
+                  candidateText: candidate.answer,
+                  normalizedText: normalizeCandidateText(candidate.answer),
+                  processedAt: Date.now(),
+                  result: evaluation.result,
+                },
+              )
+            : latest.processedLogicalTurns,
           updatedAt: new Date().toISOString(),
         };
         const persistenceStartedAt = Date.now();
         await saveSession(candidate.sessionId, updated);
         addCaseTurnDuration(timings, "persistenceMs", persistenceStartedAt);
         logTurnDiagnostic(candidate, snapshot.session.fsm_state, "processed");
-        return evaluation.result;
+        return { result: evaluation.result, replayed: false };
       } finally {
         await releaseLock(commitGuard.lockKey, commitGuard.lockToken).catch(() => {});
       }
@@ -1146,7 +1147,7 @@ async function processTurn(
   req: NextRequest,
   body: OpenAIChatRequest,
   timings: CaseTurnTimings,
-): Promise<{ result: CaseVoiceModelResponse; cacheKey: string }> {
+): Promise<{ result: CaseVoiceModelResponse; cacheKey: string; replayed: boolean }> {
   const candidate = parseCandidateRequest(req, body);
   timings.requestId = candidate.requestId;
   timings.correlationId = shortHash(candidate.cacheKey);
@@ -1158,6 +1159,15 @@ async function processTurn(
   const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
   assertCaseSession(initial, candidate);
   timings.stage = initial.session.fsm_state;
+  const logicalCached = logicalCachedResult(initial, candidate);
+  if (logicalCached) {
+    logTurnDiagnostic(
+      candidate,
+      initial.session.fsm_state,
+      "deduplicated",
+    );
+    return { result: logicalCached, cacheKey: candidate.cacheKey, replayed: true };
+  }
   const cached = initial.processedModelRequests?.[candidate.cacheKey];
   if (cached) {
     logTurnDiagnostic(
@@ -1165,12 +1175,7 @@ async function processTurn(
       initial.session.fsm_state,
       cached.suppressed ? "ignored" : "deduplicated",
     );
-    return { result: cached, cacheKey: candidate.cacheKey };
-  }
-  const logicalCached = logicalCachedResult(initial, candidate);
-  if (logicalCached) {
-    logTurnDiagnostic(candidate, initial.session.fsm_state, logicalCached.suppressed ? "ignored" : "deduplicated");
-    return { result: logicalCached, cacheKey: candidate.cacheKey };
+    return { result: cached, cacheKey: candidate.cacheKey, replayed: true };
   }
 
   const registered = await registerPendingCandidate(candidate, timings);
@@ -1180,10 +1185,28 @@ async function processTurn(
       initial.session.fsm_state,
       registered.suppressed ? "ignored" : "deduplicated",
     );
-    return { result: registered, cacheKey: candidate.cacheKey };
+    return { result: registered, cacheKey: candidate.cacheKey, replayed: true };
   }
-  const result = await processStableCandidate(candidate, timings);
-  return { result, cacheKey: candidate.cacheKey };
+  const processed = await processStableCandidate(candidate, timings);
+  return { ...processed, cacheKey: candidate.cacheKey };
+}
+
+function recordResponseDiagnostics(
+  timings: CaseTurnTimings,
+  result: CaseVoiceModelResponse,
+  replayed: boolean,
+): void {
+  const spokenTextEmpty = result.spokenText.trim().length === 0;
+  timings.spokenTextEmpty = spokenTextEmpty;
+  timings.logicalTurnCompleted = !spokenTextEmpty;
+  timings.authoritativeResponsePresent = !spokenTextEmpty;
+  timings.responseKind = spokenTextEmpty
+    ? "suppressed_empty"
+    : replayed
+      ? "replayed_non_empty"
+      : result.spokenText === CASE_TURN_AMBIGUITY_RESPONSE
+        ? "safe_fallback_non_empty"
+        : "authoritative_non_empty";
 }
 
 export async function POST(req: NextRequest) {
@@ -1206,7 +1229,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { result, cacheKey } = await processTurn(req, body, timings);
+    const { result, cacheKey, replayed } = await processTurn(req, body, timings);
+    recordResponseDiagnostics(timings, result, replayed);
     const response = openAIResponse(
       result,
       cacheKey,

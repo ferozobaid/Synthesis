@@ -6,6 +6,7 @@ import {
   CaseProjectionUnavailableError,
   caseVoiceControls,
   caseVoiceElapsedMilliseconds,
+  caseVoiceEndedNotice,
   caseVoiceEndedReason,
   formatCaseVoiceElapsed,
   caseVoiceLiveCaption,
@@ -279,6 +280,16 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     expect(caseVoiceEndedReason({ message: { call: { endedReason: "silence-timed-out" } } }))
       .toBe("silence-timed-out");
     expect(caseVoiceEndedReason({ type: "call-end" })).toBeNull();
+  });
+
+  it("maps silence-ended calls to a neutral preserved-progress notice", () => {
+    expect(caseVoiceEndedNotice("Silence")).toBe(
+      "The voice call ended after a period of silence. Your backend progress from this session is preserved.",
+    );
+    expect(caseVoiceEndedNotice("silence-timed-out")).toContain("period of silence");
+    expect(caseVoiceEndedNotice("customer-ended-call")).toBe(
+      "The voice call ended. Your backend progress from this session is preserved.",
+    );
   });
 
   it("uses only the backend projection for permanent assistant speech", () => {

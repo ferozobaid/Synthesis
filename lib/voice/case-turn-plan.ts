@@ -26,7 +26,7 @@ export const CASE_TURN_CONTROLLER_INTENTS = [
 
 export type CaseTurnControllerIntent = (typeof CASE_TURN_CONTROLLER_INTENTS)[number];
 export type CaseVoiceControllerMode = "off" | "shadow" | "hybrid";
-export const CASE_VOICE_CONTROLLER_VERSION = "v1";
+export const CASE_VOICE_CONTROLLER_VERSION = "v2";
 
 export interface CaseTurnControllerDecision {
   intent: CaseTurnControllerIntent;
@@ -89,6 +89,7 @@ const PAUSE_CUE =
   /\b(?:pause|wait|hold on|take (?:a|another|some|one|a couple(?: of)?|couple(?: of)?|a few) (?:moments?|minutes?|seconds?)|give me (?:a|another|some|one|a couple(?: of)?|couple(?: of)?|a few) (?:moments?|minutes?|seconds?)|gather(?:ing)? my thoughts?|collect(?:ing)? my thoughts?|let me think|still thinking)\b/i;
 const TRANSITION_CUE =
   /\b(?:ready|continue|move|moving|get into|go into|framework|structur(?:e|ing)|done (?:with )?clarif|finished (?:with )?clarif)\b/i;
+const TENTATIVE_TRANSITION_CUE = /\b(?:i think|maybe|perhaps|i guess|probably)\b/i;
 function isCaseState(value: unknown): value is CaseState {
   return [
     "intro",
@@ -160,6 +161,12 @@ export function deterministicCaseTurnTriage(
   }
 
   const routed = routeCaseCandidateTurn(text, context);
+  if (
+    routed.intent === "stage-transition-request" &&
+    TENTATIVE_TRANSITION_CUE.test(text)
+  ) {
+    return { kind: "controller-required", reason: "tentative_stage_transition" };
+  }
   if (routed.intent === "ambiguous") {
     return { kind: "controller-required", reason: "ambiguous_language" };
   }

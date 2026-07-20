@@ -187,6 +187,7 @@ beforeEach(() => {
   delete process.env.CASE_VOICE_CONTROLLER_MODE;
   delete process.env.VAPI_CASE_AUTH_DEBUG;
   delete process.env.VAPI_CASE_TURN_DEBUG;
+  delete process.env.VAPI_CASE_LATENCY_DEBUG;
   controllerMock.mockReset();
   controllerWarningMock.mockReset();
 });
@@ -452,7 +453,10 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
   it.each([
     "I think I’m ready, but give me another minute.",
+    "I think I’m ready to structure. But give me another minute.",
     "I’m ready to structure, but first give me a moment.",
+    "I think I can continue—actually, give me another minute.",
+    "Let’s move to the framework, but let me gather my thoughts first.",
     "Can you give me a couple moments? I think I’m ready to structure. But just give me a couple of minutes.",
   ])("uses the hybrid controller for mixed pause language without Case mutation: %s", async (answer) => {
     process.env.CASE_VOICE_CONTROLLER_MODE = "hybrid";
@@ -513,8 +517,8 @@ describe("Case custom-LLM deterministic turn loop", () => {
       outcome: "success",
       durationMs: 3,
       decision: {
-        intent: "stage_transition",
-        targetStage: "framework",
+        intent: "pause",
+        targetStage: null,
         shouldEvaluate: false,
         substantiveRemainder: "",
         confidence: 0.97,
@@ -529,7 +533,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
       started.sessionId,
       "call-1",
       history,
-      "Let’s leave that section and get onto structure.",
+      "I think I’m ready to structure. But give me another minute.",
     );
     const session = stored(started.sessionId);
 
@@ -541,6 +545,53 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.turnSeq).toBe(0);
     expect(info.mock.calls.find(([label]) => label === "[case-custom-llm] controller")?.[1])
       .toMatchObject({ mode: "shadow", validationPassed: true, applied: false });
+    info.mockRestore();
+  });
+
+  it("replays the non-empty shadow fallback for a late mixed revision", async () => {
+    process.env.CASE_VOICE_CONTROLLER_MODE = "shadow";
+    controllerMock.mockResolvedValue({
+      outcome: "success",
+      durationMs: 3,
+      decision: {
+        intent: "stage_transition",
+        targetStage: "framework",
+        shouldEvaluate: false,
+        substantiveRemainder: "",
+        confidence: 0.96,
+      },
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const prefix = "I think I’m ready to structure.";
+    const complete = `${prefix} But give me another minute.`;
+
+    const first = await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", [
+        ...history,
+        { id: "mixed-turn-1", role: "user", content: prefix },
+      ]), authHeader) as never,
+    ));
+    const replay = await spokenText(await customLlmPOST(
+      request(modelBody(started.sessionId, "call-1", [
+        ...history,
+        { id: "mixed-turn-1", role: "user", content: complete },
+      ]), authHeader) as never,
+    ));
+    const session = stored(started.sessionId);
+
+    expect(first).toBe(
+      "I may have misunderstood. Would you like a moment, a repeat of the question, or to continue with your answer?",
+    );
+    expect(replay).toBe(first);
+    expect(replay).not.toBe("");
+    expect(controllerMock).toHaveBeenCalledOnce();
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.turnSeq).toBe(0);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.session.history).toEqual([]);
     info.mockRestore();
   });
 
@@ -789,9 +840,12 @@ describe("Case custom-LLM deterministic turn loop", () => {
 
   it("replaces progressive revisions with one stable canonical candidate turn", async () => {
     process.env.CASE_VOICE_REVISION_WINDOW_MS = "50";
+    process.env.VAPI_CASE_LATENCY_DEBUG = "true";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const started = await bootstrap();
     const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     await confirmReadiness(started.sessionId, "call-1", history);
+    const logicalTurnsBefore = Object.keys(stored(started.sessionId).processedLogicalTurns ?? {}).length;
     const partial =
       "I have three clarifying questions. What factors should Beautify consider?";
     const corrected =
@@ -838,7 +892,7 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.session.history.filter((message) => message.role === "candidate")).toHaveLength(1);
     expect(session.turnSeq).toBe(1);
 
-    const suppressedRetry = await spokenText(
+    const replayedRetry = await spokenText(
       await customLlmPOST(
         request(
           modelBody(started.sessionId, "call-1", [
@@ -850,8 +904,45 @@ describe("Case custom-LLM deterministic turn loop", () => {
         ) as never,
       ),
     );
-    expect(suppressedRetry).toBe("");
-    expect(stored(started.sessionId).turnSeq).toBe(1);
+    const completed = stored(started.sessionId);
+    const latencyCalls = info.mock.calls
+      .filter(([label]) => label === "[case-custom-llm] latency")
+      .map(([, payload]) => payload as Record<string, unknown>);
+
+    expect(replayedRetry).toBe(stableReply);
+    expect(replayedRetry).not.toBe("");
+    expect(completed.turnSeq).toBe(1);
+    expect(Object.values(completed.processedLogicalTurns ?? {})).toHaveLength(logicalTurnsBefore + 1);
+    expect(Object.values(completed.processedLogicalTurns ?? {}).filter(
+      (logical) => logical.candidateText === partial,
+    )).toHaveLength(0);
+    expect(Object.values(completed.processedLogicalTurns ?? {}).filter(
+      (logical) => logical.candidateText === corrected,
+    )).toHaveLength(1);
+    expect(Object.values(completed.processedLogicalTurns ?? {}).every(
+      (logical) => logical.result.spokenText.trim().length > 0,
+    )).toBe(true);
+    expect(latencyCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        responseKind: "suppressed_empty",
+        spokenTextEmpty: true,
+        logicalTurnCompleted: false,
+        authoritativeResponsePresent: false,
+      }),
+      expect.objectContaining({
+        responseKind: "authoritative_non_empty",
+        spokenTextEmpty: false,
+        logicalTurnCompleted: true,
+        authoritativeResponsePresent: true,
+      }),
+      expect.objectContaining({
+        responseKind: "replayed_non_empty",
+        spokenTextEmpty: false,
+        logicalTurnCompleted: true,
+        authoritativeResponsePresent: true,
+      }),
+    ]));
+    info.mockRestore();
   });
 
   it("keeps genuinely separate answers on distinct turn sequences", async () => {
@@ -891,14 +982,14 @@ describe("Case custom-LLM deterministic turn loop", () => {
     ]);
   });
 
-  it("suppresses a late revision after its logical turn has already committed", async () => {
+  it("replays the authoritative response for a late revision after commit", async () => {
     const started = await bootstrap();
     const baseHistory: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     await confirmReadiness(started.sessionId, "call-1", baseHistory);
     const first = "What time horizon should we use?";
     const revised = `${first} Which brands and markets are in scope?`;
 
-    await spokenText(await customLlmPOST(
+    const authoritative = await spokenText(await customLlmPOST(
       request(modelBody(started.sessionId, "call-1", [
         ...baseHistory,
         { id: "logical-user-1", role: "user", content: first },
@@ -912,7 +1003,8 @@ describe("Case custom-LLM deterministic turn loop", () => {
     ));
 
     const session = stored(started.sessionId);
-    expect(late).toBe("");
+    expect(late).toBe(authoritative);
+    expect(late).not.toBe("");
     expect(session.turnSeq).toBe(1);
     expect(session.projectedTurns).toHaveLength(1);
     expect(session.projectedTurns?.[0].candidateText).toBe(first);

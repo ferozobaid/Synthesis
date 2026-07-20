@@ -27,6 +27,15 @@ export interface CaseTurnTimings {
   persistenceMs: number;
   firstSseChunkMs: number;
   responseReadyMs: number;
+  responseKind:
+    | "unknown"
+    | "authoritative_non_empty"
+    | "replayed_non_empty"
+    | "suppressed_empty"
+    | "safe_fallback_non_empty";
+  spokenTextEmpty: boolean;
+  logicalTurnCompleted: boolean;
+  authoritativeResponsePresent: boolean;
 }
 
 let firstInvocation = true;
@@ -63,6 +72,10 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     persistenceMs: 0,
     firstSseChunkMs: 0,
     responseReadyMs: 0,
+    responseKind: "unknown",
+    spokenTextEmpty: false,
+    logicalTurnCompleted: false,
+    authoritativeResponsePresent: false,
   };
 }
 
@@ -124,6 +137,10 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     persistenceMs: timings.persistenceMs,
     firstSseChunkMs: timings.firstSseChunkMs,
     responseReadyMs: timings.responseReadyMs,
+    responseKind: timings.responseKind,
+    spokenTextEmpty: timings.spokenTextEmpty,
+    logicalTurnCompleted: timings.logicalTurnCompleted,
+    authoritativeResponsePresent: timings.authoritativeResponsePresent,
     totalBackendMs: Date.now() - timings.startedAt,
     statusCode,
     requestReceivedAt: new Date(timings.startedAt).toISOString(),

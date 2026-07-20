@@ -326,6 +326,12 @@ export function caseVoiceEndedReason(payload: unknown): string | null {
   )?.trim() ?? null;
 }
 
+export function caseVoiceEndedNotice(endedReason: string | null): string {
+  return endedReason && /silence/i.test(endedReason)
+    ? "The voice call ended after a period of silence. Your backend progress from this session is preserved."
+    : "The voice call ended. Your backend progress from this session is preserved.";
+}
+
 function isCaseState(value: unknown): value is CaseState {
   return typeof value === "string" && (CASE_STATES as readonly string[]).includes(value);
 }
@@ -500,7 +506,7 @@ export default function CaseVoiceInterview({
     }
     setStatus("ended");
     setError(null);
-    setNotice("The voice call ended. Your backend progress from this session is preserved.");
+    setNotice(caseVoiceEndedNotice(endedReason));
   }, [reportCompletion, setCallIsActive]);
 
   const start = useCallback(async () => {
@@ -592,11 +598,16 @@ export default function CaseVoiceInterview({
       });
       vapi.on("error", (payload) => {
         if (attempt !== startAttemptRef.current) return;
+        const endedReason = caseVoiceEndedReason(payload);
         console.info("[case-voice] lifecycle", {
           event: "connection-error",
-          endedReason: caseVoiceEndedReason(payload) ?? "unavailable",
+          endedReason: endedReason ?? "unavailable",
           timestamp: new Date().toISOString(),
         });
+        if (endedReason && /silence/i.test(endedReason)) {
+          handleCallEnd(payload);
+          return;
+        }
         startAttemptRef.current += 1;
         teardown();
         const failedAt = Date.now();

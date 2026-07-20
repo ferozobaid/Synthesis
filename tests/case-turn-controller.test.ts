@@ -202,12 +202,25 @@ describe("bounded Case turn controller", () => {
 
   it.each([
     "I think I’m ready, but give me another minute.",
+    "I think I’m ready to structure. But give me another minute.",
     "I’m ready to structure, but first give me a moment.",
+    "I think I can continue—actually, give me another minute.",
+    "Let’s move to the framework, but let me gather my thoughts first.",
     "Can you give me a couple moments? I think I’m ready to structure. But just give me a couple of minutes.",
   ])("requires controller interpretation for mixed clause-order language: %s", (text) => {
     expect(deterministicCaseTurnTriage(text, CONTEXT)).toMatchObject({
       kind: "controller-required",
       reason: "mixed_pause_and_transition",
+    });
+  });
+
+  it("does not accept a tentative transition prefix as a high-confidence transition", () => {
+    expect(deterministicCaseTurnTriage(
+      "I think I’m ready to structure.",
+      CONTEXT,
+    )).toMatchObject({
+      kind: "controller-required",
+      reason: "tentative_stage_transition",
     });
   });
 
