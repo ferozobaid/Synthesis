@@ -109,3 +109,42 @@ The same frozen split is used for all arms:
 - `hybrid_0_75`
 
 The hybrid suffix is the structured-score weight.
+
+## Blinded human validation
+
+Generate a 30-pair review sheet from the scoped artifacts (within the current
+24–36 pair target):
+
+```bash
+npm run validate:human
+```
+
+For the local nine-pair pilot (no Kaggle files or API calls required):
+
+```bash
+npm run validate:human:smoke
+```
+
+Open `human_pair_review.<mode>.csv` in Excel and label every row `WEAK`,
+`MEDIUM`, or `STRONG` without opening the JSONL key. Use confidence 1 (low),
+2 (moderate), or 3 (high), and briefly record the strongest matching evidence
+and any critical must-have gaps. After saving the CSV, analyze agreement:
+
+Use the full rubric and evidence rules in `HUMAN_VALIDATION_PROTOCOL.md`.
+
+```bash
+npm run validate:human -- --analyze
+npm run validate:human:smoke -- --analyze
+```
+
+Generate and analyze the blinded keyword-vs-LLM mapper comparison similarly:
+
+```bash
+npm run validate:human -- --mapper
+npm run validate:human -- --mapper --analyze
+```
+
+The mapper sample prioritizes rows where the two methods disagree. Treat the
+smoke files only as workflow verification; they are too small and synthetic to
+support a production-method decision. Generated review sheets, answer keys, and
+metrics are written under `scripts/validation/.artifacts/` and are gitignored.
