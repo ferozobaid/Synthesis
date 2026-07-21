@@ -11,6 +11,7 @@ import {
   type CaseTurnControllerInput,
 } from "@/lib/voice/case-turn-controller";
 import {
+  caseTurnStabilizationKind,
   deterministicCaseTurnTriage,
   parseCaseTurnControllerDecision,
   validateCaseTurnControllerDecision,
@@ -221,6 +222,52 @@ describe("bounded Case turn controller", () => {
     )).toMatchObject({
       kind: "controller-required",
       reason: "tentative_stage_transition",
+    });
+  });
+
+  it.each([
+    "I’m ready to structure my approach.",
+    "I think I’m ready to structure.",
+    "I’d like to move into the framework.",
+    "Let’s continue to the framework.",
+  ])("uses the bounded special window for a transition-only prefix: %s", (text) => {
+    expect(caseTurnStabilizationKind(text, CONTEXT)).toBe("tentative_stage_transition");
+  });
+
+  it("does not extend stabilization for a complete mixed pause or a normal substantive answer", () => {
+    expect(caseTurnStabilizationKind(
+      "I’m ready to structure my approach, but give me another minute.",
+      CONTEXT,
+    )).toBe("default");
+    expect(caseTurnStabilizationKind(
+      "I would assess customer demand, competitors, internal capabilities, and economics.",
+      { ...CONTEXT, stage: "framework" },
+    )).toBe("default");
+  });
+
+  it("extends only affirmative or incomplete readiness prefixes", () => {
+    const awaiting = { ...CONTEXT, readinessStatus: "awaiting" as const };
+    expect(caseTurnStabilizationKind("Yes.", awaiting)).toBe("tentative_readiness");
+    expect(caseTurnStabilizationKind("Uh...", awaiting)).toBe("tentative_readiness");
+    expect(caseTurnStabilizationKind("No, not yet.", awaiting)).toBe("default");
+    expect(caseTurnStabilizationKind("Yes, but give me another minute.", awaiting)).toBe("default");
+  });
+
+  it("keeps clear resume and explicit Framework navigation on deterministic fast paths", () => {
+    expect(deterministicCaseTurnTriage("Continue.", {
+      ...CONTEXT,
+      conversationStatus: "paused",
+    })).toMatchObject({
+      kind: "resolved",
+      plan: { intent: "resume", targetStage: null, shouldEvaluate: false },
+    });
+    expect(deterministicCaseTurnTriage("I’m ready to answer.", CONTEXT)).toMatchObject({
+      kind: "resolved",
+      plan: { intent: "readiness_confirmation", targetStage: null, shouldEvaluate: false },
+    });
+    expect(deterministicCaseTurnTriage("I want to continue to the framework.", CONTEXT)).toMatchObject({
+      kind: "resolved",
+      plan: { intent: "stage_transition", targetStage: "framework", shouldEvaluate: false },
     });
   });
 

@@ -33,6 +33,7 @@ import {
 import {
   CASE_TURN_AMBIGUITY_RESPONSE,
   authorizedCaseClarificationTopics,
+  caseTurnStabilizationKind,
   caseVoiceControllerMode,
   deterministicCaseTurnTriage,
   safeAmbiguityPlan,
@@ -52,6 +53,7 @@ import {
   candidateRevisionRelation,
   isCandidateRevision,
   normalizeCandidateText,
+  readinessSignal,
   type CandidateRevisionRelation,
 } from "@/lib/voice/case-turn-sync";
 import {
@@ -79,6 +81,7 @@ const PENDING_LOCK_WAIT_MILLISECONDS = 10_000;
 const PENDING_STALE_MILLISECONDS = 30_000;
 const MAX_REVISION_ELAPSED_MILLISECONDS = 10_000;
 const DEFAULT_REVISION_WINDOW_MILLISECONDS = 750;
+const TENTATIVE_CONTROL_REVISION_WINDOW_MILLISECONDS = 1_750;
 const CACHE_LIMIT = 50;
 const MODEL_NAME = "synthesis-case-fsm";
 
@@ -147,6 +150,13 @@ function revisionWindowMilliseconds(): number {
   return Number.isFinite(configured) && configured >= 0 && configured <= 5_000
     ? configured
     : DEFAULT_REVISION_WINDOW_MILLISECONDS;
+}
+
+function tentativeControlRevisionWindowMilliseconds(): number {
+  const configured = Number(process.env.CASE_VOICE_TENTATIVE_REVISION_WINDOW_MS);
+  return Number.isFinite(configured) && configured >= 0 && configured <= 5_000
+    ? Math.max(revisionWindowMilliseconds(), configured)
+    : Math.max(revisionWindowMilliseconds(), TENTATIVE_CONTROL_REVISION_WINDOW_MILLISECONDS);
 }
 
 function shortHash(value: string): string {
@@ -306,6 +316,11 @@ function logicalCachedResult(
 ): CaseVoiceModelResponse | null {
   const logical = current.processedLogicalTurns?.[candidate.logicalTurnKey];
   if (!logical?.result.spokenText.trim()) return null;
+  const relation = candidateRevisionRelation(
+    logical.candidateText,
+    candidate.answer,
+  );
+  if (relation === "none") return null;
   return logical.result;
 }
 
@@ -326,7 +341,10 @@ async function acquirePendingLock(sessionId: string): Promise<{ lockKey: string;
 
 async function acquireTurnLock(
   candidate: CandidateRequest,
-): Promise<{ lockKey: string; lockToken: string } | { cached: CaseVoiceModelResponse }> {
+): Promise<
+  | { lockKey: string; lockToken: string }
+  | { cached: CaseVoiceModelResponse; source: "logical_cache" | "request_cache" | "suppressed" }
+> {
   const lockKey = `lock:case:${candidate.sessionId}`;
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
 
@@ -339,9 +357,14 @@ async function acquireTurnLock(
       throw new CaseModelRequestError("session_not_found", 404, "Case voice session not found or expired");
     }
     const logicalCached = logicalCachedResult(current, candidate);
-    if (logicalCached) return { cached: logicalCached };
+    if (logicalCached) return { cached: logicalCached, source: "logical_cache" };
     const cached = current.processedModelRequests?.[candidate.cacheKey];
-    if (cached) return { cached };
+    if (cached) {
+      return {
+        cached,
+        source: cached.spokenText.trim() ? "request_cache" : "suppressed",
+      };
+    }
     if (current.callId && current.callId !== candidate.callId) {
       throw new CaseModelRequestError("call_mismatch", 409, "Case voice session is bound to another call");
     }
@@ -494,7 +517,7 @@ function pendingCandidate(
 async function registerPendingCandidate(
   candidate: CandidateRequest,
   timings: CaseTurnTimings,
-): Promise<CaseVoiceModelResponse | null> {
+): Promise<ProcessedCandidateResult | null> {
   const deadline = Date.now() + LOCK_WAIT_MILLISECONDS;
   while (Date.now() < deadline) {
     const lockStartedAt = Date.now();
@@ -516,10 +539,16 @@ async function registerPendingCandidate(
           ),
           updatedAt: new Date().toISOString(),
         });
-        return logicalCached;
+        return { result: logicalCached, replayed: true, source: "logical_cache" };
       }
       const cached = current.processedModelRequests?.[candidate.cacheKey];
-      if (cached) return cached;
+      if (cached) {
+        return {
+          result: cached,
+          replayed: true,
+          source: cached.spokenText.trim() ? "request_cache" : "suppressed",
+        };
+      }
 
       const existing = current.pendingCandidate ?? null;
       if (!existing) {
@@ -583,6 +612,7 @@ interface CandidateEvaluation {
 interface ProcessedCandidateResult {
   result: CaseVoiceModelResponse;
   replayed: boolean;
+  source: "committed" | "logical_cache" | "request_cache" | "suppressed";
 }
 
 function currentInterviewerPrompt(current: CaseVoiceSession): string {
@@ -683,6 +713,7 @@ async function resolveTurnPlan(
   timings.deterministicTriageMs += Date.now() - triageStartedAt;
   if (triage.kind === "resolved") {
     timings.controllerOutcome = "not_required";
+    timings.controllerIntent = triage.plan.intent;
     return triage.plan;
   }
 
@@ -690,12 +721,14 @@ async function resolveTurnPlan(
   const mode = caseVoiceControllerMode();
   if (mode === "off") {
     timings.controllerOutcome = "disabled";
+    timings.controllerIntent = "unavailable";
     return safeAmbiguityPlan();
   }
 
   const controller = await runCaseTurnController(controllerInput(current, candidate, context));
   timings.controllerMs += controller.durationMs;
   timings.controllerOutcome = controller.outcome;
+  timings.controllerIntent = controller.decision?.intent ?? "unavailable";
   timings.controllerTimeout = controller.outcome === "timeout";
   timings.controllerConfidenceBucket = confidenceBucket(controller.decision?.confidence ?? null);
 
@@ -708,6 +741,7 @@ async function resolveTurnPlan(
     controller.outcome === "schema_mismatch";
 
   const applied = mode === "hybrid" && validation.ok;
+  timings.controllerApplied = applied;
   if (mode === "shadow" || process.env.VAPI_CASE_TURN_DEBUG === "true") {
     console.info("[case-custom-llm] controller", {
       correlationId: shortHash(candidate.cacheKey),
@@ -1025,18 +1059,39 @@ async function processStableCandidate(
     assertCaseSession(current, candidate);
     timings.stage = current.session.fsm_state;
     const logicalCached = logicalCachedResult(current, candidate);
-    if (logicalCached) return { result: logicalCached, replayed: true };
+    if (logicalCached) {
+      return { result: logicalCached, replayed: true, source: "logical_cache" };
+    }
     const cached = current.processedModelRequests?.[candidate.cacheKey];
-    if (cached) return { result: cached, replayed: true };
+    if (cached) {
+      return {
+        result: cached,
+        replayed: true,
+        source: cached.spokenText.trim() ? "request_cache" : "suppressed",
+      };
+    }
     const pending = current.pendingCandidate;
     if (!pending || pending.requestKey !== candidate.cacheKey) {
       await delay(LOCK_POLL_MILLISECONDS);
       continue;
     }
 
-    const remaining = pending.updatedAt + revisionWindowMilliseconds() - Date.now();
+    const stabilizationKind = caseTurnStabilizationKind(pending.candidateText, {
+      readinessStatus: current.readinessStatus ?? "confirmed",
+      conversationStatus: current.conversationStatus ?? "active",
+      stage: current.session.fsm_state,
+    });
+    const tentative = stabilizationKind !== "default";
+    if (stabilizationKind === "tentative_readiness") timings.tentativeReadinessDetected = true;
+    if (stabilizationKind === "tentative_stage_transition") timings.tentativeTransitionDetected = true;
+    const windowMilliseconds = tentative
+      ? tentativeControlRevisionWindowMilliseconds()
+      : revisionWindowMilliseconds();
+    const remaining = pending.updatedAt + windowMilliseconds - Date.now();
     if (remaining > 0) {
+      const waitStartedAt = Date.now();
       await delay(Math.min(remaining, LOCK_POLL_MILLISECONDS));
+      if (tentative) timings.tentativeStabilizationMs += Date.now() - waitStartedAt;
       continue;
     }
 
@@ -1045,7 +1100,9 @@ async function processStableCandidate(
     const processClaim = await acquireTurnLock(candidate);
     addCaseTurnDuration(timings, "redisLockMs", turnLockStartedAt);
     addCaseTurnDuration(timings, "turnLockWaitMs", turnLockStartedAt);
-    if ("cached" in processClaim) return { result: processClaim.cached, replayed: true };
+    if ("cached" in processClaim) {
+      return { result: processClaim.cached, replayed: true, source: processClaim.source };
+    }
 
     try {
       const guardStartedAt = Date.now();
@@ -1057,13 +1114,31 @@ async function processStableCandidate(
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
         const latestLogicalCached = logicalCachedResult(latest, candidate);
-        if (latestLogicalCached) return { result: latestLogicalCached, replayed: true };
+        if (latestLogicalCached) {
+          return { result: latestLogicalCached, replayed: true, source: "logical_cache" };
+        }
         const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
-        if (latestCached) return { result: latestCached, replayed: true };
+        if (latestCached) {
+          return {
+            result: latestCached,
+            replayed: true,
+            source: latestCached.spokenText.trim() ? "request_cache" : "suppressed",
+          };
+        }
+        const latestStabilizationKind = latest.pendingCandidate
+          ? caseTurnStabilizationKind(latest.pendingCandidate.candidateText, {
+              readinessStatus: latest.readinessStatus ?? "confirmed",
+              conversationStatus: latest.conversationStatus ?? "active",
+              stage: latest.session.fsm_state,
+            })
+          : "default";
+        const latestWindowMilliseconds = latestStabilizationKind === "default"
+          ? revisionWindowMilliseconds()
+          : tentativeControlRevisionWindowMilliseconds();
         if (
           !latest.pendingCandidate ||
           latest.pendingCandidate.requestKey !== candidate.cacheKey ||
-          latest.pendingCandidate.updatedAt + revisionWindowMilliseconds() > Date.now()
+          latest.pendingCandidate.updatedAt + latestWindowMilliseconds > Date.now()
         ) {
           continue;
         }
@@ -1081,9 +1156,17 @@ async function processStableCandidate(
         const latest = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
         assertCaseSession(latest, candidate);
         const latestLogicalCached = logicalCachedResult(latest, candidate);
-        if (latestLogicalCached) return { result: latestLogicalCached, replayed: true };
+        if (latestLogicalCached) {
+          return { result: latestLogicalCached, replayed: true, source: "logical_cache" };
+        }
         const latestCached = latest.processedModelRequests?.[candidate.cacheKey];
-        if (latestCached) return { result: latestCached, replayed: true };
+        if (latestCached) {
+          return {
+            result: latestCached,
+            replayed: true,
+            source: latestCached.spokenText.trim() ? "request_cache" : "suppressed",
+          };
+        }
 
         if (!latest.pendingCandidate || latest.pendingCandidate.requestKey !== candidate.cacheKey) {
           const ignored = suppressedResult(latest);
@@ -1097,7 +1180,7 @@ async function processStableCandidate(
             updatedAt: new Date().toISOString(),
           });
           logTurnDiagnostic(candidate, latest.session.fsm_state, "ignored");
-          return { result: ignored, replayed: false };
+          return { result: ignored, replayed: false, source: "suppressed" };
         }
 
         const committed = evaluation.commit(latest);
@@ -1132,7 +1215,7 @@ async function processStableCandidate(
         await saveSession(candidate.sessionId, updated);
         addCaseTurnDuration(timings, "persistenceMs", persistenceStartedAt);
         logTurnDiagnostic(candidate, snapshot.session.fsm_state, "processed");
-        return { result: evaluation.result, replayed: false };
+        return { result: evaluation.result, replayed: false, source: "committed" };
       } finally {
         await releaseLock(commitGuard.lockKey, commitGuard.lockToken).catch(() => {});
       }
@@ -1147,7 +1230,7 @@ async function processTurn(
   req: NextRequest,
   body: OpenAIChatRequest,
   timings: CaseTurnTimings,
-): Promise<{ result: CaseVoiceModelResponse; cacheKey: string; replayed: boolean }> {
+): Promise<ProcessedCandidateResult & { cacheKey: string }> {
   const candidate = parseCandidateRequest(req, body);
   timings.requestId = candidate.requestId;
   timings.correlationId = shortHash(candidate.cacheKey);
@@ -1159,6 +1242,9 @@ async function processTurn(
   const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
   assertCaseSession(initial, candidate);
   timings.stage = initial.session.fsm_state;
+  timings.readinessDisposition = initial.readinessStatus === "awaiting"
+    ? readinessSignal(candidate.answer)
+    : "not_applicable";
   const logicalCached = logicalCachedResult(initial, candidate);
   if (logicalCached) {
     logTurnDiagnostic(
@@ -1166,7 +1252,12 @@ async function processTurn(
       initial.session.fsm_state,
       "deduplicated",
     );
-    return { result: logicalCached, cacheKey: candidate.cacheKey, replayed: true };
+    return {
+      result: logicalCached,
+      cacheKey: candidate.cacheKey,
+      replayed: true,
+      source: "logical_cache",
+    };
   }
   const cached = initial.processedModelRequests?.[candidate.cacheKey];
   if (cached) {
@@ -1175,7 +1266,12 @@ async function processTurn(
       initial.session.fsm_state,
       cached.suppressed ? "ignored" : "deduplicated",
     );
-    return { result: cached, cacheKey: candidate.cacheKey, replayed: true };
+    return {
+      result: cached,
+      cacheKey: candidate.cacheKey,
+      replayed: true,
+      source: cached.spokenText.trim() ? "request_cache" : "suppressed",
+    };
   }
 
   const registered = await registerPendingCandidate(candidate, timings);
@@ -1183,9 +1279,9 @@ async function processTurn(
     logTurnDiagnostic(
       candidate,
       initial.session.fsm_state,
-      registered.suppressed ? "ignored" : "deduplicated",
+      registered.result.suppressed ? "ignored" : "deduplicated",
     );
-    return { result: registered, cacheKey: candidate.cacheKey, replayed: true };
+    return { ...registered, cacheKey: candidate.cacheKey };
   }
   const processed = await processStableCandidate(candidate, timings);
   return { ...processed, cacheKey: candidate.cacheKey };
@@ -1195,11 +1291,14 @@ function recordResponseDiagnostics(
   timings: CaseTurnTimings,
   result: CaseVoiceModelResponse,
   replayed: boolean,
+  source: ProcessedCandidateResult["source"],
 ): void {
   const spokenTextEmpty = result.spokenText.trim().length === 0;
   timings.spokenTextEmpty = spokenTextEmpty;
   timings.logicalTurnCompleted = !spokenTextEmpty;
   timings.authoritativeResponsePresent = !spokenTextEmpty;
+  timings.authoritativeResponseSource = source;
+  timings.logicalResponseReplay = source === "logical_cache";
   timings.responseKind = spokenTextEmpty
     ? "suppressed_empty"
     : replayed
@@ -1229,8 +1328,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { result, cacheKey, replayed } = await processTurn(req, body, timings);
-    recordResponseDiagnostics(timings, result, replayed);
+    const { result, cacheKey, replayed, source } = await processTurn(req, body, timings);
+    recordResponseDiagnostics(timings, result, replayed, source);
     const response = openAIResponse(
       result,
       cacheKey,

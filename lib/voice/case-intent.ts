@@ -42,6 +42,10 @@ const REPEAT_REQUEST = [
   /^which question(?: do you mean)?$/,
 ];
 const GENERIC_MEANING_REQUEST = /^what do you mean(?: by (?:that|the question))?$/;
+const RESUME_REQUEST = [
+  /^(?:continue|please continue|let'?s continue)$/,
+  /^(?:i(?:'m| am) ready to (?:continue|answer)|i(?: will|'ll| want to| would like to) continue(?: with)? (?:my )?(?:answer|response))$/,
+];
 const END_REQUEST =
   /^(?:please )?(?:end|stop|finish|quit)(?: the| this| my)? (?:case|interview|call|session)(?: now)?$|^(?:i(?:'d| would) like to|i want to|can we|let'?s) (?:end|stop|finish)(?: the| this| my)? (?:case|interview|call|session)(?: now)?$|^(?:i(?:'d| would) like to|i want to) quit(?:(?: the| this| my)? (?:case|interview|call|session))?(?: now)?$/;
 const FRUSTRATION_RESPONSE =
@@ -58,7 +62,7 @@ const COMPOUND_TRANSITION_PREFIXES = [
   /^\s*i(?:['’]d| would)\s+like\s+to\s+(?:move|go|get)(?:\s+on)?\s+(?:to|into)\s+(?:the\s+)?framework(?:\s+now)?(?:\s*[.!;,:-]\s*(?:(?:and|so)\s+)?|\s+(?:and|so)\s+)([\s\S]+)$/i,
 ];
 const FRAMEWORK_TRANSITION_REQUEST =
-  /^(?:(?:i think )?i(?:'m| am) ready(?: now)? to (?:structure|outline|lay out|share|walk through)(?: (?:(?:my|the) )?(?:approach|framework))?(?: now)?|i(?:'d| would) like to (?:structure|outline|lay out|share|walk through) (?:my|the) (?:approach|framework)|i(?:'d| would) like to (?:move|go|get)(?: on)? (?:to|into) (?:the )?framework(?: now)?|i(?:'m| am) done (?:with (?:the )?)?clarification(?: i(?:'d| would) like to (?:move|go|get)(?: on)? (?:to|into) (?:the )?framework(?: now)?)?|i(?:'m| am) done clarifying|(?:let'?s|we can) (?:move|go|get)(?: on)? (?:to|into) (?:the )?framework)$/;
+  /^(?:(?:i think )?i(?:'m| am) ready(?: now)? to (?:structure|outline|lay out|share|walk through)(?: (?:(?:my|the) )?(?:approach|framework))?(?: now)?|i(?:'d| would) like to (?:structure|outline|lay out|share|walk through) (?:my|the) (?:approach|framework)|i(?:'d| would| want to) (?:like to )?(?:move|go|get)(?: on)? (?:to|into) (?:the )?framework(?: now)?|i(?:'d| would| want to) (?:like to )?continue (?:to|into) (?:the )?framework(?: now)?|(?:let'?s|we can) continue (?:to|into) (?:the )?framework(?: now)?|i(?:'m| am) done (?:with (?:the )?)?clarification(?: i(?:'d| would) like to (?:move|go|get)(?: on)? (?:to|into) (?:the )?framework(?: now)?)?|i(?:'m| am) done clarifying|(?:(?:let'?s|we can|please) )?(?:move|go|get)(?: on)? (?:to|into) (?:the )?framework)$/;
 
 const CONVERSATIONAL_CONTROL_MARKER =
   /\b(?:not yet|wait|hold on|pause|break|repeat|say that again|restate|rephrase|continue|move to|move into|get into|go into|done (?:with )?clarif|finished (?:with )?clarif|already answered|same (?:thing|question)|confused|don'?t understand|end the|stop the interview|finish the|quit)\b/;
@@ -67,6 +71,10 @@ const SUBSTANTIVE_SIGNAL =
 
 export function isExplicitEndRequest(text: string): boolean {
   return END_REQUEST.test(normalizeCandidateText(text));
+}
+
+export function isFrameworkStageTransitionRequest(text: string): boolean {
+  return FRAMEWORK_TRANSITION_REQUEST.test(normalizeCandidateText(text));
 }
 
 function isClearlySubstantiveCaseAnswer(text: string): boolean {
@@ -107,6 +115,7 @@ export function classifyCaseCandidateIntent(
   if (REPEAT_REQUEST.some((pattern) => pattern.test(normalized)) || GENERIC_MEANING_REQUEST.test(normalized)) {
     return "repeat-question-request";
   }
+  if (RESUME_REQUEST.some((pattern) => pattern.test(normalized))) return "readiness-confirmation";
   if (isReadinessOnlyConfirmation(text)) return "readiness-confirmation";
   if (readinessDisposition(text) === "not-ready" && /\b(?:not ready|not yet)\b/.test(normalized)) {
     return "thinking-pause-request";
@@ -136,7 +145,7 @@ export function routeCaseCandidateTurn(
   if (
     context.stage === "clarification" &&
     context.conversationStatus === "active" &&
-    FRAMEWORK_TRANSITION_REQUEST.test(normalizeCandidateText(text))
+    isFrameworkStageTransitionRequest(text)
   ) {
     return {
       intent: "stage-transition-request",

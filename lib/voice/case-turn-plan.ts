@@ -1,11 +1,15 @@
 import { nextState } from "@/lib/fsm/case-fsm";
 import type { CaseState } from "@/lib/types";
 import {
+  isFrameworkStageTransitionRequest,
   isExplicitEndRequest,
   routeCaseCandidateTurn,
   type CaseIntentContext,
 } from "@/lib/voice/case-intent";
-import { normalizeCandidateText } from "@/lib/voice/case-turn-sync";
+import {
+  isPotentialReadinessPrefix,
+  normalizeCandidateText,
+} from "@/lib/voice/case-turn-sync";
 
 export const CASE_TURN_CONTROLLER_INTENTS = [
   "readiness_confirmation",
@@ -26,7 +30,8 @@ export const CASE_TURN_CONTROLLER_INTENTS = [
 
 export type CaseTurnControllerIntent = (typeof CASE_TURN_CONTROLLER_INTENTS)[number];
 export type CaseVoiceControllerMode = "off" | "shadow" | "hybrid";
-export const CASE_VOICE_CONTROLLER_VERSION = "v2";
+export type CaseTurnStabilizationKind = "default" | "tentative_readiness" | "tentative_stage_transition";
+export const CASE_VOICE_CONTROLLER_VERSION = "v3";
 
 export interface CaseTurnControllerDecision {
   intent: CaseTurnControllerIntent;
@@ -150,6 +155,24 @@ export function safeAmbiguityPlan(): ValidatedCaseTurnPlan {
     confidence: 0,
     source: "fallback",
   };
+}
+
+export function caseTurnStabilizationKind(
+  text: string,
+  context: CaseIntentContext,
+): CaseTurnStabilizationKind {
+  if (context.readinessStatus === "awaiting") {
+    return isPotentialReadinessPrefix(text) ? "tentative_readiness" : "default";
+  }
+  if (
+    context.stage === "clarification" &&
+    context.conversationStatus === "active" &&
+    !PAUSE_CUE.test(text) &&
+    isFrameworkStageTransitionRequest(text)
+  ) {
+    return "tentative_stage_transition";
+  }
+  return "default";
 }
 
 export function deterministicCaseTurnTriage(

@@ -7,7 +7,11 @@ export interface CaseTurnTimings {
   messageCount: number;
   stage: string;
   intent: string;
+  readinessDisposition: "not_applicable" | "affirmative" | "negative" | "mixed" | "unknown";
   stabilizationMs: number;
+  tentativeReadinessDetected: boolean;
+  tentativeTransitionDetected: boolean;
+  tentativeStabilizationMs: number;
   redisLockMs: number;
   pendingLockWaitMs: number;
   turnLockWaitMs: number;
@@ -15,6 +19,8 @@ export interface CaseTurnTimings {
   controllerRequired: boolean;
   controllerMs: number;
   controllerOutcome: string;
+  controllerIntent: string;
+  controllerApplied: boolean;
   controllerConfidenceBucket: number;
   controllerTimeout: boolean;
   controllerValidationFailure: boolean;
@@ -36,6 +42,8 @@ export interface CaseTurnTimings {
   spokenTextEmpty: boolean;
   logicalTurnCompleted: boolean;
   authoritativeResponsePresent: boolean;
+  authoritativeResponseSource: "none" | "committed" | "logical_cache" | "request_cache" | "suppressed";
+  logicalResponseReplay: boolean;
 }
 
 let firstInvocation = true;
@@ -52,7 +60,11 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     messageCount: 0,
     stage: "unknown",
     intent: "unknown",
+    readinessDisposition: "not_applicable",
     stabilizationMs: 0,
+    tentativeReadinessDetected: false,
+    tentativeTransitionDetected: false,
+    tentativeStabilizationMs: 0,
     redisLockMs: 0,
     pendingLockWaitMs: 0,
     turnLockWaitMs: 0,
@@ -60,6 +72,8 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     controllerRequired: false,
     controllerMs: 0,
     controllerOutcome: "not_required",
+    controllerIntent: "not_required",
+    controllerApplied: false,
     controllerConfidenceBucket: 0,
     controllerTimeout: false,
     controllerValidationFailure: false,
@@ -76,6 +90,8 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     spokenTextEmpty: false,
     logicalTurnCompleted: false,
     authoritativeResponsePresent: false,
+    authoritativeResponseSource: "none",
+    logicalResponseReplay: false,
   };
 }
 
@@ -92,6 +108,7 @@ export function caseServerTiming(timings: CaseTurnTimings): string {
   return [
     `total;dur=${total}`,
     `stabilize;dur=${timings.stabilizationMs}`,
+    `tentative_stabilize;dur=${timings.tentativeStabilizationMs}`,
     `redis_lock;dur=${timings.redisLockMs}`,
     `pending_lock;dur=${timings.pendingLockWaitMs}`,
     `turn_lock;dur=${timings.turnLockWaitMs}`,
@@ -116,8 +133,12 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     messageCount: timings.messageCount,
     stage: timings.stage,
     candidateIntent: timings.intent,
+    readinessDisposition: timings.readinessDisposition,
     coldStart: timings.coldStart,
     stabilizationMs: timings.stabilizationMs,
+    tentativeReadinessDetected: timings.tentativeReadinessDetected,
+    tentativeTransitionDetected: timings.tentativeTransitionDetected,
+    tentativeStabilizationMs: timings.tentativeStabilizationMs,
     redisLockMs: timings.redisLockMs,
     pendingLockWaitMs: timings.pendingLockWaitMs,
     turnLockWaitMs: timings.turnLockWaitMs,
@@ -125,6 +146,8 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     controllerRequired: timings.controllerRequired,
     controllerMs: timings.controllerMs,
     controllerOutcome: timings.controllerOutcome,
+    controllerIntent: timings.controllerIntent,
+    controllerApplied: timings.controllerApplied,
     controllerConfidenceBucket: timings.controllerConfidenceBucket,
     controllerTimeout: timings.controllerTimeout,
     controllerValidationFailure: timings.controllerValidationFailure,
@@ -141,6 +164,8 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     spokenTextEmpty: timings.spokenTextEmpty,
     logicalTurnCompleted: timings.logicalTurnCompleted,
     authoritativeResponsePresent: timings.authoritativeResponsePresent,
+    authoritativeResponseSource: timings.authoritativeResponseSource,
+    logicalResponseReplay: timings.logicalResponseReplay,
     totalBackendMs: Date.now() - timings.startedAt,
     statusCode,
     requestReceivedAt: new Date(timings.startedAt).toISOString(),

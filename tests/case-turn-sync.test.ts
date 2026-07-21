@@ -4,6 +4,7 @@ import {
   isReadinessOnlyConfirmation,
   isCandidateRevision,
   readinessDisposition,
+  readinessSignal,
 } from "@/lib/voice/case-turn-sync";
 import {
   classifyCaseCandidateIntent,
@@ -44,6 +45,10 @@ describe("Case voice candidate turn synchronization", () => {
   });
 
   it("accepts natural readiness confirmations but keeps negative responses waiting", () => {
+    expect(readinessDisposition("Yes.")).toBe("ready");
+    expect(readinessDisposition("Yeah.")).toBe("ready");
+    expect(readinessDisposition("Yep.")).toBe("ready");
+    expect(readinessDisposition("Sure.")).toBe("ready");
     expect(readinessDisposition("Ready")).toBe("ready");
     expect(readinessDisposition("Yes, I’m ready")).toBe("ready");
     expect(readinessDisposition("Let's begin")).toBe("ready");
@@ -51,7 +56,13 @@ describe("Case voice candidate turn synchronization", () => {
     expect(readinessDisposition("Yes, ready")).toBe("ready");
     expect(readinessDisposition("We can start")).toBe("ready");
     expect(readinessDisposition("Go ahead")).toBe("ready");
+    expect(readinessDisposition("Uh, yes, I’m ready now.")).toBe("ready");
+    expect(readinessDisposition("No, not yet.")).toBe("not-ready");
+    expect(readinessDisposition("Yes, but give me another minute.")).toBe("not-ready");
     expect(readinessDisposition("Not yet, give me a moment")).toBe("not-ready");
+    expect(readinessSignal("Yes.")).toBe("affirmative");
+    expect(readinessSignal("No, not yet.")).toBe("negative");
+    expect(readinessSignal("Yes, but give me another minute.")).toBe("mixed");
     expect(isReadinessOnlyConfirmation("Yes, I’m ready")).toBe(true);
     expect(isReadinessOnlyConfirmation("Yes, I’m ready. What is the time horizon?")).toBe(false);
   });
@@ -167,6 +178,36 @@ describe("Case voice candidate turn synchronization", () => {
 
     expect(routed.intent).toBe("readiness-confirmation");
     expect(routed.transitionTo).toBeNull();
+  });
+
+  it.each([
+    "Continue.",
+    "I’m ready to answer.",
+    "I will continue with my answer.",
+  ])("treats a clear resume command as conversational rather than stage navigation: %s", (answer) => {
+    const routed = routeCaseCandidateTurn(answer, {
+      readinessStatus: "confirmed",
+      conversationStatus: "paused",
+      stage: "clarification",
+    });
+
+    expect(routed.intent).toBe("readiness-confirmation");
+    expect(routed.transitionTo).toBeNull();
+  });
+
+  it.each([
+    "Move to the framework.",
+    "I want to continue to the framework.",
+    "Let’s continue to the framework.",
+  ])("keeps explicit Clarification-to-Framework navigation deterministic: %s", (answer) => {
+    const routed = routeCaseCandidateTurn(answer, {
+      readinessStatus: "confirmed",
+      conversationStatus: "active",
+      stage: "clarification",
+    });
+
+    expect(routed.intent).toBe("stage-transition-request");
+    expect(routed.transitionTo).toBe("framework");
   });
 
   it("distinguishes frustration from explicit end intent", () => {

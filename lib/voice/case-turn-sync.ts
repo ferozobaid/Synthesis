@@ -56,28 +56,46 @@ export function isCandidateRevision(relation: CandidateRevisionRelation): boolea
 }
 
 export type ReadinessDisposition = "ready" | "not-ready";
+export type ReadinessSignal = "affirmative" | "negative" | "mixed" | "unknown";
 
-export function isReadinessOnlyConfirmation(text: string): boolean {
-  const normalized = normalizeCandidateText(text);
-  if (!normalized) return false;
+const READINESS_NEGATIVE_CUE =
+  /\b(?:no|nope|not ready|not yet|need (?:a|one|another|some|a couple(?: of)?|couple(?: of)?|a few) (?:minutes?|moments?|seconds?)|give me (?:a|one|another|some|a couple(?: of)?|couple(?: of)?|a few) (?:minutes?|moments?|seconds?)|wait|hold on)\b/;
+const READINESS_AFFIRMATIVE_CUE =
+  /^(?:(?:uh+|um+|erm|well) )*(?:yes|yeah|yep|sure|absolutely|okay|ok)\b|\b(?:i(?:'m| am)|we(?:'re| are)) ready\b|^(?:let'?s|lets|let us|we can|we should) (?:begin|start)\b|^(?:go ahead|please (?:begin|start)|begin|start)\b/;
+const READINESS_FILLER_PREFIX = /^(?:(?:uh+|um+|erm|well)\s*)+$/;
+
+function affirmativeReadinessOnly(normalized: string): boolean {
+  const withoutFillers = normalized.replace(/^(?:(?:uh+|um+|erm|well) )+/, "");
   return [
-    /^(?:(?:yes|yeah|yep|sure|okay|ok|absolutely) )?(?:(?:i(?:'m| am)|we(?:'re| are)) )?ready(?: now| to (?:begin|start|continue))?(?: please)?$/,
+    /^(?:yes|yeah|yep|sure|okay|ok|absolutely)(?: (?:(?:i(?:'m| am)|we(?:'re| are)) )?ready(?: now| to (?:begin|start|continue))?)?(?: please)?$/,
+    /^(?:yes|yeah|yep|sure|okay|ok|absolutely) i (?:am|'m)$/,
+    /^(?:(?:i(?:'m| am)|we(?:'re| are)) )?ready(?: now| to (?:begin|start|continue))?(?: please)?$/,
     /^(?:let'?s|lets|let us|we can|we should) (?:begin|start|continue)(?: now)?(?: please)?$/,
     /^(?:go ahead|please (?:begin|start)|begin|start)(?: now)?$/,
-  ].some((pattern) => pattern.test(normalized));
+  ].some((pattern) => pattern.test(withoutFillers));
+}
+
+export function readinessSignal(text: string): ReadinessSignal {
+  const normalized = normalizeCandidateText(text);
+  if (!normalized) return "unknown";
+  const negative = READINESS_NEGATIVE_CUE.test(normalized);
+  const affirmative = READINESS_AFFIRMATIVE_CUE.test(normalized) || affirmativeReadinessOnly(normalized);
+  if (affirmative && negative) return "mixed";
+  if (negative) return "negative";
+  if (affirmativeReadinessOnly(normalized)) return "affirmative";
+  return "unknown";
+}
+
+export function isPotentialReadinessPrefix(text: string): boolean {
+  const normalized = normalizeCandidateText(text);
+  const signal = readinessSignal(text);
+  return signal === "affirmative" || READINESS_FILLER_PREFIX.test(normalized);
+}
+
+export function isReadinessOnlyConfirmation(text: string): boolean {
+  return readinessSignal(text) === "affirmative";
 }
 
 export function readinessDisposition(text: string): ReadinessDisposition {
-  const normalized = normalizeCandidateText(text);
-  if (
-    /\b(?:not ready|not yet|need (?:a|one) (?:minute|moment)|give me (?:a|one) (?:minute|moment)|wait|hold on)\b/.test(
-      normalized,
-    )
-  ) {
-    return "not-ready";
-  }
-  if (isReadinessOnlyConfirmation(text)) {
-    return "ready";
-  }
-  return "not-ready";
+  return readinessSignal(text) === "affirmative" ? "ready" : "not-ready";
 }

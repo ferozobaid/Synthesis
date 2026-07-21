@@ -184,6 +184,7 @@ beforeEach(() => {
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
   process.env.SYNTHESIS_USE_MOCKS = "true";
   process.env.CASE_VOICE_REVISION_WINDOW_MS = "5";
+  process.env.CASE_VOICE_TENTATIVE_REVISION_WINDOW_MS = "5";
   delete process.env.CASE_VOICE_CONTROLLER_MODE;
   delete process.env.VAPI_CASE_AUTH_DEBUG;
   delete process.env.VAPI_CASE_TURN_DEBUG;
@@ -233,6 +234,95 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(session.readinessConfirmedAt).toEqual(expect.any(String));
     expect(session.session.history).toEqual([]);
     expect(session.turnSeq).toBe(0);
+  });
+
+  it.each([
+    "Yes.",
+    "Yeah.",
+    "Yep.",
+    "Sure.",
+    "Uh, yes, I’m ready now.",
+  ])("begins the Case for a clear affirmative readiness response: %s", async (answer) => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await confirmReadiness(started.sessionId, "call-1", history, answer);
+    const session = stored(started.sessionId);
+
+    expect(reply).toContain(READINESS_CONFIRMED);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
+  it.each([
+    "No, not yet.",
+    "Yes, but give me another minute.",
+  ])("keeps negative or mixed readiness language outside the Case FSM: %s", async (answer) => {
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+
+    const reply = await confirmReadiness(started.sessionId, "call-1", history, answer);
+    const session = stored(started.sessionId);
+
+    expect(reply).toBe("No problem. Let me know when you’re ready.");
+    expect(reply.match(/No problem/g)).toHaveLength(1);
+    expect(session.readinessStatus).toBe("awaiting");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+  });
+
+  it("does not replay a previous not-ready response for a later affirmative with stale context and message id", async () => {
+    const started = await bootstrap();
+    const prior: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    const notReadyBody = modelBody(started.sessionId, "call-1", [
+      ...prior,
+      { id: "reused-readiness-id", role: "user", content: "Not yet." },
+    ]);
+    const readyBody = modelBody(started.sessionId, "call-1", [
+      ...prior,
+      { id: "reused-readiness-id", role: "user", content: "Yes." },
+    ]);
+
+    const notReady = await spokenText(await customLlmPOST(request(notReadyBody, authHeader) as never));
+    const ready = await spokenText(await customLlmPOST(request(readyBody, authHeader) as never));
+    const session = stored(started.sessionId);
+
+    expect(notReady).toBe("No problem. Let me know when you’re ready.");
+    expect(ready).toContain(READINESS_CONFIRMED);
+    expect(ready).not.toBe(notReady);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.turnSeq).toBe(0);
+    expect(session.projectedTurns).toEqual([]);
+  });
+
+  it("waits for a progressive filler-prefixed readiness confirmation before committing", async () => {
+    process.env.CASE_VOICE_TENTATIVE_REVISION_WINDOW_MS = "60";
+    const started = await bootstrap();
+    const prior: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    const prefix = customLlmPOST(request(modelBody(started.sessionId, "call-1", [
+      ...prior,
+      { id: "readiness-progressive-1", role: "user", content: "Uh" },
+    ]), authHeader) as never);
+    await pause(15);
+    const final = customLlmPOST(request(modelBody(started.sessionId, "call-1", [
+      ...prior,
+      { id: "readiness-progressive-1", role: "user", content: "Uh, yes, I’m ready now." },
+    ]), authHeader) as never);
+
+    const [superseded, ready] = await Promise.all([
+      prefix.then(spokenText),
+      final.then(spokenText),
+    ]);
+    const session = stored(started.sessionId);
+
+    expect(superseded).toBe("");
+    expect(ready).toContain(READINESS_CONFIRMED);
+    expect(session.readinessStatus).toBe("confirmed");
+    expect(session.turnSeq).toBe(0);
+    expect(session.projectedTurns).toEqual([]);
   });
 
   it("returns the cached readiness response when the confirmation request is repeated", async () => {
@@ -546,6 +636,114 @@ describe("Case custom-LLM deterministic turn loop", () => {
     expect(info.mock.calls.find(([label]) => label === "[case-custom-llm] controller")?.[1])
       .toMatchObject({ mode: "shadow", validationPassed: true, applied: false });
     info.mockRestore();
+  });
+
+  it("lets a late pause continuation supersede a tentative Framework transition prefix", async () => {
+    process.env.CASE_VOICE_CONTROLLER_MODE = "shadow";
+    process.env.CASE_VOICE_TENTATIVE_REVISION_WINDOW_MS = "80";
+    process.env.VAPI_CASE_LATENCY_DEBUG = "true";
+    controllerMock.mockResolvedValue({
+      outcome: "success",
+      durationMs: 3,
+      decision: {
+        intent: "pause",
+        targetStage: null,
+        shouldEvaluate: false,
+        substantiveRemainder: "",
+        confidence: 0.98,
+      },
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+    const prefix = "I’m ready to structure my approach.";
+    const complete = `${prefix} Give me another minute.`;
+
+    const prefixRequest = customLlmPOST(request(modelBody(started.sessionId, "call-1", [
+      ...history,
+      { id: "tentative-transition-1", role: "user", content: prefix },
+    ], "tentative-prefix"), authHeader) as never);
+    await pause(15);
+    const completeRequest = customLlmPOST(request(modelBody(started.sessionId, "call-1", [
+      ...history,
+      { id: "tentative-transition-1", role: "user", content: complete },
+    ], "tentative-complete"), authHeader) as never);
+
+    const [superseded, authoritative] = await Promise.all([
+      prefixRequest.then(spokenText),
+      completeRequest.then(spokenText),
+    ]);
+    const replay = await spokenText(await customLlmPOST(request(modelBody(
+      started.sessionId,
+      "call-1",
+      [
+        ...history,
+        { id: "tentative-transition-1", role: "user", content: complete },
+      ],
+      "tentative-complete-retry",
+    ), authHeader) as never));
+    const session = stored(started.sessionId);
+    const controllerLog = info.mock.calls.find(([label]) => label === "[case-custom-llm] controller")?.[1];
+    const latencyLogs = info.mock.calls
+      .filter(([label]) => label === "[case-custom-llm] latency")
+      .map(([, payload]) => payload as Record<string, unknown>);
+
+    expect(authoritative).toBe(
+      "I may have misunderstood. Would you like a moment, a repeat of the question, or to continue with your answer?",
+    );
+    expect(["", authoritative]).toContain(superseded);
+    expect(replay).toBe(authoritative);
+    expect(controllerMock).toHaveBeenCalledOnce();
+    expect(controllerLog).toMatchObject({
+      controllerIntent: "pause",
+      validationPassed: true,
+      applied: false,
+    });
+    expect(latencyLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        candidateIntent: "ambiguous",
+        controllerIntent: "pause",
+        controllerApplied: false,
+        evaluatorCalled: false,
+        responseKind: "safe_fallback_non_empty",
+        authoritativeResponseSource: "committed",
+      }),
+      expect.objectContaining({
+        responseKind: "replayed_non_empty",
+        authoritativeResponseSource: "logical_cache",
+        logicalResponseReplay: true,
+      }),
+    ]));
+    expect(latencyLogs.some((entry) => entry.tentativeTransitionDetected === true)).toBe(true);
+    expect(session.session.fsm_state).toBe("clarification");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(session.responseSeq).toBe(2);
+    info.mockRestore();
+  });
+
+  it("commits a genuine transition after the bounded tentative window", async () => {
+    process.env.CASE_VOICE_TENTATIVE_REVISION_WINDOW_MS = "25";
+    const started = await bootstrap();
+    const history: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    await confirmReadiness(started.sessionId, "call-1", history);
+
+    const reply = await sendTurn(
+      started.sessionId,
+      "call-1",
+      history,
+      "I’m ready to structure my approach.",
+    );
+    const session = stored(started.sessionId);
+
+    expect(reply).toContain("Absolutely. Let’s move into your framework.");
+    expect(session.session.fsm_state).toBe("framework");
+    expect(session.session.history).toEqual([]);
+    expect(session.projectedTurns).toEqual([]);
+    expect(session.turnSeq).toBe(0);
+    expect(controllerMock).not.toHaveBeenCalled();
   });
 
   it("replays the non-empty shadow fallback for a late mixed revision", async () => {
