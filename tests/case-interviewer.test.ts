@@ -1,18 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  APIError,
+} from "@anthropic-ai/sdk";
 import { mockCase } from "@/lib/__mocks__/fixtures";
 import type { CompleteOpts } from "@/lib/claude";
 import { initSession } from "@/lib/fsm/case-fsm";
 import {
   CASE_INTERVIEWER_ACTIONS,
+  CASE_INTERVIEWER_FAILURE_MESSAGES,
   CASE_INTERVIEWER_MAX_RETRIES,
   CASE_INTERVIEWER_MAX_TOKENS,
   CASE_INTERVIEWER_MODEL,
   CASE_INTERVIEWER_SCHEMA,
   CASE_INTERVIEWER_TIMEOUT_MS,
   buildCaseInterviewerPrompt,
+  caseInterviewerErrorDiagnostic,
+  caseInterviewerFailureMessage,
   parseCaseInterviewerDecision,
   runCaseInterviewer,
   type CaseInterviewerDecision,
+  type CaseInterviewerFailureReason,
+  type CaseInterviewerLoggedErrorName,
 } from "@/lib/voice/case-interviewer";
 import {
   applyCaseInterviewerDecision,
@@ -33,6 +43,20 @@ import type { CaseState } from "@/lib/types";
 import type { CaseVoiceSession } from "@/lib/voice/types";
 
 const beautify = mockCase("beautify")!;
+
+function anthropicApiError(
+  status: number,
+  type: string,
+  message: string,
+  code?: string,
+): APIError {
+  return APIError.generate(
+    status,
+    { type: "error", error: { type, message, ...(code ? { code } : {}) } },
+    undefined,
+    new Headers(),
+  );
+}
 
 function session(
   stage: CaseState = "clarification",
@@ -231,7 +255,7 @@ describe("bounded structured interviewer call", () => {
       complete,
     );
 
-    expect(result).toMatchObject({ outcome: "success", decision: output });
+    expect(result).toMatchObject({ outcome: "success", failureReason: null, decision: output });
     expect(complete).toHaveBeenCalledTimes(1);
     expect(complete.mock.calls[0][1]).toMatchObject({
       model: CASE_INTERVIEWER_MODEL,
@@ -276,9 +300,200 @@ describe("bounded structured interviewer call", () => {
       vi.fn(async () => JSON.stringify({ ...decision(), confidence: 2 })),
     );
     expect(timedOut.outcome).toBe("timeout");
+    expect(timedOut.failureReason).toBe("timeout");
     expect(refused.outcome).toBe("refusal");
     expect(invalid.outcome).toBe("invalid_json");
+    expect(invalid.failureReason).toBe("structured_output_error");
     expect(mismatch.outcome).toBe("schema_mismatch");
+    expect(mismatch.failureReason).toBe("structured_output_error");
+  });
+
+  it.each([
+    [400, "invalid_request_error", "invalid_request", "invalid_request"],
+    [401, "authentication_error", "invalid_api_key", "authentication_error"],
+    [402, "billing_error", "insufficient_credits", "billing_error"],
+    [403, "permission_error", "permission_denied", "permission_error"],
+    [404, "not_found_error", "model_not_found", "model_not_found"],
+    [429, "rate_limit_error", "rate_limit_exceeded", "rate_limit"],
+  ] as const)(
+    "classifies Anthropic HTTP %i failures without exposing the response body",
+    (status, type, code, expected) => {
+      const error = anthropicApiError(status, type, "PRIVATE PROVIDER MESSAGE", code);
+      const result = caseInterviewerErrorDiagnostic(error, {
+        environment: { apiKeyPresent: true, useMocks: false },
+      });
+
+      expect(result.reason).toBe(expected);
+      expect(result.diagnostic).toMatchObject({
+        errorName: "anthropic_api_error",
+        httpStatus: status,
+        anthropicErrorType: type,
+        anthropicErrorCode: code,
+        errorMessage: caseInterviewerFailureMessage(expected),
+        modelId: CASE_INTERVIEWER_MODEL,
+        apiKeyPresent: true,
+        useMocks: false,
+        structuredOutputEnabled: true,
+        interviewerVersion: CASE_VOICE_LLM_VERSION,
+        failureReason: expected,
+      });
+      expect(JSON.stringify(result.diagnostic)).not.toContain("PRIVATE PROVIDER MESSAGE");
+    },
+  );
+
+  it.each([
+    [
+      "structured_output_error",
+      anthropicApiError(400, "invalid_request_error", "output_config.format.schema is invalid"),
+      { apiKeyPresent: true, useMocks: false },
+      "anthropic_api_error",
+    ],
+    [
+      "timeout",
+      new APIConnectionTimeoutError({ message: "PRIVATE TIMEOUT DETAIL" }),
+      { apiKeyPresent: true, useMocks: false },
+      "timeout_error",
+    ],
+    [
+      "network_error",
+      new APIConnectionError({ message: "PRIVATE NETWORK DETAIL" }),
+      { apiKeyPresent: true, useMocks: false },
+      "network_error",
+    ],
+    [
+      "missing_api_key",
+      new Error("PRIVATE CREDENTIAL DETAIL"),
+      { apiKeyPresent: false, useMocks: false },
+      "unknown_error",
+    ],
+    [
+      "mock_mode",
+      new Error("PRIVATE MOCK DETAIL"),
+      { apiKeyPresent: true, useMocks: true },
+      "unknown_error",
+    ],
+    [
+      "provider_error",
+      anthropicApiError(500, "api_error", "PRIVATE PROVIDER DETAIL"),
+      { apiKeyPresent: true, useMocks: false },
+      "anthropic_api_error",
+    ],
+    [
+      "unknown_model_error",
+      new Error("PRIVATE UNKNOWN DETAIL"),
+      { apiKeyPresent: true, useMocks: false },
+      "unknown_error",
+    ],
+  ] as const)(
+    "uses only the fixed backend message for %s",
+    (expectedReason, error, environment, expectedName) => {
+      const result = caseInterviewerErrorDiagnostic(error, { environment });
+      expect(result).toMatchObject({
+        reason: expectedReason,
+        diagnostic: {
+          errorName: expectedName,
+          errorMessage: CASE_INTERVIEWER_FAILURE_MESSAGES[expectedReason],
+          interviewerVersion: CASE_VOICE_LLM_VERSION,
+          failureReason: expectedReason,
+        },
+      });
+      expect(result.diagnostic.errorMessage).toBe(caseInterviewerFailureMessage(expectedReason));
+      expect(result.diagnostic.errorMessage).not.toContain("PRIVATE");
+    },
+  );
+
+  it("defines one fixed backend-authored message for every failure reason", () => {
+    const expected: Record<CaseInterviewerFailureReason, string> = {
+      missing_api_key: "Anthropic API key is not configured.",
+      mock_mode: "Anthropic live interviewer is configured for mock mode.",
+      authentication_error: "Anthropic authentication failed.",
+      billing_error: "Anthropic billing or credit validation failed.",
+      permission_error: "Anthropic request was not permitted.",
+      model_not_found: "Configured Anthropic model was unavailable.",
+      rate_limit: "Anthropic rate limit was reached.",
+      invalid_request: "Anthropic rejected the request.",
+      structured_output_error: "Anthropic structured output was rejected.",
+      timeout: "Anthropic request timed out.",
+      network_error: "Anthropic network request failed.",
+      provider_error: "Anthropic provider request failed.",
+      unknown_model_error: "Anthropic request failed for an unknown reason.",
+    };
+    expect(CASE_INTERVIEWER_FAILURE_MESSAGES).toEqual(expected);
+    for (const [reason, message] of Object.entries(expected)) {
+      expect(caseInterviewerFailureMessage(reason as CaseInterviewerFailureReason)).toBe(message);
+    }
+  });
+
+  it("logs only backend-derived values when every provider string is hostile", async () => {
+    const previousDebug = process.env.VAPI_CASE_INTERVIEWER_ERROR_DEBUG;
+    const transcript = "COMPLETE CANDIDATE TRANSCRIPT with PARTIAL CANDIDATE FRAGMENT";
+    const forbidden = [
+      transcript,
+      "PARTIAL CANDIDATE FRAGMENT",
+      "sk-ant-private-diagnostic-key",
+      "Bearer private-bearer-token",
+      "/private/runtime/secrets/config.json",
+      '{"candidateUtterance":{"text":"PRIVATE JSON"}}',
+      "livePacket",
+      "TARGET SOLUTION PROFIT ANSWER",
+      "exhibit_investment",
+      "HostileProviderErrorName",
+      "hostile_provider_type",
+      "hostile_provider_code",
+    ];
+    process.env.VAPI_CASE_INTERVIEWER_ERROR_DEBUG = "true";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const error = anthropicApiError(
+        500,
+        "hostile_provider_type",
+        forbidden.join(" | "),
+        "hostile_provider_code",
+      );
+      error.name = "HostileProviderErrorName";
+      const result = await runCaseInterviewer(
+        {
+          packet: packet(session()),
+          candidateText: transcript,
+        },
+        vi.fn(async () => { throw error; }),
+      );
+      expect(result).toMatchObject({ outcome: "error", failureReason: "provider_error" });
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      const diagnostic = consoleError.mock.calls[0][1] as Record<string, unknown>;
+      expect(Object.keys(diagnostic).sort()).toEqual([
+        "anthropicErrorCode",
+        "anthropicErrorType",
+        "apiKeyPresent",
+        "errorMessage",
+        "errorName",
+        "failureReason",
+        "httpStatus",
+        "interviewerVersion",
+        "modelId",
+        "structuredOutputEnabled",
+        "useMocks",
+      ]);
+      expect(diagnostic).toMatchObject({
+        errorName: "anthropic_api_error" satisfies CaseInterviewerLoggedErrorName,
+        httpStatus: 500,
+        anthropicErrorType: "unknown",
+        anthropicErrorCode: "unknown",
+        errorMessage: "Anthropic provider request failed.",
+        modelId: CASE_INTERVIEWER_MODEL,
+        apiKeyPresent: expect.any(Boolean),
+        useMocks: expect.any(Boolean),
+        structuredOutputEnabled: true,
+        interviewerVersion: CASE_VOICE_LLM_VERSION,
+        failureReason: "provider_error",
+      });
+      const serialized = JSON.stringify(consoleError.mock.calls[0]);
+      for (const value of forbidden) expect(serialized).not.toContain(value);
+    } finally {
+      consoleError.mockRestore();
+      if (previousDebug === undefined) delete process.env.VAPI_CASE_INTERVIEWER_ERROR_DEBUG;
+      else process.env.VAPI_CASE_INTERVIEWER_ERROR_DEBUG = previousDebug;
+    }
   });
 });
 

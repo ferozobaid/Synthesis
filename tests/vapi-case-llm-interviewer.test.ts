@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APIError } from "@anthropic-ai/sdk";
 
 const {
   redisStore,
@@ -107,6 +108,15 @@ import type { CaseVoiceSession } from "@/lib/voice/types";
 
 const SECRET = "llm-route-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
+
+function anthropicApiError(status: number, type: string, message: string): APIError {
+  return APIError.generate(
+    status,
+    { type: "error", error: { type, message } },
+    undefined,
+    new Headers(),
+  );
+}
 
 interface ChatMessage {
   id?: string;
@@ -669,6 +679,54 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
       expect(serializedPacket).not.toContain(mockCase("beautify")!.exhibits[1].insights![0]);
     }
     expectNoLegacyLiveCalls();
+  });
+
+  it("commits and replays one non-empty fallback with the classified provider reason", async () => {
+    const previousDebug = process.env.VAPI_CASE_LATENCY_DEBUG;
+    process.env.VAPI_CASE_LATENCY_DEBUG = "true";
+    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const started = await bootstrap();
+      setStage(started.sessionId, "framework");
+      completeMock.mockRejectedValueOnce(anthropicApiError(
+        401,
+        "authentication_error",
+        "Invalid API credentials",
+      ));
+      const modelRequest = body(started.sessionId, "call-provider-fallback", [
+        { role: "assistant", content: "Please structure the problem." },
+        { role: "user", content: "I would assess the market and our ability to execute." },
+      ]);
+
+      const first = await spokenText(await chatPOST(request(modelRequest, authHeader) as never));
+      const committed = structuredClone(stored(started.sessionId));
+      const replay = await spokenText(await chatPOST(request(modelRequest, authHeader) as never));
+
+      expect(first.trim()).not.toBe("");
+      expect(replay).toBe(first);
+      expect(completeMock).toHaveBeenCalledTimes(1);
+      expect(stored(started.sessionId)).toEqual(committed);
+      expect(committed.projectedTurns).toHaveLength(1);
+      expect(committed.projectedTurns?.[0]).toMatchObject({ action: "fallback", scorable: false });
+      const committedLog = consoleInfo.mock.calls.find((call) => {
+        const details = call[1] as Record<string, unknown> | undefined;
+        return call[0] === "[case-custom-llm] latency" && details?.interviewerCalls === 1;
+      });
+      expect(committedLog?.[1]).toMatchObject({
+        interviewerOutcome: "error",
+        interviewerFallbackReason: "authentication_error",
+        interviewerCalls: 1,
+        controllerMs: 0,
+        evaluatorMs: 0,
+        respondToCaseMs: 0,
+        scoringMs: 0,
+      });
+      expectNoLegacyLiveCalls();
+    } finally {
+      consoleInfo.mockRestore();
+      if (previousDebug === undefined) delete process.env.VAPI_CASE_LATENCY_DEBUG;
+      else process.env.VAPI_CASE_LATENCY_DEBUG = previousDebug;
+    }
   });
 
   it("concludes only a legal Recommendation, remains unscored, exposes status, and makes no later model call", async () => {

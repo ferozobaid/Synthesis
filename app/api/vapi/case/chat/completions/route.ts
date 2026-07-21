@@ -1002,6 +1002,7 @@ async function evaluateLlmCandidate(
     packet,
     candidateText: candidate.answer,
     outcome: interviewer.outcome,
+    failureReason: interviewer.failureReason,
     decision: interviewer.decision,
   });
   timings.intent = interviewer.decision?.candidateAction ?? "model_failure";

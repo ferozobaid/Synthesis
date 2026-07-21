@@ -8,6 +8,7 @@ import {
 import type {
   CaseInterviewerCandidateAction,
   CaseInterviewerDecision,
+  CaseInterviewerFailureReason,
   CaseInterviewerOutcome,
 } from "@/lib/voice/case-interviewer";
 import {
@@ -377,13 +378,18 @@ export function applyCaseInterviewerDecision(input: {
   packet: BeautifyLiveInterviewerPacket;
   candidateText: string;
   outcome: CaseInterviewerOutcome;
+  failureReason?: CaseInterviewerFailureReason | null;
   decision: CaseInterviewerDecision | null;
 }): CaseInterviewerApplication {
   const { current, caseRecord, packet, candidateText } = input;
   const stage = current.session.fsm_state;
   const decision = input.decision;
   if (input.outcome !== "success" || !decision) {
-    return fallbackApplication(current, "off_topic", `model_${input.outcome}`);
+    return fallbackApplication(
+      current,
+      "off_topic",
+      input.failureReason ?? `model_${input.outcome}`,
+    );
   }
 
   if ((current.readinessStatus ?? "confirmed") === "awaiting") {

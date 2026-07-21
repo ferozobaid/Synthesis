@@ -1,5 +1,18 @@
+import {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  APIError,
+  AuthenticationError,
+  BadRequestError,
+  NotFoundError,
+  PermissionDeniedError,
+  RateLimitError,
+  UnprocessableEntityError,
+} from "@anthropic-ai/sdk";
 import { complete } from "@/lib/claude";
+import { hasAnthropic, useMocks as configuredUseMocks } from "@/lib/config";
 import { CASE_STATES, type CaseState } from "@/lib/types";
+import { CASE_VOICE_LLM_VERSION } from "@/lib/voice/case-interviewer-mode";
 import type { BeautifyLiveInterviewerPacket } from "@/lib/voice/case-live-packet";
 
 export const CASE_INTERVIEWER_MODEL = "claude-haiku-4-5-20251001";
@@ -162,17 +175,271 @@ export type CaseInterviewerOutcome =
   | "schema_mismatch"
   | "error";
 
+export type CaseInterviewerFailureReason =
+  | "missing_api_key"
+  | "mock_mode"
+  | "authentication_error"
+  | "billing_error"
+  | "permission_error"
+  | "model_not_found"
+  | "rate_limit"
+  | "invalid_request"
+  | "structured_output_error"
+  | "timeout"
+  | "network_error"
+  | "provider_error"
+  | "unknown_model_error";
+
+export type CaseInterviewerLoggedErrorName =
+  | "anthropic_api_error"
+  | "timeout_error"
+  | "network_error"
+  | "unknown_error";
+
+export const CASE_INTERVIEWER_ANTHROPIC_ERROR_TYPES = [
+  "invalid_request_error",
+  "authentication_error",
+  "billing_error",
+  "permission_error",
+  "not_found_error",
+  "rate_limit_error",
+  "api_error",
+  "overloaded_error",
+] as const;
+
+export type CaseInterviewerLoggedAnthropicErrorType =
+  | (typeof CASE_INTERVIEWER_ANTHROPIC_ERROR_TYPES)[number]
+  | "unknown";
+
+export const CASE_INTERVIEWER_ANTHROPIC_ERROR_CODES = [
+  "invalid_api_key",
+  "insufficient_credits",
+  "permission_denied",
+  "model_not_found",
+  "rate_limit_exceeded",
+  "invalid_request",
+] as const;
+
+export type CaseInterviewerLoggedAnthropicErrorCode =
+  | (typeof CASE_INTERVIEWER_ANTHROPIC_ERROR_CODES)[number]
+  | "unknown";
+
+export const CASE_INTERVIEWER_FAILURE_MESSAGES = {
+  missing_api_key: "Anthropic API key is not configured.",
+  mock_mode: "Anthropic live interviewer is configured for mock mode.",
+  authentication_error: "Anthropic authentication failed.",
+  billing_error: "Anthropic billing or credit validation failed.",
+  permission_error: "Anthropic request was not permitted.",
+  model_not_found: "Configured Anthropic model was unavailable.",
+  rate_limit: "Anthropic rate limit was reached.",
+  invalid_request: "Anthropic rejected the request.",
+  structured_output_error: "Anthropic structured output was rejected.",
+  timeout: "Anthropic request timed out.",
+  network_error: "Anthropic network request failed.",
+  provider_error: "Anthropic provider request failed.",
+  unknown_model_error: "Anthropic request failed for an unknown reason.",
+} as const satisfies Readonly<Record<CaseInterviewerFailureReason, string>>;
+
+export type CaseInterviewerLoggedErrorMessage =
+  (typeof CASE_INTERVIEWER_FAILURE_MESSAGES)[CaseInterviewerFailureReason];
+
+export interface CaseInterviewerErrorDiagnostic {
+  errorName: CaseInterviewerLoggedErrorName;
+  httpStatus: number | null;
+  anthropicErrorType: CaseInterviewerLoggedAnthropicErrorType;
+  anthropicErrorCode: CaseInterviewerLoggedAnthropicErrorCode;
+  errorMessage: CaseInterviewerLoggedErrorMessage;
+  modelId: typeof CASE_INTERVIEWER_MODEL;
+  apiKeyPresent: boolean;
+  useMocks: boolean;
+  structuredOutputEnabled: true;
+  interviewerVersion: typeof CASE_VOICE_LLM_VERSION;
+  failureReason: CaseInterviewerFailureReason;
+}
+
 export interface CaseInterviewerResult {
   outcome: CaseInterviewerOutcome;
+  failureReason: CaseInterviewerFailureReason | null;
   decision: CaseInterviewerDecision | null;
   durationMs: number;
 }
 
 type CompleteInterviewer = typeof complete;
 
-function timeoutError(error: unknown): boolean {
-  const candidate = error as { name?: unknown; message?: unknown } | null;
-  return /timeout/i.test(String(candidate?.name ?? "")) || /timed? out|timeout/i.test(String(candidate?.message ?? ""));
+interface ErrorEnvironment {
+  apiKeyPresent: boolean;
+  useMocks: boolean;
+}
+
+interface ProviderErrorFields {
+  name: string;
+  status: number | null;
+  type: string | null;
+  code: string | null;
+  message: string;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function statusField(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : null;
+}
+
+function providerErrorFields(error: unknown): ProviderErrorFields {
+  const root = objectRecord(error);
+  const apiBody = error instanceof APIError ? objectRecord(error.error) : null;
+  const nested = objectRecord(apiBody?.error) ?? objectRecord(root?.error);
+  const constructorName = error && typeof error === "object"
+    ? stringField((error as { constructor?: { name?: unknown } }).constructor?.name)
+    : null;
+  const ordinaryName = error instanceof Error ? stringField(error.name) : stringField(root?.name);
+  const name = constructorName && constructorName !== "Error"
+    ? constructorName
+    : ordinaryName ?? constructorName ?? typeof error;
+  const status = error instanceof APIError
+    ? statusField(error.status)
+    : statusField(root?.status);
+  const type = error instanceof APIError
+    ? stringField(error.type) ?? stringField(nested?.type) ?? stringField(apiBody?.type)
+    : stringField(nested?.type) ?? stringField(root?.type);
+  const code = stringField(nested?.code) ?? stringField(apiBody?.code) ?? stringField(root?.code);
+  const message = stringField(nested?.message) ??
+    (error instanceof Error ? error.message : stringField(root?.message)) ??
+    "Anthropic request failed.";
+  return { name, status, type, code, message };
+}
+
+function timeoutError(fields: ProviderErrorFields, error: unknown): boolean {
+  return error instanceof APIConnectionTimeoutError ||
+    fields.type === "timeout_error" ||
+    /timeout|timed? out/i.test(fields.name) ||
+    /timed? out|timeout/i.test(fields.message);
+}
+
+function structuredOutputError(fields: ProviderErrorFields): boolean {
+  return /\b(?:output_config|json[_ -]?schema|structured output|schema)\b/i.test(
+    `${fields.code ?? ""} ${fields.message}`,
+  );
+}
+
+export function classifyCaseInterviewerError(
+  error: unknown,
+  environment: ErrorEnvironment = {
+    apiKeyPresent: hasAnthropic(),
+    useMocks: configuredUseMocks(),
+  },
+): CaseInterviewerFailureReason {
+  const fields = providerErrorFields(error);
+  if (timeoutError(fields, error)) return "timeout";
+  if (fields.type === "billing_error" || fields.status === 402) return "billing_error";
+  if (
+    error instanceof AuthenticationError ||
+    fields.type === "authentication_error" ||
+    fields.status === 401
+  ) return "authentication_error";
+  if (
+    error instanceof PermissionDeniedError ||
+    fields.type === "permission_error" ||
+    fields.status === 403
+  ) return "permission_error";
+  if (
+    error instanceof NotFoundError ||
+    fields.type === "not_found_error" ||
+    fields.status === 404
+  ) return "model_not_found";
+  if (
+    error instanceof RateLimitError ||
+    fields.type === "rate_limit_error" ||
+    fields.status === 429
+  ) return "rate_limit";
+  if (
+    error instanceof BadRequestError ||
+    error instanceof UnprocessableEntityError ||
+    fields.type === "invalid_request_error" ||
+    fields.status === 400 ||
+    fields.status === 422
+  ) return structuredOutputError(fields) ? "structured_output_error" : "invalid_request";
+  if (
+    error instanceof APIConnectionError ||
+    /^(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT)$/i.test(fields.code ?? "") ||
+    /\b(?:network error|fetch failed|connection (?:failed|refused|reset))\b/i.test(fields.message)
+  ) return "network_error";
+  if (
+    error instanceof APIError ||
+    fields.type === "api_error" ||
+    fields.type === "overloaded_error" ||
+    (fields.status !== null && fields.status >= 500)
+  ) return "provider_error";
+  if (environment.useMocks) return "mock_mode";
+  if (!environment.apiKeyPresent) return "missing_api_key";
+  return "unknown_model_error";
+}
+
+function loggedErrorName(reason: CaseInterviewerFailureReason): CaseInterviewerLoggedErrorName {
+  if (reason === "timeout") return "timeout_error";
+  if (reason === "network_error") return "network_error";
+  if (reason === "missing_api_key" || reason === "mock_mode" || reason === "unknown_model_error") {
+    return "unknown_error";
+  }
+  return "anthropic_api_error";
+}
+
+function loggedAnthropicErrorType(type: string | null): CaseInterviewerLoggedAnthropicErrorType {
+  return (CASE_INTERVIEWER_ANTHROPIC_ERROR_TYPES as readonly string[]).includes(type ?? "")
+    ? type as (typeof CASE_INTERVIEWER_ANTHROPIC_ERROR_TYPES)[number]
+    : "unknown";
+}
+
+function loggedAnthropicErrorCode(code: string | null): CaseInterviewerLoggedAnthropicErrorCode {
+  return (CASE_INTERVIEWER_ANTHROPIC_ERROR_CODES as readonly string[]).includes(code ?? "")
+    ? code as (typeof CASE_INTERVIEWER_ANTHROPIC_ERROR_CODES)[number]
+    : "unknown";
+}
+
+export function caseInterviewerFailureMessage(
+  reason: CaseInterviewerFailureReason,
+): CaseInterviewerLoggedErrorMessage {
+  return CASE_INTERVIEWER_FAILURE_MESSAGES[reason];
+}
+
+export function caseInterviewerErrorDiagnostic(
+  error: unknown,
+  input: {
+    environment?: ErrorEnvironment;
+  } = {},
+): { reason: CaseInterviewerFailureReason; diagnostic: CaseInterviewerErrorDiagnostic } {
+  const fields = providerErrorFields(error);
+  const environment = input.environment ?? {
+    apiKeyPresent: hasAnthropic(),
+    useMocks: configuredUseMocks(),
+  };
+  const reason = classifyCaseInterviewerError(error, environment);
+  return {
+    reason,
+    diagnostic: {
+      errorName: loggedErrorName(reason),
+      httpStatus: fields.status,
+      anthropicErrorType: loggedAnthropicErrorType(fields.type),
+      anthropicErrorCode: loggedAnthropicErrorCode(fields.code),
+      errorMessage: caseInterviewerFailureMessage(reason),
+      modelId: CASE_INTERVIEWER_MODEL,
+      apiKeyPresent: environment.apiKeyPresent,
+      useMocks: environment.useMocks,
+      structuredOutputEnabled: true,
+      interviewerVersion: CASE_VOICE_LLM_VERSION,
+      failureReason: reason,
+    },
+  };
 }
 
 function refusalText(text: string): boolean {
@@ -180,7 +447,10 @@ function refusalText(text: string): boolean {
 }
 
 export async function runCaseInterviewer(
-  input: { packet: BeautifyLiveInterviewerPacket; candidateText: string },
+  input: {
+    packet: BeautifyLiveInterviewerPacket;
+    candidateText: string;
+  },
   completeInterviewer: CompleteInterviewer = complete,
 ): Promise<CaseInterviewerResult> {
   const startedAt = Date.now();
@@ -195,21 +465,36 @@ export async function runCaseInterviewer(
       outputSchema: CASE_INTERVIEWER_SCHEMA,
     });
     if (refusalText(text)) {
-      return { outcome: "refusal", decision: null, durationMs: Date.now() - startedAt };
+      return { outcome: "refusal", failureReason: null, decision: null, durationMs: Date.now() - startedAt };
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
-      return { outcome: "invalid_json", decision: null, durationMs: Date.now() - startedAt };
+      return {
+        outcome: "invalid_json",
+        failureReason: "structured_output_error",
+        decision: null,
+        durationMs: Date.now() - startedAt,
+      };
     }
     const decision = parseCaseInterviewerDecision(parsed);
     return decision
-      ? { outcome: "success", decision, durationMs: Date.now() - startedAt }
-      : { outcome: "schema_mismatch", decision: null, durationMs: Date.now() - startedAt };
+      ? { outcome: "success", failureReason: null, decision, durationMs: Date.now() - startedAt }
+      : {
+          outcome: "schema_mismatch",
+          failureReason: "structured_output_error",
+          decision: null,
+          durationMs: Date.now() - startedAt,
+        };
   } catch (error) {
+    const failure = caseInterviewerErrorDiagnostic(error);
+    if (process.env.NODE_ENV !== "test" || process.env.VAPI_CASE_INTERVIEWER_ERROR_DEBUG === "true") {
+      console.error("[case-interviewer] Anthropic request failed", failure.diagnostic);
+    }
     return {
-      outcome: timeoutError(error) ? "timeout" : "error",
+      outcome: failure.reason === "timeout" ? "timeout" : "error",
+      failureReason: failure.reason,
       decision: null,
       durationMs: Date.now() - startedAt,
     };
