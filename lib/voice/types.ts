@@ -17,6 +17,10 @@ import type {
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
 import type { FrameworkProbeObjective } from "@/lib/fsm/case-framework";
+import type {
+  CaseInterviewerCandidateAction,
+} from "@/lib/voice/case-interviewer";
+import type { CaseVoiceInterviewerMode } from "@/lib/voice/case-interviewer-mode";
 
 /** Lifecycle of the post-call scoring report for a behavioural voice session. */
 export type ReportStatus = "pending" | "processing" | "done" | "failed";
@@ -77,12 +81,16 @@ export interface CaseVoiceProjectedTurn {
   candidateText: string;
   interviewerText: string;
   stage: CaseState;
-  action: CaseAction;
+  stageBefore?: CaseState;
+  stageAfter?: CaseState;
+  candidateAction?: CaseInterviewerCandidateAction;
+  action: CaseAction | "conversation" | "fallback";
+  scorable?: boolean;
   exhibit: CaseExhibit | null;
   timestamp: string;
 }
 
-export type CaseVoiceModelAction = CaseAction | "readiness" | "conversation" | "suppressed";
+export type CaseVoiceModelAction = CaseAction | "readiness" | "conversation" | "fallback" | "suppressed";
 
 /** Cached backend result for one OpenAI-compatible custom-LLM request. */
 export interface CaseVoiceModelResponse {
@@ -110,6 +118,8 @@ export interface CaseVoicePendingCandidate {
   messageCount: number;
   receivedAt: number;
   updatedAt: number;
+  /** LLM revisions alias superseded requests to the final non-empty response. */
+  supersededRequestKeys?: string[];
 }
 
 export interface CaseVoiceProcessedLogicalTurn {
@@ -127,6 +137,12 @@ export interface CaseVoiceSession {
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Architecture is frozen at bootstrap; absent means legacy. */
+  interviewerMode?: CaseVoiceInterviewerMode;
+  interviewerVersion?: string;
+  /** Checkpoint A terminal state: concluded but intentionally unscored. */
+  liveStatus?: "active" | "concluded_unscored";
+  concludedAt?: string | null;
   /** Spoken pre-case opening; authored prompt is appended only after readiness. */
   openingText?: string;
   /** Readiness is outside the scored FSM and never creates a projected Case turn. */
@@ -152,6 +168,9 @@ export interface CaseVoiceSession {
   pendingCandidate?: CaseVoicePendingCandidate | null;
   /** Last bounded Framework objective, used to prevent equivalent repeated probes. */
   lastProbeObjective?: FrameworkProbeObjective | null;
+  /** LLM-only probe controls. */
+  probedAnswerHashes?: Partial<Record<CaseState, string[]>>;
+  stageProbeCounts?: Partial<Record<CaseState, number>>;
   /** Permanent browser transcript source, ordered by turnSeq. */
   projectedTurns?: CaseVoiceProjectedTurn[];
   /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */

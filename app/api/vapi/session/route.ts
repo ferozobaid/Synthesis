@@ -13,6 +13,7 @@ import { saveSession } from "@/lib/voice/session-store";
 import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
 import { CASE_READINESS_PROMPT } from "@/lib/voice/case-conversation";
+import { newCaseVoiceInterviewerSnapshot } from "@/lib/voice/case-interviewer-mode";
 
 // POST /api/vapi/session — bootstrap a voice session (called when a call starts).
 //   { module: "behavioural", jdText, candidateName?, targetRole?, companyName? }
@@ -151,10 +152,15 @@ export async function POST(req: NextRequest) {
     const sessionId = newSessionId();
     const projectionToken = randomBytes(32).toString("hex");
     const projectionTokenHash = createHash("sha256").update(projectionToken).digest("hex");
+    const interviewer = newCaseVoiceInterviewerSnapshot();
     const record: CaseVoiceSession = {
       module: "case",
       session: voiceSession,
       caseId,
+      interviewerMode: interviewer.mode,
+      interviewerVersion: interviewer.version,
+      liveStatus: "active",
+      concludedAt: null,
       openingText,
       readinessStatus: "awaiting",
       readinessConfirmedAt: null,
@@ -167,6 +173,8 @@ export async function POST(req: NextRequest) {
       processedModelRequests: {},
       processedLogicalTurns: {},
       pendingCandidate: null,
+      probedAnswerHashes: {},
+      stageProbeCounts: {},
       projectedTurns: [],
       projectionTokenHash,
       invalidRetries: 0,

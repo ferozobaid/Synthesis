@@ -67,7 +67,11 @@ export interface CaseVoiceProjectedTurn {
   candidateText: string;
   interviewerText: string;
   stage: CaseState;
+  stageBefore?: CaseState;
+  stageAfter?: CaseState;
+  candidateAction?: string;
   action: string;
+  scorable?: boolean;
   exhibit: CaseExhibit | null;
   timestamp: string;
 }
@@ -79,6 +83,8 @@ export interface CaseVoiceProjection {
   readinessStatus: "awaiting" | "confirmed";
   readinessConfirmedAt: string | null;
   conversationStatus: "active" | "paused";
+  liveStatus: "active" | "concluded_unscored";
+  concludedAt: string | null;
   stage: CaseState;
   stageIndex: number;
   complete: boolean;
@@ -229,6 +235,7 @@ export function shouldApplyCaseProjection(
   if (next.responseSeq !== current.responseSeq) return next.responseSeq > current.responseSeq;
   if (next.openingText !== current.openingText) return true;
   if (next.readinessStatus !== current.readinessStatus) return true;
+  if (next.liveStatus !== current.liveStatus) return true;
   if (!current.complete && next.complete) return true;
   if (!current.score && next.score) return true;
   if (next.turns.length > current.turns.length) return true;
@@ -360,6 +367,8 @@ function parseProjection(value: unknown): CaseVoiceProjection {
         ? projection.readinessConfirmedAt
         : null,
     conversationStatus: projection.conversationStatus === "paused" ? "paused" : "active",
+    liveStatus: projection.liveStatus === "concluded_unscored" ? "concluded_unscored" : "active",
+    concludedAt: typeof projection.concludedAt === "string" ? projection.concludedAt : null,
     stageIndex: CASE_STATES.indexOf(projection.stage),
     responseSeq:
       typeof projection.responseSeq === "number"
@@ -796,6 +805,7 @@ export default function CaseVoiceInterview({
   useEffect(() => {
     const running =
       projection?.readinessStatus === "confirmed" &&
+      projection.liveStatus !== "concluded_unscored" &&
       callActive &&
       !projection.complete &&
       timerEndedAt === null;
@@ -803,7 +813,13 @@ export default function CaseVoiceInterview({
     setTimerNow(Date.now());
     const timer = setInterval(() => setTimerNow(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [callActive, projection?.complete, projection?.readinessStatus, timerEndedAt]);
+  }, [
+    callActive,
+    projection?.complete,
+    projection?.liveStatus,
+    projection?.readinessStatus,
+    timerEndedAt,
+  ]);
 
   const transcript = useMemo(() => {
     const openingText = projection?.openingText ?? capability?.openingPrompt ?? "";
@@ -861,7 +877,9 @@ export default function CaseVoiceInterview({
             BEAUTIFY LIVE VOICE
           </div>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
-            {statusLabel(status)}
+            {projection?.liveStatus === "concluded_unscored"
+              ? "Interview concluded · unscored"
+              : statusLabel(status)}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>

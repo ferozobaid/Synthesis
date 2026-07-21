@@ -85,4 +85,41 @@ describe("Case Voice controller cache identity", () => {
     expect(buildCaseVoiceRequestCacheKey("session-1", "call-1", partial, { mode: "hybrid" }))
       .not.toBe(buildCaseVoiceRequestCacheKey("session-1", "call-1", revision, { mode: "hybrid" }));
   });
+
+  it("isolates legacy and LLM architectures and each LLM orchestration version", () => {
+    const legacyRequest = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "hybrid", version: "legacy-v1" },
+    );
+    const llmV1Request = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1" },
+    );
+    const llmV2Request = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v2" },
+    );
+    const legacyLogical = buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { mode: "hybrid", version: "legacy-v1" },
+    );
+    const llmLogical = buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1" },
+    );
+
+    expect(llmV1Request).not.toBe(legacyRequest);
+    expect(llmV2Request).not.toBe(llmV1Request);
+    expect(llmLogical).not.toBe(legacyLogical);
+  });
 });

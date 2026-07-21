@@ -75,6 +75,8 @@ beforeEach(() => {
   process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN = "test-token";
   process.env.VAPI_WEBHOOK_SECRET = SECRET;
   process.env.SYNTHESIS_USE_MOCKS = "true";
+  delete process.env.CASE_VOICE_INTERVIEWER_MODE;
+  delete process.env.VERCEL_ENV;
   delete process.env.VAPI_AUTH_DEBUG;
 });
 
@@ -89,6 +91,8 @@ describe("POST /api/vapi/session (Case bootstrap)", () => {
     );
     expect(record.module).toBe("case");
     expect(record.caseId).toBe("beautify");
+    expect(record.interviewerMode).toBe("legacy");
+    expect(record.interviewerVersion).toEqual(expect.any(String));
     expect(record.callId).toBeNull();
     expect(record.turnSeq).toBe(0);
     expect(record.readinessStatus).toBe("awaiting");

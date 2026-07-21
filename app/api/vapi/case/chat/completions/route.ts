@@ -30,6 +30,16 @@ import {
   buildCaseVoiceLogicalTurnKey,
   buildCaseVoiceRequestCacheKey,
 } from "@/lib/voice/case-turn-cache";
+import { runCaseInterviewer } from "@/lib/voice/case-interviewer";
+import {
+  applyCaseInterviewerDecision,
+  CASE_CONCLUDED_UNSCORED_RESPONSE,
+} from "@/lib/voice/case-interviewer-guard";
+import {
+  buildBeautifyLivePacket,
+  caseLiveStageGuidance,
+} from "@/lib/voice/case-live-packet";
+import { storedCaseVoiceInterviewerSnapshot } from "@/lib/voice/case-interviewer-mode";
 import {
   CASE_TURN_AMBIGUITY_RESPONSE,
   authorizedCaseClarificationTopics,
@@ -117,6 +127,7 @@ interface CandidateRequest {
   answer: string;
   messageId: string | null;
   requestId: string | null;
+  candidateIndex: number;
   cacheKey: string;
   logicalTurnKey: string;
 }
@@ -287,8 +298,36 @@ function parseCandidateRequest(
       body.id,
       req.headers.get("x-vercel-id"),
     ),
+    candidateIndex: latestCandidate!.index,
     cacheKey: buildCaseVoiceRequestCacheKey(sessionId, callId, messages),
     logicalTurnKey: buildCaseVoiceLogicalTurnKey(callId, messages, latestCandidate!.index),
+  };
+}
+
+function candidateWithSessionCacheIdentity(
+  candidate: CandidateRequest,
+  current: CaseVoiceSession,
+): CandidateRequest {
+  const interviewer = storedCaseVoiceInterviewerSnapshot(current);
+  if (interviewer.mode !== "llm") return candidate;
+  const identity = {
+    interviewerMode: "llm" as const,
+    interviewerVersion: interviewer.version,
+  };
+  return {
+    ...candidate,
+    cacheKey: buildCaseVoiceRequestCacheKey(
+      candidate.sessionId,
+      candidate.callId,
+      candidate.messages,
+      identity,
+    ),
+    logicalTurnKey: buildCaseVoiceLogicalTurnKey(
+      candidate.callId,
+      candidate.messages,
+      candidate.candidateIndex,
+      identity,
+    ),
   };
 }
 
@@ -299,6 +338,17 @@ function cacheWith(
 ): Record<string, CaseVoiceModelResponse> {
   const entries = Object.entries({ ...(prior ?? {}), [key]: result });
   return Object.fromEntries(entries.slice(Math.max(0, entries.length - CACHE_LIMIT)));
+}
+
+function cacheWithAliases(
+  prior: Record<string, CaseVoiceModelResponse> | undefined,
+  keys: string[],
+  result: CaseVoiceModelResponse,
+): Record<string, CaseVoiceModelResponse> {
+  return [...new Set(keys)].reduce(
+    (cache, key) => cacheWith(cache, key, result),
+    prior ?? {},
+  );
 }
 
 function logicalCacheWith(
@@ -316,11 +366,13 @@ function logicalCachedResult(
 ): CaseVoiceModelResponse | null {
   const logical = current.processedLogicalTurns?.[candidate.logicalTurnKey];
   if (!logical?.result.spokenText.trim()) return null;
-  const relation = candidateRevisionRelation(
-    logical.candidateText,
-    candidate.answer,
-  );
-  if (relation === "none") return null;
+  if (storedCaseVoiceInterviewerSnapshot(current).mode !== "llm") {
+    const relation = candidateRevisionRelation(
+      logical.candidateText,
+      candidate.answer,
+    );
+    if (relation === "none") return null;
+  }
   return logical.result;
 }
 
@@ -476,7 +528,10 @@ function assertCaseSession(
   if (current.caseId !== "beautify") {
     throw new CaseModelRequestError("unsupported_case", 400, "Only the Beautify case supports voice");
   }
-  if (current.session.complete || current.session.fsm_state === "scoring") {
+  const concludedLlm =
+    storedCaseVoiceInterviewerSnapshot(current).mode === "llm" &&
+    current.liveStatus === "concluded_unscored";
+  if (current.session.complete || (current.session.fsm_state === "scoring" && !concludedLlm)) {
     throw new CaseModelRequestError("case_complete", 409, "The Case interview is already complete");
   }
 }
@@ -494,10 +549,38 @@ function suppressedResult(current: CaseVoiceSession): CaseVoiceModelResponse {
   };
 }
 
+function nonEmptyLlmFallbackResult(current: CaseVoiceSession): CaseVoiceModelResponse {
+  const awaiting = (current.readinessStatus ?? "confirmed") === "awaiting";
+  return {
+    spokenText: awaiting
+      ? CASE_NOT_READY_RESPONSE
+      : caseLiveStageGuidance(current.session.fsm_state).fallback,
+    stage: current.session.fsm_state,
+    action: "fallback",
+    exhibit: null,
+    complete: false,
+    score: null,
+    turnSeq: current.turnSeq ?? 0,
+  };
+}
+
+function concludedUnscoredResult(current: CaseVoiceSession): CaseVoiceModelResponse {
+  return {
+    spokenText: CASE_CONCLUDED_UNSCORED_RESPONSE,
+    stage: "scoring",
+    action: "conversation",
+    exhibit: null,
+    complete: false,
+    score: null,
+    turnSeq: current.turnSeq ?? 0,
+  };
+}
+
 function pendingCandidate(
   candidate: CandidateRequest,
   stage: CaseVoiceSession["session"]["fsm_state"],
   now: number,
+  supersededRequestKeys: string[] = [],
 ): CaseVoicePendingCandidate {
   return {
     requestKey: candidate.cacheKey,
@@ -511,6 +594,7 @@ function pendingCandidate(
     messageCount: candidate.messages.length,
     receivedAt: now,
     updatedAt: now,
+    supersededRequestKeys,
   };
 }
 
@@ -528,6 +612,7 @@ async function registerPendingCandidate(
     try {
       const current = await loadSession(candidate.sessionId) as CaseVoiceSession | null;
       assertCaseSession(current, candidate);
+      const llmMode = storedCaseVoiceInterviewerSnapshot(current).mode === "llm";
       const logicalCached = logicalCachedResult(current, candidate);
       if (logicalCached) {
         await saveSession(candidate.sessionId, {
@@ -577,17 +662,30 @@ async function registerPendingCandidate(
         now - existing.updatedAt <= MAX_REVISION_ELAPSED_MILLISECONDS;
       const stale = now - existing.updatedAt > PENDING_STALE_MILLISECONDS;
 
-      if ((sameTurnBoundary && sameLogicalTurn && (isCandidateRevision(relation) || relation === "none")) || stale) {
-        const ignored = suppressedResult(current);
+      const replacingRevision =
+        sameTurnBoundary &&
+        sameLogicalTurn &&
+        // "none" is never enough: replacement needs a textual revision relation
+        // or the same non-null Vapi message id (reported as same-message-id).
+        isCandidateRevision(relation);
+      const stillStabilizing = now < existing.updatedAt + revisionWindowMilliseconds();
+      if ((replacingRevision && (!llmMode || stillStabilizing)) || stale) {
+        const ignored = llmMode ? nonEmptyLlmFallbackResult(current) : suppressedResult(current);
+        const aliases = replacingRevision && llmMode
+          ? [...(existing.supersededRequestKeys ?? []), existing.requestKey]
+          : [];
         await saveSession(candidate.sessionId, {
           ...current,
           callId: current.callId ?? candidate.callId,
-          processedModelRequests: cacheWith(
-            current.processedModelRequests,
-            existing.requestKey,
-            ignored,
+          processedModelRequests: replacingRevision && llmMode
+            ? current.processedModelRequests
+            : cacheWith(current.processedModelRequests, existing.requestKey, ignored),
+          pendingCandidate: pendingCandidate(
+            candidate,
+            current.session.fsm_state,
+            now,
+            aliases,
           ),
-          pendingCandidate: pendingCandidate(candidate, current.session.fsm_state, now),
           updatedAt: new Date(now).toISOString(),
         });
         logTurnDiagnostic(candidate, current.session.fsm_state, "replaced", relation, existing);
@@ -878,7 +976,128 @@ function stageTransitionEvaluation(
   };
 }
 
-async function evaluateCandidate(
+async function evaluateLlmCandidate(
+  current: CaseVoiceSession,
+  candidate: CandidateRequest,
+  timings: CaseTurnTimings,
+): Promise<CandidateEvaluation> {
+  const c = mockCase(current.caseId);
+  if (!c) {
+    throw new CaseModelRequestError("case_not_found", 404, "The Case content is unavailable");
+  }
+  const packet = buildBeautifyLivePacket({
+    caseRecord: c,
+    session: current.session,
+    readinessStatus: current.readinessStatus ?? "confirmed",
+    conversationStatus: current.conversationStatus ?? "active",
+    projectedTurns: current.projectedTurns ?? [],
+  });
+  timings.interviewerCalls += 1;
+  const interviewer = await runCaseInterviewer({ packet, candidateText: candidate.answer });
+  timings.interviewerMs += interviewer.durationMs;
+  timings.interviewerOutcome = interviewer.outcome;
+  const application = applyCaseInterviewerDecision({
+    current,
+    caseRecord: c,
+    packet,
+    candidateText: candidate.answer,
+    outcome: interviewer.outcome,
+    decision: interviewer.decision,
+  });
+  timings.intent = interviewer.decision?.candidateAction ?? "model_failure";
+  timings.interviewerFallbackReason = application.fallbackReason ?? "none";
+  const timestamp = new Date().toISOString();
+  const turnSeq = application.projectTurn ? (current.turnSeq ?? 0) + 1 : current.turnSeq ?? 0;
+  const result: CaseVoiceModelResponse = {
+    spokenText: application.spokenText,
+    stage: application.stageAfter,
+    action: application.action,
+    exhibit: application.exhibit,
+    complete: false,
+    score: null,
+    turnSeq,
+  };
+  const projectedTurn: CaseVoiceProjectedTurn | null = application.projectTurn
+    ? {
+        turnSeq,
+        candidateText: candidate.answer,
+        interviewerText: application.spokenText,
+        stage: application.stageAfter,
+        stageBefore: application.stageBefore,
+        stageAfter: application.stageAfter,
+        candidateAction: application.candidateAction,
+        action: application.action,
+        scorable: application.scorable,
+        exhibit: application.exhibit,
+        timestamp,
+      }
+    : null;
+
+  return {
+    result,
+    commit: (latest) => {
+      const history = application.scorable
+        ? [
+            ...latest.session.history,
+            { role: "candidate" as const, stage: application.stageBefore, text: candidate.answer },
+            {
+              role: "interviewer" as const,
+              stage: application.stageAfter,
+              text: application.spokenText,
+              ...(["advance", "probe", "redirect", "hint", "reveal"].includes(application.action)
+                ? { action: application.action as "advance" | "probe" | "redirect" | "hint" | "reveal" }
+                : {}),
+            },
+          ]
+        : latest.session.history;
+      const stageAttempts = { ...latest.session.stage_attempts };
+      const probedAnswerHashes = { ...(latest.probedAnswerHashes ?? {}) };
+      const stageProbeCounts = { ...(latest.stageProbeCounts ?? {}) };
+      if (application.probeAnswerHash) {
+        stageAttempts[application.stageBefore] = (stageAttempts[application.stageBefore] ?? 0) + 1;
+        probedAnswerHashes[application.stageBefore] = [
+          ...(probedAnswerHashes[application.stageBefore] ?? []),
+          application.probeAnswerHash,
+        ];
+        stageProbeCounts[application.stageBefore] = (stageProbeCounts[application.stageBefore] ?? 0) + 1;
+      }
+      const exhibitsRevealed = application.exhibit && !latest.session.exhibits_revealed.includes(application.exhibit.id)
+        ? [...latest.session.exhibits_revealed, application.exhibit.id]
+        : latest.session.exhibits_revealed;
+      const confirmedReadiness = application.readinessStatus === "confirmed" && latest.readinessStatus === "awaiting";
+      return {
+        ...latest,
+        session: {
+          ...latest.session,
+          fsm_state: application.stageAfter,
+          history,
+          stage_attempts: stageAttempts,
+          hints_used: { ...latest.session.hints_used },
+          exhibits_revealed: exhibitsRevealed,
+          complete: false,
+        },
+        openingText: confirmedReadiness
+          ? `${CASE_READINESS_PROMPT}\n\n${application.spokenText}`
+          : latest.openingText,
+        readinessStatus: application.readinessStatus ?? latest.readinessStatus,
+        readinessConfirmedAt: confirmedReadiness ? timestamp : latest.readinessConfirmedAt,
+        conversationStatus: application.conversationStatus,
+        turnSeq,
+        score: null,
+        lastProbeObjective: null,
+        probedAnswerHashes,
+        stageProbeCounts,
+        liveStatus: application.liveStatus,
+        concludedAt: application.liveStatus === "concluded_unscored" ? timestamp : latest.concludedAt,
+        projectedTurns: projectedTurn
+          ? [...(latest.projectedTurns ?? []), projectedTurn]
+          : latest.projectedTurns,
+      };
+    },
+  };
+}
+
+async function evaluateLegacyCandidate(
   current: CaseVoiceSession,
   candidate: CandidateRequest,
   timings: CaseTurnTimings,
@@ -1076,17 +1295,24 @@ async function processStableCandidate(
       continue;
     }
 
-    const stabilizationKind = caseTurnStabilizationKind(pending.candidateText, {
-      readinessStatus: current.readinessStatus ?? "confirmed",
-      conversationStatus: current.conversationStatus ?? "active",
-      stage: current.session.fsm_state,
-    });
-    const tentative = stabilizationKind !== "default";
-    if (stabilizationKind === "tentative_readiness") timings.tentativeReadinessDetected = true;
-    if (stabilizationKind === "tentative_stage_transition") timings.tentativeTransitionDetected = true;
-    const windowMilliseconds = tentative
-      ? tentativeControlRevisionWindowMilliseconds()
-      : revisionWindowMilliseconds();
+    const llmMode = storedCaseVoiceInterviewerSnapshot(current).mode === "llm";
+    const stabilizationKind = llmMode
+      ? "default"
+      : caseTurnStabilizationKind(pending.candidateText, {
+          readinessStatus: current.readinessStatus ?? "confirmed",
+          conversationStatus: current.conversationStatus ?? "active",
+          stage: current.session.fsm_state,
+        });
+    const tentative = !llmMode && stabilizationKind !== "default";
+    if (!llmMode && stabilizationKind === "tentative_readiness") {
+      timings.tentativeReadinessDetected = true;
+    }
+    if (!llmMode && stabilizationKind === "tentative_stage_transition") {
+      timings.tentativeTransitionDetected = true;
+    }
+    const windowMilliseconds = llmMode || !tentative
+      ? revisionWindowMilliseconds()
+      : tentativeControlRevisionWindowMilliseconds();
     const remaining = pending.updatedAt + windowMilliseconds - Date.now();
     if (remaining > 0) {
       const waitStartedAt = Date.now();
@@ -1125,14 +1351,15 @@ async function processStableCandidate(
             source: latestCached.spokenText.trim() ? "request_cache" : "suppressed",
           };
         }
-        const latestStabilizationKind = latest.pendingCandidate
-          ? caseTurnStabilizationKind(latest.pendingCandidate.candidateText, {
+        const latestLlmMode = storedCaseVoiceInterviewerSnapshot(latest).mode === "llm";
+        const latestStabilizationKind = latestLlmMode || !latest.pendingCandidate
+          ? "default"
+          : caseTurnStabilizationKind(latest.pendingCandidate.candidateText, {
               readinessStatus: latest.readinessStatus ?? "confirmed",
               conversationStatus: latest.conversationStatus ?? "active",
               stage: latest.session.fsm_state,
-            })
-          : "default";
-        const latestWindowMilliseconds = latestStabilizationKind === "default"
+            });
+        const latestWindowMilliseconds = latestLlmMode || latestStabilizationKind === "default"
           ? revisionWindowMilliseconds()
           : tentativeControlRevisionWindowMilliseconds();
         if (
@@ -1147,7 +1374,10 @@ async function processStableCandidate(
         await releaseLock(guard.lockKey, guard.lockToken).catch(() => {});
       }
 
-      const evaluation = await evaluateCandidate(snapshot, candidate, timings);
+      const mode = storedCaseVoiceInterviewerSnapshot(snapshot).mode;
+      const evaluation = mode === "llm"
+        ? await evaluateLlmCandidate(snapshot, candidate, timings)
+        : await evaluateLegacyCandidate(snapshot, candidate, timings);
       const commitGuardStartedAt = Date.now();
       const commitGuard = await acquirePendingLock(candidate.sessionId);
       addCaseTurnDuration(timings, "redisLockMs", commitGuardStartedAt);
@@ -1169,6 +1399,9 @@ async function processStableCandidate(
         }
 
         if (!latest.pendingCandidate || latest.pendingCandidate.requestKey !== candidate.cacheKey) {
+          if (storedCaseVoiceInterviewerSnapshot(latest).mode === "llm") {
+            continue;
+          }
           const ignored = suppressedResult(latest);
           await saveSession(candidate.sessionId, {
             ...latest,
@@ -1184,14 +1417,17 @@ async function processStableCandidate(
         }
 
         const committed = evaluation.commit(latest);
+        const cacheAliases = storedCaseVoiceInterviewerSnapshot(latest).mode === "llm"
+          ? [candidate.cacheKey, ...(latest.pendingCandidate.supersededRequestKeys ?? [])]
+          : [candidate.cacheKey];
         const updated: CaseVoiceSession = {
           ...committed,
           callId: latest.callId ?? candidate.callId,
           responseSeq: (latest.responseSeq ?? 0) + 1,
           pendingCandidate: null,
-          processedModelRequests: cacheWith(
+          processedModelRequests: cacheWithAliases(
             latest.processedModelRequests,
-            candidate.cacheKey,
+            cacheAliases,
             evaluation.result,
           ),
           processedLogicalTurns: evaluation.result.spokenText.trim()
@@ -1231,20 +1467,33 @@ async function processTurn(
   body: OpenAIChatRequest,
   timings: CaseTurnTimings,
 ): Promise<ProcessedCandidateResult & { cacheKey: string }> {
-  const candidate = parseCandidateRequest(req, body);
+  let candidate = parseCandidateRequest(req, body);
   timings.requestId = candidate.requestId;
-  timings.correlationId = shortHash(candidate.cacheKey);
   timings.callId = candidate.callId;
   timings.messageCount = candidate.messages.length;
-  warnIfCaseTurnControllerUsesMocks(caseVoiceControllerMode());
-  logTurnDiagnostic(candidate, "unknown", "received");
 
   const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
   assertCaseSession(initial, candidate);
+  candidate = candidateWithSessionCacheIdentity(candidate, initial);
+  const interviewer = storedCaseVoiceInterviewerSnapshot(initial);
+  timings.interviewerMode = interviewer.mode;
+  timings.correlationId = shortHash(candidate.cacheKey);
+  if (interviewer.mode === "legacy") {
+    warnIfCaseTurnControllerUsesMocks(caseVoiceControllerMode());
+  }
+  logTurnDiagnostic(candidate, "unknown", "received");
   timings.stage = initial.session.fsm_state;
-  timings.readinessDisposition = initial.readinessStatus === "awaiting"
+  timings.readinessDisposition = interviewer.mode === "legacy" && initial.readinessStatus === "awaiting"
     ? readinessSignal(candidate.answer)
     : "not_applicable";
+  if (interviewer.mode === "llm" && initial.liveStatus === "concluded_unscored") {
+    return {
+      result: concludedUnscoredResult(initial),
+      cacheKey: candidate.cacheKey,
+      replayed: true,
+      source: "request_cache",
+    };
+  }
   const logicalCached = logicalCachedResult(initial, candidate);
   if (logicalCached) {
     logTurnDiagnostic(

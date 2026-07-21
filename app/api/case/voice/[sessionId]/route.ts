@@ -50,6 +50,8 @@ export async function GET(
     readinessStatus: record.readinessStatus ?? "confirmed",
     readinessConfirmedAt: record.readinessConfirmedAt ?? null,
     conversationStatus: record.conversationStatus ?? "active",
+    liveStatus: record.liveStatus ?? "active",
+    concludedAt: record.concludedAt ?? null,
     stage,
     stageIndex: CASE_STATES.indexOf(stage),
     complete: record.session.complete,

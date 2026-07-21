@@ -15,6 +15,13 @@ interface ControllerCacheIdentity {
   version?: string;
 }
 
+export interface CaseVoiceLlmCacheIdentity {
+  interviewerMode: "llm";
+  interviewerVersion: string;
+}
+
+export type CaseVoiceCacheIdentity = ControllerCacheIdentity | CaseVoiceLlmCacheIdentity;
+
 function controllerIdentity(overrides: ControllerCacheIdentity = {}) {
   return {
     mode: overrides.mode ?? caseVoiceControllerMode(),
@@ -22,18 +29,29 @@ function controllerIdentity(overrides: ControllerCacheIdentity = {}) {
   };
 }
 
+function cacheIdentity(overrides: CaseVoiceCacheIdentity = {}) {
+  if ("interviewerMode" in overrides && overrides.interviewerMode === "llm") {
+    return { interviewer: {
+      mode: "llm" as const,
+      version: overrides.interviewerVersion,
+    } };
+  }
+  const controller = overrides as ControllerCacheIdentity;
+  return { controller: controllerIdentity(controller) };
+}
+
 export function buildCaseVoiceRequestCacheKey(
   sessionId: string,
   callId: string,
   messages: CaseTurnCacheMessage[],
-  controller: ControllerCacheIdentity = {},
+  identity: CaseVoiceCacheIdentity = {},
 ): string {
   const materialMessages = messages.filter(
     ({ role, content }) => role !== "assistant" || content.trim().length > 0,
   );
   const digest = createHash("sha256")
     .update(JSON.stringify({
-      controller: controllerIdentity(controller),
+      ...cacheIdentity(identity),
       sessionId,
       callId,
       messages: materialMessages.map(({ role, content }) => ({ role, content })),
@@ -46,7 +64,7 @@ export function buildCaseVoiceLogicalTurnKey(
   callId: string,
   messages: CaseTurnCacheMessage[],
   candidateIndex: number,
-  controller: ControllerCacheIdentity = {},
+  identity: CaseVoiceCacheIdentity = {},
 ): string {
   const priorContext = messages
     .slice(0, candidateIndex)
@@ -54,7 +72,7 @@ export function buildCaseVoiceLogicalTurnKey(
     .map(({ role, content }) => ({ role, content }));
   const digest = createHash("sha256")
     .update(JSON.stringify({
-      controller: controllerIdentity(controller),
+      ...cacheIdentity(identity),
       candidateIndex,
       priorContext,
     }))

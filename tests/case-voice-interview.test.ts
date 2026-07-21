@@ -62,6 +62,8 @@ function projection(overrides: Partial<CaseVoiceProjection> = {}): CaseVoiceProj
     readinessStatus: "awaiting",
     readinessConfirmedAt: null,
     conversationStatus: "active",
+    liveStatus: "active",
+    concludedAt: null,
     stage: "intro",
     stageIndex: 0,
     complete: false,
@@ -168,6 +170,24 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
 
     expect(shouldApplyCaseProjection(current, conversationReply)).toBe(true);
     expect(conversationReply.turnSeq).toBe(1);
+  });
+
+  it("applies a concluded-unscored projection without pretending completion or a score", () => {
+    const current = projection({ turnSeq: 5, responseSeq: 5, liveStatus: "active" });
+    const concluded = projection({
+      turnSeq: 5,
+      responseSeq: 5,
+      liveStatus: "concluded_unscored",
+      concludedAt: "2026-07-20T12:05:00.000Z",
+      stage: "scoring",
+      stageIndex: 7,
+      complete: false,
+      score: null,
+    });
+
+    expect(shouldApplyCaseProjection(current, concluded)).toBe(true);
+    expect(concluded.complete).toBe(false);
+    expect(concluded.score).toBeNull();
   });
 
   it("applies the readiness opening without requiring a scored turn", () => {

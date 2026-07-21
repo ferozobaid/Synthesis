@@ -6,6 +6,11 @@ export interface CaseTurnTimings {
   callId: string | null;
   messageCount: number;
   stage: string;
+  interviewerMode: "legacy" | "llm";
+  interviewerCalls: number;
+  interviewerMs: number;
+  interviewerOutcome: string;
+  interviewerFallbackReason: string;
   intent: string;
   readinessDisposition: "not_applicable" | "affirmative" | "negative" | "mixed" | "unknown";
   stabilizationMs: number;
@@ -59,6 +64,11 @@ export function newCaseTurnTimings(): CaseTurnTimings {
     callId: null,
     messageCount: 0,
     stage: "unknown",
+    interviewerMode: "legacy",
+    interviewerCalls: 0,
+    interviewerMs: 0,
+    interviewerOutcome: "not_required",
+    interviewerFallbackReason: "none",
     intent: "unknown",
     readinessDisposition: "not_applicable",
     stabilizationMs: 0,
@@ -114,6 +124,7 @@ export function caseServerTiming(timings: CaseTurnTimings): string {
     `turn_lock;dur=${timings.turnLockWaitMs}`,
     `triage;dur=${timings.deterministicTriageMs}`,
     `controller;dur=${timings.controllerMs}`,
+    `interviewer;dur=${timings.interviewerMs}`,
     `intent;dur=${timings.intentMs}`,
     `evaluator;dur=${timings.evaluatorMs}`,
     `respond_to_case;dur=${timings.respondToCaseMs}`,
@@ -132,6 +143,11 @@ export function logCaseLatency(timings: CaseTurnTimings, statusCode: number): vo
     callId: timings.callId ?? "absent",
     messageCount: timings.messageCount,
     stage: timings.stage,
+    interviewerMode: timings.interviewerMode,
+    interviewerCalls: timings.interviewerCalls,
+    interviewerMs: timings.interviewerMs,
+    interviewerOutcome: timings.interviewerOutcome,
+    interviewerFallbackReason: timings.interviewerFallbackReason,
     candidateIntent: timings.intent,
     readinessDisposition: timings.readinessDisposition,
     coldStart: timings.coldStart,
