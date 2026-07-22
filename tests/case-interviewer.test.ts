@@ -284,11 +284,15 @@ describe("bounded structured interviewer call", () => {
   it("runtime-rejects missing, additional, malformed, duplicate, and out-of-range values", () => {
     const valid = decision();
     expect(parseCaseInterviewerDecision(valid)).toEqual(valid);
+    expect(parseCaseInterviewerDecision({ ...valid, spokenResponse: "   " })).toBeNull();
+    expect(parseCaseInterviewerDecision({ ...valid, candidateAction: "invented_action" })).toBeNull();
     expect(parseCaseInterviewerDecision({ ...valid, extra: true })).toBeNull();
     const { shouldProbe: _missing, ...missing } = valid;
     expect(parseCaseInterviewerDecision(missing)).toBeNull();
     expect(parseCaseInterviewerDecision({ ...valid, confidence: Number.NaN })).toBeNull();
+    expect(parseCaseInterviewerDecision({ ...valid, confidence: -0.1 })).toBeNull();
     expect(parseCaseInterviewerDecision({ ...valid, confidence: 1.1 })).toBeNull();
+    expect(parseCaseInterviewerDecision({ ...valid, requestedFactIds: ["invented.fact"] })).toBeNull();
     expect(parseCaseInterviewerDecision({
       ...valid,
       requestedFactIds: ["clarification.spending_data", "clarification.spending_data"],

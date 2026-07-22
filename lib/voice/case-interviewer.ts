@@ -52,7 +52,7 @@ export const CASE_INTERVIEWER_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    spokenResponse: { type: "string", minLength: 1, maxLength: CASE_INTERVIEWER_MAX_SPOKEN_CHARS },
+    spokenResponse: { type: "string" },
     candidateAction: { type: "string", enum: [...CASE_INTERVIEWER_ACTIONS] },
     proposedStage: {
       anyOf: [
@@ -62,15 +62,13 @@ export const CASE_INTERVIEWER_SCHEMA = {
     },
     requestedFactIds: {
       type: "array",
-      items: { type: "string", pattern: "^clarification\\.[a-z0-9_]+$" },
-      uniqueItems: true,
-      maxItems: 5,
+      items: { type: "string" },
     },
     requestedExhibitId: {
-      anyOf: [{ type: "string", minLength: 1, maxLength: 100 }, { type: "null" }],
+      anyOf: [{ type: "string" }, { type: "null" }],
     },
     shouldProbe: { type: "boolean" },
-    confidence: { type: "number", minimum: 0, maximum: 1 },
+    confidence: { type: "number" },
   },
   required: [
     "spokenResponse",

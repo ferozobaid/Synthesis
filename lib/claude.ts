@@ -10,8 +10,11 @@
  *    for Next.js route handlers.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
 import { activeModel, useMocks } from "@/lib/config";
 import { mockComplete, mockStream } from "@/lib/__mocks__/claude";
+
+export type CompleteOutputSchema = Record<string, unknown> & { type: "object" };
 
 export interface CompleteOpts {
   system?: string;
@@ -19,7 +22,7 @@ export interface CompleteOpts {
   temperature?: number;
   model?: string;
   /** Optional native Claude JSON-schema output constraint. */
-  outputSchema?: Record<string, unknown>;
+  outputSchema?: CompleteOutputSchema;
   /** Optional per-request controls. Existing callers retain SDK defaults. */
   timeoutMs?: number;
   maxRetries?: number;
@@ -35,6 +38,11 @@ function client(): Anthropic {
 export async function complete(prompt: string, opts: CompleteOpts = {}): Promise<string> {
   if (useMocks()) return mockComplete(prompt, opts);
   const model = opts.model ?? activeModel();
+  // The GA helper rewrites unsupported JSON Schema constraints into the subset
+  // accepted by Anthropic before the request is serialized.
+  const outputFormat = opts.outputSchema
+    ? jsonSchemaOutputFormat(opts.outputSchema)
+    : null;
   const res = await client().messages.create(
     {
       model,
@@ -42,10 +50,13 @@ export async function complete(prompt: string, opts: CompleteOpts = {}): Promise
       temperature: opts.temperature ?? 0,
       system: opts.system,
       messages: [{ role: "user", content: prompt }],
-      ...(opts.outputSchema
+      ...(outputFormat
         ? {
             output_config: {
-              format: { type: "json_schema" as const, schema: opts.outputSchema },
+              format: {
+                type: outputFormat.type,
+                schema: outputFormat.schema,
+              },
             },
           }
         : {}),
