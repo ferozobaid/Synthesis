@@ -1,15 +1,15 @@
 # Deployment - Vercel
 
 The default deployment path is mock mode: a demoable public deployment with no
-API keys. Real Claude/Supabase credentials can be added later, but the Fit
-Analyzer itself does not require Supabase.
+API keys. A Claude credential enables live behavioural and case evaluation; the
+app has no active centralized database dependency.
 
 ## TL;DR
 
 The app is deployment-safe as-is. Static content, cases, behavioural seed data,
 and the O*NET taxonomy are bundled at build time. O*NET is loaded from
 `lib/data/onet-taxonomy.json`; there is no O*NET RAG service, `onet_chunks`
-table, or pgvector RPC to provision.
+table, or remote vector search service to provision.
 
 For a mock-mode Vercel deploy set:
 
@@ -25,22 +25,19 @@ Required environment variable:
 
 | Var | Value | Purpose |
 |---|---|---|
-| `SYNTHESIS_USE_MOCKS` | `true` | Pins the app to mock mode and avoids Claude/Supabase calls. |
+| `SYNTHESIS_USE_MOCKS` | `true` | Pins the app to mock mode and avoids Claude calls. |
 
-Do not set `ANTHROPIC_API_KEY` or Supabase variables for a public mock demo.
+Do not set `ANTHROPIC_API_KEY` for a public mock demo.
 
 ## Real-Mode Deploy
 
-Use this only when you are ready for live Claude calls and user-data persistence.
+Use this only when you are ready for live Claude calls.
 
 | Var | Value | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Anthropic key | Enables real Claude calls. |
 | `SYNTHESIS_USE_MOCKS` | `false` | Turns mocks off. |
 | `SYNTHESIS_MODEL_MODE` | `default` | Uses the locked Haiku model. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL | User-data persistence/auth, if enabled. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | Browser/client scoped Supabase access. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service key | Server-only Supabase access. |
 | `EMBEDDINGS_ENABLED` | `true` | Enables the packaged BGE semantic scoring path. |
 | `EMBEDDINGS_MODEL` | `Xenova/bge-small-en-v1.5` | Selects the supported 384-dimensional BGE model. |
 | `EMBEDDINGS_MODEL_REVISION` | `ea104dacec62c0de699686887e3f920caeb4f3e3` | Pins the model files downloaded during the build. |
@@ -51,7 +48,7 @@ Mock mode is controlled by `useMocks()`:
 ```text
 SYNTHESIS_USE_MOCKS=true   -> always mock
 SYNTHESIS_USE_MOCKS=false  -> real mode
-unset                      -> real only if Anthropic and Supabase creds are present
+unset                      -> real only if the Anthropic credential is present
 ```
 
 ## Current Fit Analyzer Method
@@ -63,11 +60,13 @@ The Fit Analyzer API calls `scoreFitAnalyzer()`:
 - Uses `hybrid_0_25` when `EMBEDDINGS_ENABLED=true`: 25% rules + 75% local semantic matching.
 - Falls back to rules-only if embeddings are disabled or fail to load.
 
-This method does not query Supabase, pgvector, or an O*NET RAG index.
+This method does not query a centralized database, vector store, or O*NET RAG index.
 
 ## Known Limitations
 
-- **No authentication yet.** Sessions use mock data unless Supabase/user flows are wired.
+- **No authentication or database persistence.** Those flows are outside the
+  current MVP. The future centralized database provider is undecided, so there
+  is no provider-specific schema or migration setup.
 - **The BGE model is packaged at build time.** `prebuild` downloads the pinned
   quantized model into the generated `models/` directory. The Fit Analyzer runs
   in the Node.js runtime and disables remote model loading when the packaged files

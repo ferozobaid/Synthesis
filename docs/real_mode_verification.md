@@ -22,7 +22,8 @@ parseResume + parseJD
 -> structured rules-only fallback otherwise
 ```
 
-O*NET is not retrieved from Supabase or pgvector. It is loaded from:
+O*NET is not retrieved from a centralized database or vector store. It is
+loaded from:
 
 ```text
 lib/data/onet-taxonomy.json

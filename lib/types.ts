@@ -1,9 +1,8 @@
 /**
  * Synthesis — shared TypeScript contract.
  *
- * Mirrors the Supabase schema (supabase/migrations) and defines the strict I/O
- * shapes that cross API boundaries. The DB migrations and this file together are
- * the locked contract every module builds on. Live plane only.
+ * Defines the domain records and strict I/O shapes that cross API boundaries.
+ * These contracts are live-plane types and do not depend on a persistence layer.
  */
 
 // ===================== Models & embeddings =====================
@@ -16,7 +15,7 @@ export const MODEL_IDS: Record<ModelMode, string> = {
   demo: "claude-sonnet-4-6",
 };
 
-/** BGE-small-en-v1.5 dimensionality — must match vector(384) in migrations. */
+/** BGE-small-en-v1.5 dimensionality used by local semantic matching. */
 export const EMBEDDING_DIM = 384 as const;
 export type Embedding = number[];
 export type EmbeddingBackend = "disabled" | "bge" | "failed" | "mock";

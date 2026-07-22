@@ -53,8 +53,6 @@ beforeEach(() => {
   completeMock.mockReset();
   process.env.SYNTHESIS_USE_MOCKS = "false";
   process.env.ANTHROPIC_API_KEY = "test-key";
-  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon";
 });
 
 describe("buildBehaviouralQualitativeReport", () => {

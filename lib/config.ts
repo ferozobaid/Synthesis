@@ -1,6 +1,6 @@
 /**
- * Central config + mock-mode detection. The app runs fully on mocks when core
- * credentials are absent, so `npm run dev` / `npm test` work with no real keys.
+ * Central config + mock-mode detection. The app runs fully on mocks when the
+ * Claude credential is absent, so `npm run dev` / `npm test` work with no key.
  */
 import { MODEL_IDS, type ModelMode } from "@/lib/types";
 
@@ -17,18 +17,11 @@ export function hasAnthropic(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-export function hasSupabase(): boolean {
-  return (
-    !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-}
-
 /** True when the app should use in-process mocks instead of live services. */
 export function useMocks(): boolean {
   if (process.env.SYNTHESIS_USE_MOCKS === "false") return false;
   if (process.env.SYNTHESIS_USE_MOCKS === "true") return true;
-  return !(hasAnthropic() && hasSupabase());
+  return !hasAnthropic();
 }
 
 /** Real local embeddings on only when explicitly enabled (and the optional dep is installed). */
