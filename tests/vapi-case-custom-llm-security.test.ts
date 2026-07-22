@@ -135,12 +135,14 @@ function seedSession(input: {
   stage?: CaseState;
   complete?: boolean;
   callId?: string | null;
+  architecture?: "custom_llm" | "vapi_native";
 }): CaseVoiceSession {
   const caseId = input.caseId ?? AIRPORT;
   const stage = input.stage ?? "clarification";
   const current: CaseVoiceSession = {
     module: "case",
     caseId,
+    architecture: input.architecture,
     interviewerMode: "llm",
     interviewerVersion: CASE_VOICE_LLM_VERSION,
     liveStatus: "active",
@@ -226,6 +228,19 @@ beforeEach(() => {
 });
 
 describe("Case Custom LLM endpoint security", () => {
+  it("rejects a native session before cache identity, packet, or model work", async () => {
+    const sessionId = "native-session-wrong-endpoint";
+    seedSession({ sessionId, architecture: "vapi_native" });
+    const before = structuredClone(stored(sessionId));
+    const response = await chatPOST(request(
+      body(sessionId, "call-1", validMessages()),
+      AUTH,
+    ) as never);
+    expect(response.status).toBe(409);
+    expect(stored(sessionId)).toEqual(before);
+    expectNoCaseExecution();
+  });
+
   it("rejects missing authentication without mutation or Case execution", async () => {
     const sessionId = "airport-missing-auth";
     seedSession({ sessionId });

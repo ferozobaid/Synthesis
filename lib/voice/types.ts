@@ -21,9 +21,49 @@ import type {
   CaseInterviewerCandidateAction,
 } from "@/lib/voice/case-interviewer";
 import type { CaseVoiceInterviewerMode } from "@/lib/voice/case-interviewer-mode";
+import type { CaseVoiceArchitecture } from "@/lib/voice/case-native-config";
+import type { NormalizedVoiceTranscriptTurn } from "@/lib/voice/transcript";
 
 /** Lifecycle of the post-call scoring report for a behavioural voice session. */
 export type ReportStatus = "pending" | "processing" | "done" | "failed";
+
+export type CaseReportStage =
+  | "clarification"
+  | "framework"
+  | "analysis"
+  | "data_reveal"
+  | "pressure_test"
+  | "recommendation";
+
+export type CaseReportDimension =
+  | "structure"
+  | "hypothesis_driven_thinking"
+  | "quantitative_reasoning"
+  | "synthesis"
+  | "communication";
+
+export interface CasePostCallDimensionScore {
+  dimension: CaseReportDimension;
+  score: number | null;
+  justification: string;
+  evidence: string | null;
+}
+
+export interface CasePostCallScore {
+  dimension_scores: CasePostCallDimensionScore[];
+  /** Null for partial reports: no synthetic overall score is inferred from missing stages. */
+  overall: number | null;
+  strengths: string[];
+  improvements: string[];
+  next_focus: string[];
+}
+
+export interface CasePostCallReport {
+  partial: boolean;
+  observedStages: CaseReportStage[];
+  missingStages: CaseReportStage[];
+  score: CasePostCallScore;
+}
 
 /** A behavioural voice session: the existing session plus the server-owned cursor. */
 export interface BehaviouralVoiceSession {
@@ -140,6 +180,23 @@ export interface CaseVoiceSession {
   /** Snapshotted candidate-facing selection metadata (backend-derived). */
   selectedCaseTitle?: string;
   selectedCaseDescription?: string;
+  /** Snapshotted live architecture. Missing on old sessions resolves to custom_llm. */
+  architecture?: CaseVoiceArchitecture;
+  orchestrationVersion?: string;
+  /** Server-selected native assistant contract. Never accepted from the browser. */
+  expectedAssistantId?: string | null;
+  assistantConfigVersion?: string | null;
+  stageAnchorVersion?: string | null;
+  /** Native post-call report capability and lifecycle. */
+  reportTokenHash?: string;
+  reportStatus?: ReportStatus;
+  reportAttempt?: number;
+  reportFencingToken?: string | null;
+  reportProcessingStartedAt?: string | null;
+  authoritativeCallId?: string | null;
+  normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
+  finalReport?: CasePostCallReport | null;
+  reportErrorCode?: string | null;
   /** Architecture is frozen at bootstrap; absent means legacy. */
   interviewerMode?: CaseVoiceInterviewerMode;
   interviewerVersion?: string;

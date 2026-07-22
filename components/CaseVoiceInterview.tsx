@@ -7,6 +7,12 @@ import { ExhibitCard } from "@/components/ui/ExhibitCard";
 import { StageTracker } from "@/components/ui/StageTracker";
 import { SectionLabel } from "@/components/ui/primitives";
 import { to100 } from "@/components/ui/verdict";
+import CaseNativeVoiceInterview, {
+  clearPendingNativeCaseReport,
+  readPendingNativeCaseReport,
+  writePendingNativeCaseReport,
+  type PendingNativeCaseReport,
+} from "@/components/CaseNativeVoiceInterview";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_CASE_ASSISTANT_ID;
@@ -112,12 +118,23 @@ export interface PendingCaseVoiceReadResult {
 }
 
 interface CaseBootstrap {
+  architecture?: "custom_llm";
   sessionId: string;
   projectionToken: string;
   openingPrompt: string;
   caseId: string;
   caseTitle: string;
   caseDescription?: string | null;
+}
+
+interface NativeCaseBootstrap {
+  architecture: "vapi_native";
+  sessionId: string;
+  assistantId: string;
+  reportToken: string;
+  reportStatus: "pending";
+  caseId: string;
+  caseTitle: string;
 }
 
 export interface PreviewCaseChoice {
@@ -489,6 +506,7 @@ export default function CaseVoiceInterview({
   const [notice, setNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [capability, setCapability] = useState<PendingCaseVoiceCapability | null>(null);
+  const [nativeCapability, setNativeCapability] = useState<PendingNativeCaseReport | null>(null);
   const [projection, setProjection] = useState<CaseVoiceProjection | null>(null);
   const [liveCaption, setLiveCaption] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED);
@@ -537,6 +555,7 @@ export default function CaseVoiceInterview({
     if (completionReportedRef.current) return;
     completionReportedRef.current = true;
     clearCaseVoicePending();
+    clearPendingNativeCaseReport();
     onCompleteRef.current?.(score);
   }, []);
 
@@ -617,24 +636,50 @@ export default function CaseVoiceInterview({
       });
       if (attempt !== startAttemptRef.current) return;
       if (!response.ok) throw new Error("Could not start the voice case session.");
-      const bootstrap = (await response.json()) as Partial<CaseBootstrap>;
+      const bootstrap = (await response.json()) as Partial<CaseBootstrap> | Partial<NativeCaseBootstrap>;
       if (attempt !== startAttemptRef.current) return;
+      if (bootstrap.architecture === "vapi_native") {
+        if (
+          typeof bootstrap.sessionId !== "string" ||
+          typeof bootstrap.assistantId !== "string" ||
+          typeof bootstrap.reportToken !== "string" ||
+          typeof bootstrap.caseId !== "string" ||
+          typeof bootstrap.caseTitle !== "string"
+        ) {
+          throw new Error("The native Case session did not initialise.");
+        }
+        const pending: PendingNativeCaseReport = {
+          sessionId: bootstrap.sessionId,
+          assistantId: bootstrap.assistantId,
+          reportToken: bootstrap.reportToken,
+          caseId: bootstrap.caseId,
+          caseTitle: bootstrap.caseTitle,
+          createdAt: Date.now(),
+        };
+        writePendingNativeCaseReport(pending);
+        setNativeCapability(pending);
+        setCallIsActive(false);
+        setStatus("ended");
+        setNotice("Native Case Voice is prepared but remains disabled until the Vapi assistants are configured.");
+        return;
+      }
+      const customBootstrap = bootstrap as Partial<CaseBootstrap>;
       if (
-        typeof bootstrap.sessionId !== "string" ||
-        typeof bootstrap.projectionToken !== "string" ||
-        typeof bootstrap.openingPrompt !== "string" ||
-        typeof bootstrap.caseId !== "string" ||
-        typeof bootstrap.caseTitle !== "string"
+        typeof customBootstrap.sessionId !== "string" ||
+        typeof customBootstrap.projectionToken !== "string" ||
+        typeof customBootstrap.openingPrompt !== "string" ||
+        typeof customBootstrap.caseId !== "string" ||
+        typeof customBootstrap.caseTitle !== "string"
       ) {
         throw new Error("The voice case session did not initialise.");
       }
 
       const pending: PendingCaseVoiceCapability = {
-        sessionId: bootstrap.sessionId,
-        projectionToken: bootstrap.projectionToken,
-        caseId: bootstrap.caseId,
-        caseTitle: bootstrap.caseTitle,
-        openingPrompt: bootstrap.openingPrompt,
+        sessionId: customBootstrap.sessionId,
+        projectionToken: customBootstrap.projectionToken,
+        caseId: customBootstrap.caseId,
+        caseTitle: customBootstrap.caseTitle,
+        openingPrompt: customBootstrap.openingPrompt,
         createdAt: Date.now(),
       };
       writeCaseVoicePending(pending);
@@ -716,7 +761,7 @@ export default function CaseVoiceInterview({
 
       const startedCall = await vapi.start(
         ASSISTANT_ID!,
-        caseVoiceStartOverrides(bootstrap as CaseBootstrap),
+        caseVoiceStartOverrides(customBootstrap as CaseBootstrap),
       ) as {
         id?: unknown;
         assistant?: { maxDurationSeconds?: unknown };
@@ -783,6 +828,15 @@ export default function CaseVoiceInterview({
   }, []);
 
   useEffect(() => {
+    const nativePending = readPendingNativeCaseReport();
+    if (nativePending) {
+      setNativeCapability(nativePending);
+      setStatus("recovering");
+      return () => {
+        startAttemptRef.current += 1;
+        teardown();
+      };
+    }
     const { pending, expired } = readCaseVoicePending();
     if (pending) {
       recoveredRef.current = true;
@@ -939,7 +993,9 @@ export default function CaseVoiceInterview({
     startAttemptRef.current += 1;
     teardown();
     clearCaseVoicePending();
+    clearPendingNativeCaseReport();
     setCapability(null);
+    setNativeCapability(null);
     setProjection(null);
     projectionRef.current = null;
     endedAtRef.current = null;
@@ -950,6 +1006,16 @@ export default function CaseVoiceInterview({
     setNotice(null);
     setSyncError(null);
   };
+
+  if (nativeCapability) {
+    return (
+      <CaseNativeVoiceInterview
+        pending={nativeCapability}
+        onComplete={reportCompletion}
+        onReset={resetToPicker}
+      />
+    );
+  }
 
   if (showPicker) {
     return (

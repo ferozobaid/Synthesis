@@ -43,6 +43,7 @@ import {
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import { isPreviewLlmCaseId } from "@/lib/voice/case-catalog";
 import { storedCaseVoiceInterviewerSnapshot } from "@/lib/voice/case-interviewer-mode";
+import { storedCaseVoiceArchitecture } from "@/lib/voice/case-native-config";
 import {
   CASE_TURN_AMBIGUITY_RESPONSE,
   authorizedCaseClarificationTopics,
@@ -1530,6 +1531,13 @@ async function processTurn(
       replayed: false,
       source: "committed",
     };
+  }
+  if (storedCaseVoiceArchitecture(initial) === "vapi_native") {
+    throw new CaseModelRequestError(
+      "native_session_wrong_endpoint",
+      409,
+      "This Case session is owned by a native Vapi assistant",
+    );
   }
   assertCaseSession(initial, parsed);
   const candidate = candidateWithSessionCacheIdentity(parsed, initial);

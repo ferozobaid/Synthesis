@@ -10,7 +10,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { Redis } from "@upstash/redis";
-import type { VoiceSession } from "@/lib/voice/types";
+import type { CaseVoiceSession, VoiceSession } from "@/lib/voice/types";
 
 /**
  * 2 hours. Comfortably outlasts a full voice interview plus post-call scoring and
@@ -126,4 +126,40 @@ const RELEASE_IF_OWNER =
 
 export async function releaseLock(key: string, token: string): Promise<void> {
   await getRedis().eval(RELEASE_IF_OWNER, [key], [token]);
+}
+
+const SAVE_CASE_REPORT_IF_FENCE_OWNER = `
+local raw = redis.call("get", KEYS[1])
+if not raw then return 0 end
+local ok, current = pcall(cjson.decode, raw)
+if not ok then return 0 end
+if tonumber(current.reportAttempt or -1) ~= tonumber(ARGV[1]) then return 0 end
+if tostring(current.reportFencingToken or "") ~= ARGV[2] then return 0 end
+redis.call("set", KEYS[1], ARGV[3], "EX", ARGV[4])
+return 1
+`;
+
+/**
+ * Atomically finalize a native Case report only while the processing attempt and
+ * fencing token still own the session. A stale/reclaimed worker cannot overwrite
+ * a later attempt even if its model call finishes after the newer worker.
+ */
+export async function saveCaseSessionIfReportFence(
+  sessionId: string,
+  reportAttempt: number,
+  fencingToken: string,
+  record: CaseVoiceSession,
+): Promise<boolean> {
+  assertValidRecord(record);
+  const result = await getRedis().eval(
+    SAVE_CASE_REPORT_IF_FENCE_OWNER,
+    [keyFor(sessionId)],
+    [
+      String(reportAttempt),
+      fencingToken,
+      JSON.stringify(record),
+      String(VOICE_SESSION_TTL_SECONDS),
+    ],
+  );
+  return Number(result) === 1;
 }
