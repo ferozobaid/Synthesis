@@ -1,8 +1,7 @@
 /**
  * Resume parser. Applies the EDA-measured cleaning rules, then a heuristic
  * structured parse: O*NET-normalised skills, experience entries (role / org /
- * dates / achievement bullets), and education. Text extraction for uploaded
- * PDF/DOCX is lazy so the heavy libs load only when a file is actually parsed.
+ * dates / achievement bullets), and education.
  */
 import type { ParsedResume } from "@/lib/types";
 import { normalizeSkills, extractCanonicalSkills } from "@/lib/onet";
@@ -27,7 +26,6 @@ export function cleanResumeText(raw: string): string {
   t = t.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   return t;
 }
-
 /** Strip a leading ALL-CAPS job-title line (~99.5% of resumes — defeats label leakage). */
 export function stripLeadingTitleLine(text: string): string {
   const lines = text.split("\n");
@@ -206,21 +204,4 @@ export function parseResume(raw: string): ParsedResume {
     : [];
 
   return { name, summary, skills, experience, education, raw_text: cleaned };
-}
-
-/** Lazily extract text from an uploaded file (PDF via unpdf, DOCX via mammoth). */
-export async function extractText(buffer: Uint8Array, filename: string): Promise<string> {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".pdf")) {
-    const { extractText: pdfExtract, getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(buffer);
-    const { text } = await pdfExtract(pdf, { mergePages: true });
-    return Array.isArray(text) ? text.join("\n") : text;
-  }
-  if (lower.endsWith(".docx")) {
-    const mammoth = await import("mammoth");
-    const { value } = await mammoth.extractRawText({ buffer: Buffer.from(buffer) });
-    return value;
-  }
-  return new TextDecoder().decode(buffer);
 }
