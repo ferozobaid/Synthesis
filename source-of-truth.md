@@ -11,8 +11,9 @@ conflict with this file, this file wins unless Feroz explicitly changes it.
 >   dashboard, unified readiness, dark/light theme, localStorage presentation
 >   state, refreshed Fit/Behavioural/Case) is **complete, merged in PR #11, and
 >   deployed** — it is not "future" work.
-> - **Supabase persistence, authentication, and user accounts are descoped** for
->   the MVP (the "if enabled" language below is aspirational, not active work).
+> - **Centralized persistence, authentication, and user accounts are descoped**
+>   for the MVP. The future database provider is undecided, and no
+>   provider-specific migrations should be designed yet.
 > - The human-validation study target is **24–36 pairs** (per Phase C), which
 >   supersedes the "40–60" figure further down in this file.
 
@@ -34,7 +35,7 @@ for a Community Analytics capstone. It has three modules:
 
 ## Current Fit Analyzer Decision
 
-The Fit Analyzer does **not** use O*NET RAG or Supabase pgvector.
+The Fit Analyzer does **not** use O*NET RAG or a remote vector database.
 
 O*NET is used as a committed local data dictionary:
 
@@ -48,8 +49,8 @@ The production Fit Analyzer route calls `scoreFitAnalyzer()`:
 - production method is `hybrid_0_25` when embeddings are enabled;
 - fallback is rules-only if embeddings are disabled or fail.
 
-This keeps the live fit path simple, explainable, cheap, and independent of
-Supabase.
+This keeps the live fit path simple, explainable, cheap, and independent of a
+centralized database.
 
 ---
 
@@ -78,15 +79,15 @@ Offline scripts are never imported by the live app.
 | Layer | Choice | Cost |
 |---|---|---|
 | Frontend / hosting | Next.js on Vercel | free tier |
-| Auth / persistence | Supabase, if user data persistence is enabled | free tier |
+| Auth / persistence | Not in the current MVP; future provider undecided | - |
 | Fit taxonomy | Local O*NET JSON dictionary | free |
 | LLM default | Claude Haiku 4.5 | cents |
 | LLM demo only | Claude Sonnet 4.6 | about $1-2 |
 | Embeddings | Local BGE-small via `@xenova/transformers` | free |
 | Voice | Browser Web Speech API | free |
 
-Guardrails: default to Haiku, keep embeddings local, sample batch validation
-work, and do not put O*NET into Supabase.
+Guardrails: default to Haiku, keep embeddings local, and sample batch validation
+work.
 
 ---
 
@@ -94,7 +95,9 @@ work, and do not put O*NET into Supabase.
 
 - **Name:** Synthesis.
 - **Fit analyzer scope:** one resume + one JD -> fit report.
-- **O*NET:** local JSON dictionary only; no O*NET RAG/pgvector.
+- **O*NET:** local JSON dictionary only; no O*NET RAG or vector database.
+- **Centralized database:** future provider undecided; do not create
+  provider-specific clients, schemas, or migrations yet.
 - **Hybrid fit method:** `hybrid_0_25` is the current production candidate,
   pending pair-level human validation.
 - **Grading-model / LLM fine-tune study:** dropped.

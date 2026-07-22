@@ -10,4 +10,5 @@ Rules:
 - `ANTHROPIC_API_KEY` is never set in any script.
 - Datasets are dev/validation only.
 - OpenAI usage is limited to the validation LLM family mapper.
-- O*NET is not ingested into Supabase; runtime code reads `lib/data/onet-taxonomy.json`.
+- O*NET is not ingested into a remote database; runtime code reads
+  `lib/data/onet-taxonomy.json`.

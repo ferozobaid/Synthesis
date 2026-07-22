@@ -357,12 +357,8 @@ describe("scoreTranscript — reuses the existing engine", () => {
   it("gracefully falls back when real-mode qualitative generation cannot call Claude", async () => {
     const prevUseMocks = process.env.SYNTHESIS_USE_MOCKS;
     const prevAnthropic = process.env.ANTHROPIC_API_KEY;
-    const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const prevSupabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     process.env.SYNTHESIS_USE_MOCKS = "false";
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     try {
       const messages: TranscriptMessage[] = [
@@ -388,10 +384,6 @@ describe("scoreTranscript — reuses the existing engine", () => {
       else process.env.SYNTHESIS_USE_MOCKS = prevUseMocks;
       if (prevAnthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = prevAnthropic;
-      if (prevSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-      else process.env.NEXT_PUBLIC_SUPABASE_URL = prevSupabaseUrl;
-      if (prevSupabaseAnon === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = prevSupabaseAnon;
     }
   });
 });

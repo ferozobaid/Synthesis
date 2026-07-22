@@ -13,8 +13,8 @@ Community Analytics capstone. The app has three modules:
 3. **Case Interview Simulator** - runs an adaptive FSM interviewer that probes,
    redirects, reveals exhibits, gives hints, and scores the final response.
 
-The Fit Analyzer does **not** use O*NET RAG or Supabase pgvector. O*NET is a
-committed local data dictionary loaded through `lib/onet.ts`.
+The Fit Analyzer does **not** use O*NET RAG or a remote vector database. O*NET
+is a committed local data dictionary loaded through `lib/onet.ts`.
 
 ---
 
@@ -60,7 +60,7 @@ A guard test asserts no `/scripts` import appears in `/app` or `/lib`.
 | O*NET | Local JSON dictionary only: `lib/data/onet-taxonomy.json` |
 | Embeddings | Local BGE-small via `@xenova/transformers`; never a paid API |
 | Voice | Web Speech API, browser only |
-| Auth / persistence | Supabase planned for user data, not for O*NET taxonomy retrieval |
+| Auth / persistence | Not in the current MVP; future centralized database provider undecided |
 | Datasets | Dev/validation only; never imported by live-plane code |
 
 ---
@@ -72,7 +72,6 @@ app/          Next.js App Router - UIs + API routes
 lib/          Live-plane utilities: parsers, fit scoring, O*NET dictionary,
               embeddings, retrieval helpers, case FSM, shared types
 components/   Shared UI
-supabase/     User-data migrations and mock-compatible schema
 scripts/      Offline validation and O*NET taxonomy maintenance
 context/      Cases, behavioural bank, samples, scoring criteria
 tests/        Vitest unit + integration tests

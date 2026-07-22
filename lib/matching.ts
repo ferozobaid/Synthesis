@@ -7,8 +7,9 @@
  * then aggregated into a weighted 0–100 score with gaps, missing keywords and
  * prioritised recommendations.
  *
- * No Claude, no embeddings, no Supabase: parsing + matching are pure functions,
- * so this produces real scores in mock mode (no credentials) and in tests.
+ * No Claude, no embeddings, no centralized database: parsing + matching are
+ * pure functions, so this produces real scores in mock mode (no credentials)
+ * and in tests.
  */
 import type {
   FitReport,

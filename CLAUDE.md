@@ -27,11 +27,12 @@ with a rules-only fallback.
 
 - **O*NET grounding:** local JSON dictionary only:
   `lib/data/onet-taxonomy.json` loaded through `lib/onet.ts`.
-- **No O*NET RAG:** do not build `onet_chunks`, `match_onet_chunks`, O*NET
-  pgvector ingestion, or Supabase storage for O*NET taxonomy content.
+- **No O*NET RAG:** do not build `onet_chunks`, `match_onet_chunks`, vector
+  database ingestion, or remote database storage for O*NET taxonomy content.
 - **Embeddings:** local BGE-small via `@xenova/transformers`; never a paid API.
-- **Supabase:** still valid for future user data, auth, persistence, and saved
-  sessions. It is not needed for O*NET taxonomy retrieval.
+- **Centralized database:** authentication and persistence are not part of the
+  current MVP. The future provider is undecided; do not add a provider-specific
+  client, configuration, schema, or migrations until that decision is made.
 - **Retrieval helpers:** `lib/rag.ts` is only for behavioural answer-bank matching
   and case-stage pre-fetch. It is not an O*NET retriever.
 - **Datasets:** dev/validation only; never imported by live-plane code.
@@ -68,7 +69,6 @@ app/          Next.js App Router: UIs + API routes
 lib/          Live utilities: parsers, scoring, O*NET dictionary, embeddings,
               retrieval helpers, case FSM, shared types
 components/   Shared UI
-supabase/     User-data schema migrations
 scripts/      Offline validation + O*NET taxonomy maintenance
 context/      Cases, behavioural bank, JD/resume samples, scoring criteria
 tests/        Vitest unit + integration tests
@@ -84,7 +84,8 @@ reports/      Generated deliverable reports
 - Do not hardcode credentials.
 - Do not set `ANTHROPIC_API_KEY` in scripts.
 - Do not import datasets or validation artifacts into live-plane code.
-- Do not reintroduce O*NET Supabase/pgvector RAG; use `lib/onet.ts`.
+- Do not add authentication, persistence, or provider-specific database code.
+- Do not reintroduce O*NET vector-database RAG; use `lib/onet.ts`.
 - Keep `scoreFit()` available as the structured baseline.
 - Use `scoreFitAnalyzer()` for the production Fit Analyzer path.
 - Run `npm run typecheck` and `npm test` after relevant code changes.
@@ -127,7 +128,7 @@ gitignored. The current validation report is generated from
 - `npm run typecheck` passes.
 - `npm test` passes.
 - No `/scripts` imports appear in `/app` or `/lib`.
-- Fit Analyzer continues to run without Supabase.
+- Fit Analyzer continues to run without a centralized database.
 - O*NET taxonomy access remains local JSON + `lib/onet.ts`.
 - Any validation claim is backed by current `scripts/validation` artifacts or a
   clearly described human-check plan.
