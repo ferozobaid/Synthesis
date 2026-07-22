@@ -8,6 +8,7 @@ import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { RequirementCard } from "@/components/ui/RequirementCard";
 import { Spinner, SectionLabel } from "@/components/ui/primitives";
 import { readinessBand, fitVerdict } from "@/components/ui/verdict";
+import { DocumentInput } from "@/components/DocumentInput";
 
 interface FitScoring {
   method: string;
@@ -17,7 +18,6 @@ interface FitScoring {
   embedding_backend?: EmbeddingBackend;
   fallback_reason: string | null;
 }
-
 interface FitResponse {
   mock: boolean;
   report: FitReport;
@@ -117,33 +117,31 @@ export default function FitPage() {
       {/* EMPTY */}
       {phase === "empty" && (
         <div style={{ maxWidth: 620, margin: "20px auto 0" }}>
-          {!hasInputs && (
-            <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
-              <div>
-                <SectionLabel style={{ marginBottom: 8 }}>Resume</SectionLabel>
-                <textarea
-                  value={resume}
-                  onChange={(e) => setResume(e.target.value)}
-                  placeholder="Paste your resume text…"
-                  aria-label="Your resume text"
-                  style={inputStyle(120)}
-                />
-              </div>
-              <div>
-                <SectionLabel style={{ marginBottom: 8 }}>Job description</SectionLabel>
-                <textarea
-                  value={jd}
-                  onChange={(e) => setJd(e.target.value)}
-                  placeholder="Paste the job description…"
-                  aria-label="Job description text"
-                  style={inputStyle(120)}
-                />
-              </div>
-              <div style={{ fontSize: 12, color: "var(--ink-4)" }}>
-                Or <Link href="/onboard" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>set a target role</Link> once and reuse it everywhere.
-              </div>
+          <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
+            <div>
+              <SectionLabel style={{ marginBottom: 8 }}>Resume</SectionLabel>
+              <DocumentInput
+                kind="resume"
+                value={resume}
+                onTextChange={setResume}
+                textareaLabel="Your resume text"
+                placeholder="Paste your resume text…"
+              />
             </div>
-          )}
+            <div>
+              <SectionLabel style={{ marginBottom: 8 }}>Job description</SectionLabel>
+              <DocumentInput
+                kind="job description"
+                value={jd}
+                onTextChange={setJd}
+                textareaLabel="Job description text"
+                placeholder="Paste the job description…"
+              />
+            </div>
+            <div style={{ fontSize: 12, color: "var(--ink-4)" }}>
+              Or <Link href="/onboard" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>set a target role</Link> once and reuse it everywhere.
+            </div>
+          </div>
           <div
             style={{
               background: "var(--surface)",
@@ -334,20 +332,4 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
       </div>
     </>
   );
-}
-
-function inputStyle(height: number): React.CSSProperties {
-  return {
-    width: "100%",
-    height,
-    resize: "vertical",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
-    padding: "11px 12px",
-    fontSize: 13,
-    lineHeight: 1.5,
-    color: "var(--ink)",
-    background: "var(--surface)",
-    outline: "none",
-  };
 }
