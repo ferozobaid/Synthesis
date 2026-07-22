@@ -77,7 +77,7 @@ export interface CaseVoiceProjectedTurn {
 }
 
 export interface CaseVoiceProjection {
-  caseId: "beautify";
+  caseId: string;
   caseTitle: string;
   openingText: string;
   readinessStatus: "awaiting" | "confirmed";
@@ -100,7 +100,7 @@ export interface CaseVoiceProjection {
 export interface PendingCaseVoiceCapability {
   sessionId: string;
   projectionToken: string;
-  caseId: "beautify";
+  caseId: string;
   caseTitle: string;
   openingPrompt: string;
   createdAt: number;
@@ -115,7 +115,15 @@ interface CaseBootstrap {
   sessionId: string;
   projectionToken: string;
   openingPrompt: string;
+  caseId: string;
   caseTitle: string;
+  caseDescription?: string | null;
+}
+
+export interface PreviewCaseChoice {
+  id: string;
+  title: string;
+  description: string;
 }
 
 export class CaseProjectionUnavailableError extends Error {
@@ -173,7 +181,8 @@ export function readCaseVoicePending(
     if (!raw) return { pending: null, expired: false };
     const value = JSON.parse(raw) as Partial<PendingCaseVoiceCapability>;
     const valid =
-      value.caseId === "beautify" &&
+      typeof value.caseId === "string" &&
+      value.caseId.length > 0 &&
       typeof value.sessionId === "string" &&
       value.sessionId.length > 0 &&
       typeof value.projectionToken === "string" &&
@@ -199,7 +208,7 @@ export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
       openingPrompt: bootstrap.openingPrompt,
       caseTitle: bootstrap.caseTitle,
     },
-    metadata: { sessionId: bootstrap.sessionId, caseId: "beautify" },
+    metadata: { sessionId: bootstrap.sessionId, caseId: bootstrap.caseId },
   };
 }
 
@@ -214,6 +223,62 @@ export function caseVoiceControls(
       (status === "idle" || status === "ended" || status === "expired" || status === "error"),
     mute: callActive && sdkReady,
     end: callActive,
+  };
+}
+
+export type CaseCatalogStatus = "loading" | "loaded" | "error";
+
+/** Load the two selectable Preview LLM cases. Any failure (or empty list) is an error state. */
+export async function fetchPreviewCatalog(
+  fetcher: typeof fetch = fetch,
+): Promise<{ status: "loaded" | "error"; cases: PreviewCaseChoice[] }> {
+  try {
+    const response = await fetcher("/api/case/catalog");
+    if (!response.ok) return { status: "error", cases: [] };
+    const parsed = (await response.json()) as { cases?: unknown };
+    const cases = Array.isArray(parsed.cases)
+      ? parsed.cases.filter(
+          (entry): entry is PreviewCaseChoice =>
+            Boolean(entry) &&
+            typeof (entry as PreviewCaseChoice).id === "string" &&
+            typeof (entry as PreviewCaseChoice).title === "string" &&
+            typeof (entry as PreviewCaseChoice).description === "string",
+        )
+      : [];
+    return cases.length > 0 ? { status: "loaded", cases } : { status: "error", cases: [] };
+  } catch {
+    return { status: "error", cases: [] };
+  }
+}
+
+export interface CaseCatalogView {
+  showLoading: boolean;
+  showError: boolean;
+  showCases: boolean;
+  canRetry: boolean;
+  canStart: boolean;
+}
+
+/**
+ * Pure Start/retry availability for the catalog picker. Start is only ever
+ * enabled once the catalog has loaded, voice is configured, and the candidate
+ * has explicitly selected one of the loaded cases.
+ */
+export function caseVoiceStartAvailability(input: {
+  catalogStatus: CaseCatalogStatus;
+  cases: PreviewCaseChoice[];
+  selectedCaseId: string | null;
+  configured: boolean;
+}): CaseCatalogView {
+  const selectionValid =
+    input.selectedCaseId !== null &&
+    input.cases.some((entry) => entry.id === input.selectedCaseId);
+  return {
+    showLoading: input.catalogStatus === "loading",
+    showError: input.catalogStatus === "error",
+    showCases: input.catalogStatus === "loaded",
+    canRetry: input.catalogStatus === "error",
+    canStart: input.catalogStatus === "loaded" && input.configured && selectionValid,
   };
 }
 
@@ -347,7 +412,8 @@ function parseProjection(value: unknown): CaseVoiceProjection {
   const projection = value as Partial<CaseVoiceProjection> | null;
   if (
     !projection ||
-    projection.caseId !== "beautify" ||
+    typeof projection.caseId !== "string" ||
+    !projection.caseId ||
     typeof projection.caseTitle !== "string" ||
     typeof projection.openingText !== "string" ||
     !isCaseState(projection.stage) ||
@@ -407,13 +473,14 @@ function statusLabel(status: CaseVoiceStatus): string {
 }
 
 export default function CaseVoiceInterview({
-  caseId,
   onComplete,
 }: {
-  caseId: string;
   onComplete?: (score: CaseScore) => void;
 }) {
   const configured = Boolean(WEB_KEY && ASSISTANT_ID);
+  const [catalogStatus, setCatalogStatus] = useState<CaseCatalogStatus>("loading");
+  const [catalog, setCatalog] = useState<PreviewCaseChoice[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [status, setStatus] = useState<CaseVoiceStatus>("idle");
   const [muted, setMuted] = useState(false);
   const [callActive, setCallActive] = useState(false);
@@ -518,8 +585,8 @@ export default function CaseVoiceInterview({
     setNotice(caseVoiceEndedNotice(endedReason));
   }, [reportCompletion, setCallIsActive]);
 
-  const start = useCallback(async () => {
-    if (!configured || caseId !== "beautify" || callActiveRef.current) return;
+  const start = useCallback(async (startCaseId?: string) => {
+    if (!configured || callActiveRef.current) return;
     teardown();
     clearCaseVoicePending();
     completionReportedRef.current = false;
@@ -546,25 +613,26 @@ export default function CaseVoiceInterview({
       const response = await fetch("/api/vapi/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ module: "case", caseId: "beautify" }),
+        body: JSON.stringify({ module: "case", ...(startCaseId ? { caseId: startCaseId } : {}) }),
       });
       if (attempt !== startAttemptRef.current) return;
-      if (!response.ok) throw new Error("Could not start the Beautify voice session.");
+      if (!response.ok) throw new Error("Could not start the voice case session.");
       const bootstrap = (await response.json()) as Partial<CaseBootstrap>;
       if (attempt !== startAttemptRef.current) return;
       if (
         typeof bootstrap.sessionId !== "string" ||
         typeof bootstrap.projectionToken !== "string" ||
         typeof bootstrap.openingPrompt !== "string" ||
+        typeof bootstrap.caseId !== "string" ||
         typeof bootstrap.caseTitle !== "string"
       ) {
-        throw new Error("The Beautify voice session did not initialise.");
+        throw new Error("The voice case session did not initialise.");
       }
 
       const pending: PendingCaseVoiceCapability = {
         sessionId: bootstrap.sessionId,
         projectionToken: bootstrap.projectionToken,
-        caseId: "beautify",
+        caseId: bootstrap.caseId,
         caseTitle: bootstrap.caseTitle,
         openingPrompt: bootstrap.openingPrompt,
         createdAt: Date.now(),
@@ -683,7 +751,7 @@ export default function CaseVoiceInterview({
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Could not start the Case voice interview.");
     }
-  }, [caseId, configured, handleCallEnd, setCallIsActive, teardown]);
+  }, [configured, handleCallEnd, setCallIsActive, teardown]);
 
   const endCall = useCallback(() => {
     const latest = projectionRef.current;
@@ -730,6 +798,19 @@ export default function CaseVoiceInterview({
       teardown();
     };
   }, [teardown]);
+
+  // Load the two selectable Preview LLM cases. Distinguishes loading / loaded /
+  // error so the picker never offers Start (or bootstraps) without a selection.
+  const loadCatalog = useCallback(async () => {
+    setCatalogStatus("loading");
+    const { status, cases } = await fetchPreviewCatalog();
+    setCatalog(cases);
+    setCatalogStatus(status);
+  }, []);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
 
   useEffect(() => {
     if (!capability) return;
@@ -839,11 +920,112 @@ export default function CaseVoiceInterview({
     ),
   );
 
-  if (caseId !== "beautify") {
+  // The Case Simulator always opens on the two-case picker. It shows whenever no
+  // session is active, and Start stays disabled until the catalog has loaded and
+  // a case is explicitly selected.
+  const showPicker = !callActive && !capability;
+  const availability = caseVoiceStartAvailability({
+    catalogStatus,
+    cases: catalog,
+    selectedCaseId,
+    configured,
+  });
+  const caseLabel = projection?.caseTitle
+    ?? capability?.caseTitle
+    ?? catalog.find((entry) => entry.id === selectedCaseId)?.title
+    ?? "Live voice";
+
+  const resetToPicker = () => {
+    startAttemptRef.current += 1;
+    teardown();
+    clearCaseVoicePending();
+    setCapability(null);
+    setProjection(null);
+    projectionRef.current = null;
+    endedAtRef.current = null;
+    setTimerEndedAt(null);
+    setSelectedCaseId(null);
+    setStatus("idle");
+    setError(null);
+    setNotice(null);
+    setSyncError(null);
+  };
+
+  if (showPicker) {
     return (
-      <p role="status" style={{ color: "var(--ink-3)", fontSize: 13, margin: "18px 0 0" }}>
-        Live voice is available for Beautify only in this release.
-      </p>
+      <div style={{ marginTop: 18 }}>
+        <SectionLabel style={{ marginBottom: 12 }}>Choose a case</SectionLabel>
+        {!configured && (
+          <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
+            Case voice is not configured for this Preview deployment.
+          </p>
+        )}
+
+        {availability.showLoading && (
+          <p role="status" aria-live="polite" style={{ margin: "0 2px", fontSize: 13, color: "var(--ink-3)" }}>
+            Loading cases…
+          </p>
+        )}
+
+        {availability.showError && (
+          <div role="alert" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "var(--gap)" }}>
+              The available cases could not be loaded.
+            </span>
+            <button type="button" onClick={() => void loadCatalog()} style={buttonStyle("ghost")}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {availability.showCases && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+              {catalog.map((entry) => {
+                const selected = selectedCaseId === entry.id;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setSelectedCaseId(entry.id)}
+                    style={{
+                      textAlign: "left",
+                      border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
+                      borderRadius: 12,
+                      background: selected ? "var(--surface-2)" : "var(--surface)",
+                      padding: "16px 18px",
+                      cursor: "pointer",
+                      boxShadow: "var(--shadow-sm)",
+                    }}
+                  >
+                    <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                disabled={!availability.canStart}
+                onClick={() => {
+                  if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                }}
+                style={buttonStyle("solid", !availability.canStart)}
+              >
+                Start voice interview
+              </button>
+            </div>
+          </>
+        )}
+
+        {(notice || error) && (
+          <p role="status" style={{ margin: "12px 2px 0", fontSize: 12, color: error ? "var(--gap)" : "var(--ink-3)" }}>
+            {error ?? notice}
+          </p>
+        )}
+      </div>
     );
   }
 
@@ -874,7 +1056,7 @@ export default function CaseVoiceInterview({
         />
         <div style={{ minWidth: 0 }} role="status" aria-live="polite">
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--secondary)", fontWeight: 600 }}>
-            BEAUTIFY LIVE VOICE
+            {caseLabel.toUpperCase()} · LIVE VOICE
           </div>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
             {projection?.liveStatus === "concluded_unscored"
@@ -900,8 +1082,12 @@ export default function CaseVoiceInterview({
             </div>
           </div>
           {controls.start && (
-            <button type="button" onClick={start} disabled={!configured} style={buttonStyle("solid", !configured)}>
-              {status === "idle" ? "Start voice interview" : "Start new interview"}
+            <button
+              type="button"
+              onClick={resetToPicker}
+              style={buttonStyle("solid")}
+            >
+              Start new interview
             </button>
           )}
           {controls.mute && (

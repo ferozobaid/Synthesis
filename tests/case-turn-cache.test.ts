@@ -97,13 +97,13 @@ describe("Case Voice controller cache identity", () => {
       "session-1",
       "call-1",
       BASE_MESSAGES,
-      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1" },
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1", selectedCaseId: "airport_profitability" },
     );
     const llmV2Request = buildCaseVoiceRequestCacheKey(
       "session-1",
       "call-1",
       BASE_MESSAGES,
-      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v2" },
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v2", selectedCaseId: "airport_profitability" },
     );
     const legacyLogical = buildCaseVoiceLogicalTurnKey(
       "call-1",
@@ -115,11 +115,28 @@ describe("Case Voice controller cache identity", () => {
       "call-1",
       BASE_MESSAGES,
       1,
-      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1" },
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1", selectedCaseId: "airport_profitability" },
     );
 
     expect(llmV1Request).not.toBe(legacyRequest);
     expect(llmV2Request).not.toBe(llmV1Request);
     expect(llmLogical).not.toBe(legacyLogical);
+  });
+
+  it("isolates the selected LLM case so Airport and Gym cannot replay each other", () => {
+    const airport = {
+      interviewerMode: "llm" as const,
+      interviewerVersion: "case-voice-llm-v1",
+      selectedCaseId: "airport_profitability",
+    };
+    const gym = {
+      interviewerMode: "llm" as const,
+      interviewerVersion: "case-voice-llm-v1",
+      selectedCaseId: "gcc_premium_gym_market_entry",
+    };
+    expect(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, airport))
+      .not.toBe(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, gym));
+    expect(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, airport))
+      .not.toBe(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, gym));
   });
 });

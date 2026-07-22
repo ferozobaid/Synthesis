@@ -2,7 +2,7 @@ import { CASE_VOICE_CONTROLLER_VERSION } from "@/lib/voice/case-turn-plan";
 
 export type CaseVoiceInterviewerMode = "legacy" | "llm";
 
-export const CASE_VOICE_LLM_VERSION = "case-voice-llm-v1";
+export const CASE_VOICE_LLM_VERSION = "case-voice-llm-v2";
 
 export interface CaseVoiceInterviewerSnapshot {
   mode: CaseVoiceInterviewerMode;

@@ -15,7 +15,7 @@ import {
   caseLiveFact,
   caseLiveStageGuidance,
   nextEligibleCaseLiveExhibit,
-  type BeautifyLiveInterviewerPacket,
+  type CaseLiveInterviewerPacket,
 } from "@/lib/voice/case-live-packet";
 import type { CaseVoiceSession } from "@/lib/voice/types";
 import {
@@ -145,12 +145,33 @@ function protectedQuantClaims(c: CaseRecord): {
   };
 }
 
+/**
+ * Numbers the backend has already placed in the candidate-safe packet for the
+ * current stage. These are safe for the interviewer to speak because they are,
+ * by construction, candidate-facing. Stage-scoped fields (currentInterviewer)
+ * only carry the current stage's figures, so authorization tracks disclosure.
+ * Protected/derived answers never appear in the packet, so they are never
+ * authorized here.
+ */
+function packetAuthorizedNumericText(packet: CaseLiveInterviewerPacket): string {
+  return [
+    packet.openingPrompt,
+    packet.currentInterviewer.objective,
+    packet.currentInterviewer.prompt,
+    ...packet.frameworkExpectations,
+    ...packet.analysisPrompts,
+    packet.pressureTestPrompt,
+    ...packet.recommendationRequirements,
+  ].join(" ");
+}
+
 function backendAuthorizedNumericClaims(input: {
   approvedFactText?: string;
-  packet: BeautifyLiveInterviewerPacket;
+  packet: CaseLiveInterviewerPacket;
 }): CanonicalNumericClaim[] {
   return [
     ...canonicalNumericClaims(input.approvedFactText ?? ""),
+    ...canonicalNumericClaims(packetAuthorizedNumericText(input.packet)),
     ...input.packet.revealedExhibits.flatMap((exhibit) =>
       canonicalNumericClaimsFromData(exhibit.data)
     ),
@@ -161,7 +182,7 @@ function numericWordingFailure(input: {
   spoken: string;
   candidateText: string;
   approvedFactText?: string;
-  packet: BeautifyLiveInterviewerPacket;
+  packet: CaseLiveInterviewerPacket;
   caseRecord: CaseRecord;
 }): string | null {
   const spokenClaims = canonicalNumericClaims(input.spoken);
@@ -190,7 +211,7 @@ function numericWordingFailure(input: {
 function leaksUnrevealedExhibitContent(
   spoken: string,
   candidateText: string,
-  packet: BeautifyLiveInterviewerPacket,
+  packet: CaseLiveInterviewerPacket,
   c: CaseRecord,
 ): boolean {
   const normalizedSpoken = normalize(spoken);
@@ -227,7 +248,7 @@ export function validateCaseInterviewerWording(input: {
   spokenText: string;
   candidateText: string;
   decision: CaseInterviewerDecision;
-  packet: BeautifyLiveInterviewerPacket;
+  packet: CaseLiveInterviewerPacket;
   caseRecord: CaseRecord;
   approvedFactText?: string;
 }): WordingValidation {
@@ -291,7 +312,7 @@ function fallbackApplication(
   return {
     spokenText: awaiting
       ? CASE_NOT_READY_RESPONSE
-      : caseLiveStageGuidance(stage).fallback,
+      : caseLiveStageGuidance(current.caseId, stage).fallback,
     candidateAction,
     stageBefore: stage,
     stageAfter: stage,
@@ -338,10 +359,12 @@ function actionAllowedInStage(action: CaseInterviewerCandidateAction, stage: Cas
   return false;
 }
 
-function factSpeech(factIds: string[], advancing: boolean): string {
-  const facts = factIds.map(caseLiveFact).filter((fact): fact is NonNullable<typeof fact> => fact !== null);
+function factSpeech(caseId: string, factIds: string[], advancing: boolean): string {
+  const facts = factIds
+    .map((id) => caseLiveFact(caseId, id))
+    .filter((fact): fact is NonNullable<typeof fact> => fact !== null);
   const followUp = advancing
-    ? caseLiveStageGuidance("framework").prompt
+    ? caseLiveStageGuidance(caseId, "framework").prompt
     : "Do you have another clarification, or are you ready to structure your approach?";
   return `Certainly. ${facts.map((fact) => fact.text).join(" ")} ${followUp}`;
 }
@@ -349,7 +372,7 @@ function factSpeech(factIds: string[], advancing: boolean): string {
 function metaSpeech(
   current: CaseVoiceSession,
   decision: CaseInterviewerDecision,
-  packet: BeautifyLiveInterviewerPacket,
+  packet: CaseLiveInterviewerPacket,
 ): { text: string; conversationStatus: "active" | "paused" } {
   if (decision.candidateAction === "pause" || decision.candidateAction === "not_ready") {
     return {
@@ -375,13 +398,14 @@ function metaSpeech(
 export function applyCaseInterviewerDecision(input: {
   current: CaseVoiceSession;
   caseRecord: CaseRecord;
-  packet: BeautifyLiveInterviewerPacket;
+  packet: CaseLiveInterviewerPacket;
   candidateText: string;
   outcome: CaseInterviewerOutcome;
   failureReason?: CaseInterviewerFailureReason | null;
   decision: CaseInterviewerDecision | null;
 }): CaseInterviewerApplication {
   const { current, caseRecord, packet, candidateText } = input;
+  const caseId = caseRecord.id;
   const stage = current.session.fsm_state;
   const decision = input.decision;
   if (input.outcome !== "success" || !decision) {
@@ -466,7 +490,7 @@ export function applyCaseInterviewerDecision(input: {
     if (
       stage === "data_reveal" &&
       decision.proposedStage === "pressure_test" &&
-      nextEligibleCaseLiveExhibit(current.session, "data_reveal")
+      nextEligibleCaseLiveExhibit(caseId, current.session, "data_reveal")
     ) return fallbackApplication(current, decision.candidateAction, "pending_exhibits");
   }
 
@@ -482,7 +506,7 @@ export function applyCaseInterviewerDecision(input: {
   const stageAfter = decision.proposedStage ?? stage;
   let exhibit: CaseExhibit | null = null;
   if (decision.requestedExhibitId !== null) {
-    const expected = nextEligibleCaseLiveExhibit(current.session, stageAfter);
+    const expected = nextEligibleCaseLiveExhibit(caseId, current.session, stageAfter);
     if (!expected || expected.id !== decision.requestedExhibitId) {
       return fallbackApplication(current, decision.candidateAction, "invalid_exhibit_id_or_order");
     }
@@ -513,7 +537,7 @@ export function applyCaseInterviewerDecision(input: {
   }
 
   const approvedFactText = decision.requestedFactIds
-    .map(caseLiveFact)
+    .map((id) => caseLiveFact(caseId, id))
     .filter((fact): fact is NonNullable<typeof fact> => fact !== null)
     .map((fact) => fact.text)
     .join(" ");
@@ -561,7 +585,7 @@ export function applyCaseInterviewerDecision(input: {
     : exhibit
       ? `I’m sharing ${exhibit.title}. Take a moment to review it, then tell me what stands out.`
       : decision.requestedFactIds.length > 0
-        ? factSpeech(decision.requestedFactIds, stageAfter === "framework")
+        ? factSpeech(caseId, decision.requestedFactIds, stageAfter === "framework")
         : decision.spokenResponse;
 
   return {

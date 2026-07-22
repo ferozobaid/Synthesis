@@ -137,6 +137,9 @@ export interface CaseVoiceSession {
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Snapshotted candidate-facing selection metadata (backend-derived). */
+  selectedCaseTitle?: string;
+  selectedCaseDescription?: string;
   /** Architecture is frozen at bootstrap; absent means legacy. */
   interviewerMode?: CaseVoiceInterviewerMode;
   interviewerVersion?: string;

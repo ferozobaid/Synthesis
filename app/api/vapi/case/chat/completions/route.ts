@@ -20,6 +20,7 @@ import {
   caseFrameworkFrustrationText,
   caseMetaConversationText,
   caseOpeningAfterReadiness,
+  caseReadinessPrompt,
 } from "@/lib/voice/case-conversation";
 import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
 import {
@@ -36,9 +37,11 @@ import {
   CASE_CONCLUDED_UNSCORED_RESPONSE,
 } from "@/lib/voice/case-interviewer-guard";
 import {
-  buildBeautifyLivePacket,
+  buildCaseLivePacket,
   caseLiveStageGuidance,
 } from "@/lib/voice/case-live-packet";
+import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
+import { isPreviewLlmCaseId } from "@/lib/voice/case-catalog";
 import { storedCaseVoiceInterviewerSnapshot } from "@/lib/voice/case-interviewer-mode";
 import {
   CASE_TURN_AMBIGUITY_RESPONSE,
@@ -95,6 +98,27 @@ const TENTATIVE_CONTROL_REVISION_WINDOW_MILLISECONDS = 1_750;
 const CACHE_LIMIT = 50;
 const MODEL_NAME = "synthesis-case-fsm";
 
+/** The Case Simulator supports exactly the two Preview LLM cases. */
+function isSupportedVoiceCase(caseId: string): boolean {
+  return isPreviewLlmCaseId(caseId);
+}
+
+/** Fixed, non-empty response for sessions created by an older Case Simulator. */
+const RETIRED_CASE_RESTART_RESPONSE =
+  "This interview was created with an older version of the Case Simulator. Please end this call and start a new interview.";
+
+function retiredSessionResult(current: CaseVoiceSession): CaseVoiceModelResponse {
+  return {
+    spokenText: RETIRED_CASE_RESTART_RESPONSE,
+    stage: current.session.fsm_state,
+    action: "conversation",
+    exhibit: null,
+    complete: false,
+    score: null,
+    turnSeq: current.turnSeq ?? 0,
+  };
+}
+
 interface OpenAIMessage {
   id?: unknown;
   role?: unknown;
@@ -119,7 +143,7 @@ interface NormalizedMessage {
   content: string;
 }
 
-interface CandidateRequest {
+interface ParsedCandidateRequest {
   sessionId: string;
   callId: string;
   requestedCaseId: string | null;
@@ -128,6 +152,9 @@ interface CandidateRequest {
   messageId: string | null;
   requestId: string | null;
   candidateIndex: number;
+}
+
+interface CandidateRequest extends ParsedCandidateRequest {
   cacheKey: string;
   logicalTurnKey: string;
 }
@@ -258,7 +285,7 @@ function latestCandidateMessage(messages: NormalizedMessage[]): { message: Norma
 function parseCandidateRequest(
   req: NextRequest,
   body: OpenAIChatRequest,
-): CandidateRequest {
+): ParsedCandidateRequest {
   const metadata = body.metadata as Record<string, unknown> | null;
   const call = body.call as Record<string, unknown> | null;
   const sessionId = firstString(metadata?.sessionId, body.sessionId);
@@ -274,9 +301,9 @@ function parseCandidateRequest(
   if (!callId) {
     throw new CaseModelRequestError("missing_call_id", 400, "call.id metadata is required");
   }
-  if (requestedCaseId && requestedCaseId !== "beautify") {
-    throw new CaseModelRequestError("unsupported_case", 400, "Only the Beautify case supports voice");
-  }
+  // The metadata caseId is advisory; the stored session is authoritative. An
+  // unsupported id is handled by assertCaseSession (mismatch) or the retired-
+  // session restart response, so do not reject it here.
   if (!answer) {
     throw new CaseModelRequestError("missing_answer", 400, "The latest candidate turn is empty");
   }
@@ -299,34 +326,34 @@ function parseCandidateRequest(
       req.headers.get("x-vercel-id"),
     ),
     candidateIndex: latestCandidate!.index,
-    cacheKey: buildCaseVoiceRequestCacheKey(sessionId, callId, messages),
-    logicalTurnKey: buildCaseVoiceLogicalTurnKey(callId, messages, latestCandidate!.index),
   };
 }
 
 function candidateWithSessionCacheIdentity(
-  candidate: CandidateRequest,
+  candidate: ParsedCandidateRequest,
   current: CaseVoiceSession,
 ): CandidateRequest {
   const interviewer = storedCaseVoiceInterviewerSnapshot(current);
-  if (interviewer.mode !== "llm") return candidate;
-  const identity = {
-    interviewerMode: "llm" as const,
-    interviewerVersion: interviewer.version,
-  };
+  const identity = interviewer.mode === "llm"
+    ? {
+        interviewerMode: "llm" as const,
+        interviewerVersion: interviewer.version,
+        selectedCaseId: current.caseId,
+      }
+    : undefined;
   return {
     ...candidate,
     cacheKey: buildCaseVoiceRequestCacheKey(
       candidate.sessionId,
       candidate.callId,
       candidate.messages,
-      identity,
+      identity ?? {},
     ),
     logicalTurnKey: buildCaseVoiceLogicalTurnKey(
       candidate.callId,
       candidate.messages,
       candidate.candidateIndex,
-      identity,
+      identity ?? {},
     ),
   };
 }
@@ -515,18 +542,31 @@ function openAIResponse(
   });
 }
 
-function assertCaseSession(
+function assertCaseSessionModule(
   current: CaseVoiceSession | null,
-  candidate: CandidateRequest,
 ): asserts current is CaseVoiceSession {
   if (!current || current.module !== "case") {
     throw new CaseModelRequestError("session_not_found", 404, "Case voice session not found or expired");
   }
+}
+
+function assertCaseSession(
+  current: CaseVoiceSession | null,
+  candidate: ParsedCandidateRequest,
+): asserts current is CaseVoiceSession {
+  assertCaseSessionModule(current);
   if (current.callId && current.callId !== candidate.callId) {
     throw new CaseModelRequestError("call_mismatch", 409, "Case voice session is bound to another call");
   }
-  if (current.caseId !== "beautify") {
-    throw new CaseModelRequestError("unsupported_case", 400, "Only the Beautify case supports voice");
+  // The snapshotted case is authoritative: reject metadata that names another
+  // case so an active session can never switch cases mid-call. Retired-case
+  // handling (older sessions) happens in processTurn before this point matters.
+  if (
+    candidate.requestedCaseId &&
+    candidate.requestedCaseId !== current.caseId &&
+    isSupportedVoiceCase(current.caseId)
+  ) {
+    throw new CaseModelRequestError("case_mismatch", 409, "Case voice session is bound to another case");
   }
   const concludedLlm =
     storedCaseVoiceInterviewerSnapshot(current).mode === "llm" &&
@@ -554,7 +594,7 @@ function nonEmptyLlmFallbackResult(current: CaseVoiceSession): CaseVoiceModelRes
   return {
     spokenText: awaiting
       ? CASE_NOT_READY_RESPONSE
-      : caseLiveStageGuidance(current.session.fsm_state).fallback,
+      : caseLiveStageGuidance(current.caseId, current.session.fsm_state).fallback,
     stage: current.session.fsm_state,
     action: "fallback",
     exhibit: null,
@@ -715,7 +755,7 @@ interface ProcessedCandidateResult {
 
 function currentInterviewerPrompt(current: CaseVoiceSession): string {
   const turns = current.projectedTurns ?? [];
-  return turns.at(-1)?.interviewerText ?? current.openingText ?? CASE_READINESS_PROMPT;
+  return turns.at(-1)?.interviewerText ?? current.openingText ?? caseReadinessPrompt(current.caseId);
 }
 
 function candidateIntentForPlan(intent: CaseTurnControllerIntent): CaseCandidateIntent {
@@ -981,11 +1021,11 @@ async function evaluateLlmCandidate(
   candidate: CandidateRequest,
   timings: CaseTurnTimings,
 ): Promise<CandidateEvaluation> {
-  const c = mockCase(current.caseId);
+  const c = voiceCaseRecord(current.caseId);
   if (!c) {
     throw new CaseModelRequestError("case_not_found", 404, "The Case content is unavailable");
   }
-  const packet = buildBeautifyLivePacket({
+  const packet = buildCaseLivePacket({
     caseRecord: c,
     session: current.session,
     readinessStatus: current.readinessStatus ?? "confirmed",
@@ -1078,7 +1118,7 @@ async function evaluateLlmCandidate(
           complete: false,
         },
         openingText: confirmedReadiness
-          ? `${CASE_READINESS_PROMPT}\n\n${application.spokenText}`
+          ? `${caseReadinessPrompt(latest.caseId)}\n\n${application.spokenText}`
           : latest.openingText,
         readinessStatus: application.readinessStatus ?? latest.readinessStatus,
         readinessConfirmedAt: confirmedReadiness ? timestamp : latest.readinessConfirmedAt,
@@ -1468,14 +1508,31 @@ async function processTurn(
   body: OpenAIChatRequest,
   timings: CaseTurnTimings,
 ): Promise<ProcessedCandidateResult & { cacheKey: string }> {
-  let candidate = parseCandidateRequest(req, body);
-  timings.requestId = candidate.requestId;
-  timings.callId = candidate.callId;
-  timings.messageCount = candidate.messages.length;
+  const parsed = parseCandidateRequest(req, body);
+  timings.requestId = parsed.requestId;
+  timings.callId = parsed.callId;
+  timings.messageCount = parsed.messages.length;
 
-  const initial = await loadSession(candidate.sessionId).catch(() => null) as CaseVoiceSession | null;
-  assertCaseSession(initial, candidate);
-  candidate = candidateWithSessionCacheIdentity(candidate, initial);
+  const initial = await loadSession(parsed.sessionId).catch(() => null) as CaseVoiceSession | null;
+  assertCaseSessionModule(initial);
+  // Retire sessions created by an older Case Simulator (any caseId other than
+  // the two supported ones, e.g. a legacy Beautify LLM session). Return a valid,
+  // non-empty restart response before active-session validation, cache identity
+  // construction, Haiku, or packet construction — no 409, silent migration, or
+  // continuation. This response is generated fresh and does not mutate/cache the
+  // retired session.
+  if (!isSupportedVoiceCase(initial.caseId)) {
+    timings.stage = initial.session.fsm_state;
+    timings.interviewerMode = storedCaseVoiceInterviewerSnapshot(initial).mode;
+    return {
+      result: retiredSessionResult(initial),
+      cacheKey: `retired:${parsed.sessionId}`,
+      replayed: false,
+      source: "committed",
+    };
+  }
+  assertCaseSession(initial, parsed);
+  const candidate = candidateWithSessionCacheIdentity(parsed, initial);
   const interviewer = storedCaseVoiceInterviewerSnapshot(initial);
   timings.interviewerMode = interviewer.mode;
   timings.correlationId = shortHash(candidate.cacheKey);

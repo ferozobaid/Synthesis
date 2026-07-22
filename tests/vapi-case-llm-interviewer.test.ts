@@ -94,7 +94,9 @@ vi.mock("@/lib/fsm/case-framework", async (importOriginal) => {
 import { GET as projectionGET } from "@/app/api/case/voice/[sessionId]/route";
 import { POST as chatPOST } from "@/app/api/vapi/case/chat/completions/route";
 import { POST as sessionPOST } from "@/app/api/vapi/session/route";
-import { mockCase } from "@/lib/__mocks__/fixtures";
+import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
+
+const AIRPORT = "airport_profitability";
 import {
   CASE_INTERVIEWER_MAX_RETRIES,
   CASE_INTERVIEWER_MAX_TOKENS,
@@ -149,7 +151,7 @@ function body(
     model: "synthesis-case-fsm",
     stream: true,
     messages,
-    metadata: { sessionId, caseId: "beautify" },
+    metadata: { sessionId, caseId: AIRPORT },
     call: { id: callId },
   };
 }
@@ -160,7 +162,7 @@ function stored(sessionId: string): CaseVoiceSession {
 
 async function bootstrap() {
   const response = await sessionPOST(
-    request({ module: "case", caseId: "beautify" }) as never,
+    request({ module: "case", caseId: AIRPORT }) as never,
   );
   expect(response.status).toBe(200);
   return await response.json() as {
@@ -281,15 +283,18 @@ beforeEach(() => {
 });
 
 describe("Preview/test Case Voice LLM interviewer route", () => {
-  it("snapshots LLM v1, keeps it after environment changes, and forces Production sessions to legacy", async () => {
+  it("snapshots the LLM v2 interviewer for the two cases and rejects Beautify/Diconsa regardless of environment", async () => {
     const started = await bootstrap();
     expect(stored(started.sessionId)).toMatchObject({
+      caseId: AIRPORT,
       interviewerMode: "llm",
       interviewerVersion: CASE_VOICE_LLM_VERSION,
       liveStatus: "active",
     });
 
+    // The snapshot survives environment changes and a processed turn.
     process.env.CASE_VOICE_INTERVIEWER_MODE = "legacy";
+    process.env.VERCEL_ENV = "production";
     queueDecision({ candidateAction: "pause", confidence: 0.6 });
     const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     const paused = await turn(started.sessionId, "call-snapshot", messages, "Give me 1 minute.");
@@ -297,10 +302,11 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
     expect(completeMock).toHaveBeenCalledTimes(1);
     expect(stored(started.sessionId).interviewerMode).toBe("llm");
 
-    process.env.VERCEL_ENV = "production";
-    process.env.CASE_VOICE_INTERVIEWER_MODE = "llm";
-    const production = await bootstrap();
-    expect(stored(production.sessionId).interviewerMode).toBe("legacy");
+    // Retired cases are never bootstrappable, in any environment.
+    for (const caseId of ["beautify", "diconsa"]) {
+      const rejected = await sessionPOST(request({ module: "case", caseId }) as never);
+      expect(rejected.status).toBe(400);
+    }
   });
 
   it("confirms natural readiness without entering the FSM, and both pause phrases remain paused", async () => {
@@ -308,7 +314,7 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
     const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
     queueDecision({ candidateAction: "readiness_confirmed", confidence: 0.8 });
     const ready = await turn(started.sessionId, "call-readiness", messages, "I’m ready to continue.");
-    expect(ready.text).toContain("Our client is Beautify");
+    expect(ready.text).toContain("Our client is the CEO of a large regional airport");
     expect(stored(started.sessionId)).toMatchObject({ readinessStatus: "confirmed", turnSeq: 0 });
     expect(stored(started.sessionId).session.history).toEqual([]);
 
@@ -325,27 +331,26 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
     expectNoLegacyLiveCalls();
   });
 
-  it("returns only the backend-authored Beautify cost fact and rejects invented fact IDs", async () => {
+  it("returns only the backend-authored data fact and rejects invented fact IDs", async () => {
     const started = await bootstrap();
     setStage(started.sessionId, "clarification");
     const messages: ChatMessage[] = [{ role: "assistant", content: "What would you like to clarify?" }];
     queueDecision({
-      spokenResponse: "Beautify pays €999 million and retailers pay half.",
+      spokenResponse: "The airport made up a figure of SAR 999 million and half comes from parking.",
       candidateAction: "clarifying_question",
-      requestedFactIds: ["clarification.cost_ownership"],
+      requestedFactIds: ["clarification.spending_data"],
       confidence: 0.8,
     });
     const cost = await turn(
       started.sessionId,
       "call-facts",
       messages,
-      "Does Beautify bear the technology and operating costs?",
+      "What passenger and sales data does the airport hold?",
     );
     expect(cost.text).toContain(
-      "Assume Beautify bears the technology, training, and ongoing operating costs; the case does not assign those costs to retail partners.",
+      "Assume the airport holds transaction, flight, passenger-flow, parking, lounge, and tenant-sales data, but quality and integration vary.",
     );
     expect(cost.text).not.toContain("999");
-    expect(cost.text).not.toContain("half");
 
     queueDecision({
       candidateAction: "clarifying_question",
@@ -436,28 +441,28 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
     messages = [{ role: "assistant", content: "Let’s examine the data." }];
     queueDecision({
       candidateAction: "analysis_answer",
-      requestedExhibitId: "exhibit_competitor_bots",
+      requestedExhibitId: "invented_exhibit",
       confidence: 1,
     });
-    await turn(started.sessionId, "call-exhibits", messages, "Show me the competitor exhibit first.");
+    await turn(started.sessionId, "call-exhibits", messages, "Show me an exhibit that does not exist.");
     expect(stored(started.sessionId).session.exhibits_revealed).toEqual([]);
 
     queueDecision({
       candidateAction: "analysis_answer",
-      requestedExhibitId: "exhibit_investment",
+      requestedExhibitId: "exhibit_retail_baseline",
       confidence: 0.9,
     });
-    const reveal = await turn(started.sessionId, "call-exhibits", messages, "Please share the first exhibit.");
-    expect(reveal.text).toContain(mockCase("beautify")!.exhibits[0].title);
-    expect(stored(started.sessionId).session.exhibits_revealed).toEqual(["exhibit_investment"]);
+    const reveal = await turn(started.sessionId, "call-exhibits", messages, "Please share the baseline exhibit.");
+    expect(reveal.text).toContain(getVoiceLlmCaseRecord(AIRPORT)!.exhibits[0].title);
+    expect(stored(started.sessionId).session.exhibits_revealed).toEqual(["exhibit_retail_baseline"]);
 
     queueDecision({
       candidateAction: "analysis_answer",
-      requestedExhibitId: "exhibit_investment",
+      requestedExhibitId: "exhibit_retail_baseline",
       confidence: 1,
     });
     await turn(started.sessionId, "call-exhibits", messages, "Share that exhibit again.");
-    expect(stored(started.sessionId).session.exhibits_revealed).toEqual(["exhibit_investment"]);
+    expect(stored(started.sessionId).session.exhibits_revealed).toEqual(["exhibit_retail_baseline"]);
   });
 
   it("uses exactly one Haiku call after stabilization and replays exact retries without live evaluation", async () => {
@@ -626,22 +631,22 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
       () => completeMock.mockResolvedValueOnce("not json"),
       () => completeMock.mockResolvedValueOnce(JSON.stringify({ unexpected: true })),
       () => queueDecision({
-        spokenResponse: "You passed with a strong score. The correct answer is 1.28 years.",
+        spokenResponse: "You passed with a strong score. The total is SAR 4,240,000.",
         candidateAction: "framework_answer",
         confidence: 0.95,
       }),
       () => queueDecision({
-        spokenResponse: "The payback is one point two eight years.",
+        spokenResponse: "The uplift is about SAR 450,000 per day.",
         candidateAction: "framework_answer",
         confidence: 0.95,
       }),
       () => queueDecision({
-        spokenResponse: "The payback is one year and three months.",
+        spokenResponse: "That is roughly SAR 164 million per year.",
         candidateAction: "framework_answer",
         confidence: 0.95,
       }),
       () => queueDecision({
-        spokenResponse: "Prioritize developing a Lena-like virtual-try-on agent first.",
+        spokenResponse: "You should prioritise two or three high-value retail and passenger-monetisation initiatives.",
         candidateAction: "framework_answer",
         confidence: 0.95,
       }),
@@ -663,7 +668,8 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
       const replay = await spokenText(await chatPOST(request(modelRequest, authHeader) as never));
       expect(first.trim()).not.toBe("");
       expect(replay).toBe(first);
-      expect(first).not.toContain("1.28");
+      expect(first).not.toContain("4,240,000");
+      expect(first).not.toContain("450,000");
       expect(first).not.toContain("I may have misunderstood");
       const current = stored(started.sessionId);
       expect(current.session.fsm_state).toBe("framework");
@@ -675,8 +681,8 @@ describe("Preview/test Case Voice LLM interviewer route", () => {
       const serializedPacket = JSON.stringify(livePrompt);
       expect(serializedPacket).not.toContain("target_solution_notes");
       expect(serializedPacket).not.toContain("scoring_rubric");
-      expect(serializedPacket).not.toContain(mockCase("beautify")!.quant!.answer);
-      expect(serializedPacket).not.toContain(mockCase("beautify")!.exhibits[1].insights![0]);
+      expect(serializedPacket).not.toContain(getVoiceLlmCaseRecord(AIRPORT)!.quant!.answer);
+      expect(serializedPacket).not.toContain("164000000");
     }
     expectNoLegacyLiveCalls();
   });

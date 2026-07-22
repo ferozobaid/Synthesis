@@ -11,20 +11,20 @@ vi.mock("@/components/readiness-store", () => ({
 }));
 
 vi.mock("@/components/CaseVoiceInterview", () => ({
-  default: ({ caseId }: { caseId: string }) =>
-    React.createElement("div", { "data-case-voice": caseId }, "Voice interview"),
+  default: () => React.createElement("div", { "data-case-voice": "surface" }, "Voice interview"),
 }));
 
 describe("/case voice-only surface", () => {
-  it("opens directly on Beautify voice without the manual mode selector", async () => {
+  it("renders the voice case surface without a manual mode selector", async () => {
     vi.stubGlobal("React", React);
     const { default: CasePage } = await import("@/app/case/page");
     const html = renderToStaticMarkup(React.createElement(CasePage));
 
-    expect(html).toContain("data-case-voice=\"beautify\"");
-    expect(html).toContain("Beautify");
+    // The page hosts the (server-selected) voice interview; case selection is
+    // driven inside the component, not by a hardcoded page-level case.
+    expect(html).toContain("Voice interview");
+    expect(html).toContain("Live voice case interview");
     expect(html).not.toContain("Interview format");
     expect(html).not.toContain(">Manual<");
-    expect(html).not.toContain("Choose a case");
   });
 });

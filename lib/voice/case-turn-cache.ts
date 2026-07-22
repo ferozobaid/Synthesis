@@ -18,6 +18,7 @@ interface ControllerCacheIdentity {
 export interface CaseVoiceLlmCacheIdentity {
   interviewerMode: "llm";
   interviewerVersion: string;
+  selectedCaseId: string;
 }
 
 export type CaseVoiceCacheIdentity = ControllerCacheIdentity | CaseVoiceLlmCacheIdentity;
@@ -34,6 +35,7 @@ function cacheIdentity(overrides: CaseVoiceCacheIdentity = {}) {
     return { interviewer: {
       mode: "llm" as const,
       version: overrides.interviewerVersion,
+      caseId: overrides.selectedCaseId,
     } };
   }
   const controller = overrides as ControllerCacheIdentity;

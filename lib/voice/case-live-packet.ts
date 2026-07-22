@@ -1,4 +1,5 @@
-import authored from "@/context/cases/beautify-live-interviewer.json";
+import airportAuthored from "@/context/cases/airport-profitability-live-interviewer.json";
+import gymAuthored from "@/context/cases/gcc-premium-gym-live-interviewer.json";
 import { nextState } from "@/lib/fsm/case-fsm";
 import type { CaseRecord, CaseSessionState, CaseState } from "@/lib/types";
 import type { CaseVoiceProjectedTurn } from "@/lib/voice/types";
@@ -21,8 +22,8 @@ export interface CaseLiveExhibitReference {
   order: number;
 }
 
-export interface BeautifyLiveAuthoredConfig {
-  caseId: "beautify";
+export interface CaseLiveAuthoredConfig {
+  caseId: string;
   opening: { readinessPrompt: string; casePrompt: string };
   stageSequence: CaseState[];
   stages: Partial<Record<CaseState, CaseLiveStageGuidance>>;
@@ -41,8 +42,8 @@ export interface CaseLiveRevealedExhibit {
   data: Record<string, unknown>;
 }
 
-export interface BeautifyLiveInterviewerPacket {
-  caseId: "beautify";
+export interface CaseLiveInterviewerPacket {
+  caseId: string;
   openingPrompt: string;
   readinessStatus: "awaiting" | "confirmed";
   conversationStatus: "active" | "paused";
@@ -66,8 +67,6 @@ export interface BeautifyLiveInterviewerPacket {
   }>;
 }
 
-const CONFIG = authored as unknown as BeautifyLiveAuthoredConfig;
-
 const LIVE_STAGE_SEQUENCE: CaseState[] = [
   "clarification",
   "framework",
@@ -78,6 +77,14 @@ const LIVE_STAGE_SEQUENCE: CaseState[] = [
   "scoring",
 ];
 
+/** Closed set of Preview LLM cases served by this registry. */
+export const CASE_LIVE_CASE_IDS = [
+  "airport_profitability",
+  "gcc_premium_gym_market_entry",
+] as const;
+
+export type CaseLiveCaseId = (typeof CASE_LIVE_CASE_IDS)[number];
+
 function hasExactKeys(value: unknown, keys: string[]): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const actual = Object.keys(value as Record<string, unknown>).sort();
@@ -85,7 +92,7 @@ function hasExactKeys(value: unknown, keys: string[]): boolean {
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function assertAuthoredConfig(config: BeautifyLiveAuthoredConfig): void {
+function assertAuthoredConfig(config: CaseLiveAuthoredConfig, expectedId: string): void {
   if (!hasExactKeys(config, [
     "caseId",
     "opening",
@@ -97,17 +104,17 @@ function assertAuthoredConfig(config: BeautifyLiveAuthoredConfig): void {
     "pressureTestPrompt",
     "recommendationRequirements",
     "exhibits",
-  ])) throw new Error("Invalid Beautify live packet fields");
-  if (config.caseId !== "beautify") throw new Error("Invalid Beautify live packet case id");
+  ])) throw new Error(`Invalid live packet fields for ${expectedId}`);
+  if (config.caseId !== expectedId) throw new Error(`Live packet case id mismatch: ${config.caseId}`);
   if (
     !hasExactKeys(config.opening, ["readinessPrompt", "casePrompt"]) ||
     !config.opening?.casePrompt?.trim() ||
     !config.opening?.readinessPrompt?.trim()
   ) {
-    throw new Error("Invalid Beautify live packet opening");
+    throw new Error(`Invalid live packet opening for ${expectedId}`);
   }
   if (JSON.stringify(config.stageSequence) !== JSON.stringify(LIVE_STAGE_SEQUENCE)) {
-    throw new Error("Invalid Beautify live packet stage sequence");
+    throw new Error(`Invalid live packet stage sequence for ${expectedId}`);
   }
   if (
     !hasExactKeys(config.stages, LIVE_STAGE_SEQUENCE) ||
@@ -118,7 +125,7 @@ function assertAuthoredConfig(config: BeautifyLiveAuthoredConfig): void {
         !guidance.prompt.trim() ||
         !guidance.fallback.trim();
     })
-  ) throw new Error("Invalid Beautify live packet stage guidance");
+  ) throw new Error(`Invalid live packet stage guidance for ${expectedId}`);
   const factIds = config.clarificationFacts.map((fact) => fact.id);
   if (
     new Set(factIds).size !== factIds.length ||
@@ -128,7 +135,7 @@ function assertAuthoredConfig(config: BeautifyLiveAuthoredConfig): void {
       !fact.text.trim()
     )
   ) {
-    throw new Error("Invalid Beautify live packet clarification facts");
+    throw new Error(`Invalid live packet clarification facts for ${expectedId}`);
   }
   const exhibitIds = config.exhibits.map((exhibit) => exhibit.id);
   if (
@@ -140,14 +147,31 @@ function assertAuthoredConfig(config: BeautifyLiveAuthoredConfig): void {
       !exhibit.title.trim()
     )
   ) {
-    throw new Error("Invalid Beautify live packet exhibit order");
+    throw new Error(`Invalid live packet exhibit order for ${expectedId}`);
   }
 }
 
-assertAuthoredConfig(CONFIG);
+const CONFIGS: Readonly<Record<CaseLiveCaseId, CaseLiveAuthoredConfig>> = {
+  airport_profitability: airportAuthored as unknown as CaseLiveAuthoredConfig,
+  gcc_premium_gym_market_entry: gymAuthored as unknown as CaseLiveAuthoredConfig,
+};
 
-export function beautifyLiveAuthoredConfig(): BeautifyLiveAuthoredConfig {
-  return CONFIG;
+for (const caseId of CASE_LIVE_CASE_IDS) {
+  assertAuthoredConfig(CONFIGS[caseId], caseId);
+}
+
+function configFor(caseId: string): CaseLiveAuthoredConfig {
+  const config = (CONFIGS as Record<string, CaseLiveAuthoredConfig | undefined>)[caseId];
+  if (!config) throw new Error(`No live interviewer config for case ${caseId}`);
+  return config;
+}
+
+export function isCaseLiveCaseId(caseId: string): caseId is CaseLiveCaseId {
+  return (CASE_LIVE_CASE_IDS as readonly string[]).includes(caseId);
+}
+
+export function caseLiveAuthoredConfig(caseId: string): CaseLiveAuthoredConfig {
+  return configFor(caseId);
 }
 
 /** Validate reference metadata only; canonical payloads and insights are never copied. */
@@ -186,49 +210,55 @@ export function validateCaseLiveExhibitReferences(
   });
 }
 
-export function caseLiveStageGuidance(stage: CaseState): CaseLiveStageGuidance {
-  return CONFIG.stages[stage] ?? CONFIG.stages.clarification!;
+export function caseLiveStageGuidance(caseId: string, stage: CaseState): CaseLiveStageGuidance {
+  const config = configFor(caseId);
+  return config.stages[stage] ?? config.stages.clarification!;
 }
 
-export function caseLiveFact(id: string): CaseLiveClarificationFact | null {
-  return CONFIG.clarificationFacts.find((fact) => fact.id === id) ?? null;
+export function caseLiveFact(caseId: string, id: string): CaseLiveClarificationFact | null {
+  return configFor(caseId).clarificationFacts.find((fact) => fact.id === id) ?? null;
 }
 
 export function nextEligibleCaseLiveExhibit(
+  caseId: string,
   session: CaseSessionState,
   effectiveStage = session.fsm_state,
 ): CaseLiveExhibitReference | null {
-  const firstPending = [...CONFIG.exhibits]
+  const firstPending = [...configFor(caseId).exhibits]
     .sort((left, right) => left.order - right.order)
     .find((exhibit) => !session.exhibits_revealed.includes(exhibit.id));
   return firstPending?.stage === effectiveStage ? firstPending : null;
 }
 
-function candidateSafeNextExhibit(session: CaseSessionState): CaseLiveExhibitReference | null {
-  const current = nextEligibleCaseLiveExhibit(session, session.fsm_state);
+function candidateSafeNextExhibit(
+  caseId: string,
+  session: CaseSessionState,
+): CaseLiveExhibitReference | null {
+  const current = nextEligibleCaseLiveExhibit(caseId, session, session.fsm_state);
   if (current) return current;
   const legalNext = nextState(session.fsm_state);
-  return legalNext ? nextEligibleCaseLiveExhibit(session, legalNext) : null;
+  return legalNext ? nextEligibleCaseLiveExhibit(caseId, session, legalNext) : null;
 }
 
 /**
- * Construct the model input field-by-field. Never spread or serialize CaseRecord.
- * Hidden case material therefore has no path into this object.
+ * Construct the model input field-by-field from the selected case's authored
+ * config. Never spread or serialize CaseRecord — hidden case material therefore
+ * has no path into this object. Only the two Preview LLM cases are supported;
+ * unknown ids fail closed.
  */
-export function buildBeautifyLivePacket(input: {
+export function buildCaseLivePacket(input: {
   caseRecord: CaseRecord;
   session: CaseSessionState;
   readinessStatus: "awaiting" | "confirmed";
   conversationStatus: "active" | "paused";
   projectedTurns: CaseVoiceProjectedTurn[];
-}): BeautifyLiveInterviewerPacket {
-  if (input.caseRecord.id !== CONFIG.caseId) {
-    throw new Error("The live interviewer packet supports Beautify only");
-  }
-  validateCaseLiveExhibitReferences(CONFIG.exhibits, input.caseRecord);
+}): CaseLiveInterviewerPacket {
+  const caseId = input.caseRecord.id;
+  const config = configFor(caseId);
+  validateCaseLiveExhibitReferences(config.exhibits, input.caseRecord);
 
   const revealedExhibits = input.session.exhibits_revealed.flatMap((id) => {
-    const approved = CONFIG.exhibits.find((candidate) => candidate.id === id);
+    const approved = config.exhibits.find((candidate) => candidate.id === id);
     if (!approved) return [];
     const exhibit = input.caseRecord.exhibits.find((candidate) => candidate.id === id);
     if (
@@ -238,32 +268,33 @@ export function buildBeautifyLivePacket(input: {
     ) return [];
     return [{ id: exhibit.id, title: exhibit.title, stage: exhibit.stage, data: exhibit.data }];
   });
-  const nextExhibit = candidateSafeNextExhibit(input.session);
+  const nextExhibit = candidateSafeNextExhibit(caseId, input.session);
+  const guidance = caseLiveStageGuidance(caseId, input.session.fsm_state);
 
   return {
-    caseId: "beautify",
-    openingPrompt: CONFIG.opening.casePrompt,
+    caseId,
+    openingPrompt: config.opening.casePrompt,
     readinessStatus: input.readinessStatus,
     conversationStatus: input.conversationStatus,
     actualStage: input.session.fsm_state,
     immediateLegalNextStage: nextState(input.session.fsm_state),
-    legalStageSequence: [...CONFIG.stageSequence],
+    legalStageSequence: [...config.stageSequence],
     currentInterviewer: {
-      objective: caseLiveStageGuidance(input.session.fsm_state).objective,
-      prompt: caseLiveStageGuidance(input.session.fsm_state).prompt,
-      fallback: caseLiveStageGuidance(input.session.fsm_state).fallback,
+      objective: guidance.objective,
+      prompt: guidance.prompt,
+      fallback: guidance.fallback,
     },
-    frameworkExpectations: [...CONFIG.frameworkExpectations],
-    analysisPrompts: [...CONFIG.analysisPrompts],
+    frameworkExpectations: [...config.frameworkExpectations],
+    analysisPrompts: [...config.analysisPrompts],
     clarificationFacts: input.session.fsm_state === "clarification"
-      ? CONFIG.clarificationFacts.map((fact) => ({ id: fact.id, text: fact.text }))
+      ? config.clarificationFacts.map((fact) => ({ id: fact.id, text: fact.text }))
       : [],
     revealedExhibits,
     nextEligibleExhibit: nextExhibit
       ? { id: nextExhibit.id, title: nextExhibit.title }
       : null,
-    pressureTestPrompt: CONFIG.pressureTestPrompt,
-    recommendationRequirements: [...CONFIG.recommendationRequirements],
+    pressureTestPrompt: config.pressureTestPrompt,
+    recommendationRequirements: [...config.recommendationRequirements],
     recentAuthoritativeTurns: input.projectedTurns.slice(-3).map((turn) => ({
       candidateText: turn.candidateText,
       interviewerText: turn.interviewerText,

@@ -1,0 +1,113 @@
+{
+  "id": "airport_profitability",
+  "title": "Airport Profitability",
+  "firm": "Data & AI Consulting",
+  "type": "profitability / data & AI strategy",
+  "prompt": "Our client is the CEO of a large regional airport. The airport currently earns significant revenue from aeronautical fees such as landing fees and passenger charges. The CEO wants to increase profitability by growing non-aeronautical revenue from retail, food and beverage, lounges, parking, and advertising. Non-aeronautical revenue currently represents 25% of total airport revenue, and the target is 35% within three years. The CEO would like to understand how data and AI can help achieve this target.",
+  "content": "A large regional airport wants to grow non-aeronautical revenue (retail, F&B, lounges, parking, advertising) from 25% to 35% of total revenue within three years, and asks how data and AI can help. Backend-only record: hidden market-sizing and uplift answers live in quant and target_solution_notes; the retail baseline exhibit exposes only candidate-facing inputs.",
+  "stages": [
+    {
+      "id": "intro",
+      "objective": "Candidate restates the objective and decision in their own words.",
+      "interviewer_prompt": "Walk me through how you understand the airport's situation and what we are being asked to do.",
+      "advance_criteria": "Frames the goal: grow non-aeronautical revenue share to the target within the horizon using data and AI.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "clarification",
+      "objective": "Let the candidate ask focused questions about scope, data, and constraints.",
+      "interviewer_prompt": "What would you like to clarify before structuring your approach?",
+      "advance_criteria": "Asks targeted questions about objective, data availability, passenger profile, and constraints.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "framework",
+      "objective": "Elicit a pain-point-led structure before proposing AI tools.",
+      "interviewer_prompt": "How would you structure your approach to this problem?",
+      "advance_criteria": "Covers revenue growth, cost and operational efficiency, passenger experience, and enablers and risks.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "analysis",
+      "objective": "Brainstorm how data and AI could increase retail revenue per passenger.",
+      "interviewer_prompt": "The CEO is particularly interested in improving airport retail. Brainstorm ways data and AI could increase retail revenue per passenger.",
+      "advance_criteria": "Generates several commercially valid, data-driven retail levers.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "data_reveal",
+      "objective": "Estimate daily passengers and potential daily retail revenue using the baseline exhibit.",
+      "interviewer_prompt": "This is a major regional airport. Estimate how many passengers pass through on an average day and use that to estimate potential daily retail revenue.",
+      "advance_criteria": "Develops assumptions, interprets the revealed baseline, and works toward a defensible daily total.",
+      "data_drops": ["exhibit_retail_baseline"],
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "pressure_test",
+      "objective": "Quantify the revenue uplift from a conversion improvement.",
+      "interviewer_prompt": "What is the revenue uplift if AI improves the international retail conversion rate by five percentage points?",
+      "advance_criteria": "Correctly reasons through the incremental buyers and revenue, and interprets the result.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "recommendation",
+      "objective": "Deliver a concise CEO-level recommendation.",
+      "interviewer_prompt": "The CEO is ready for your recommendation. What should the airport do?",
+      "advance_criteria": "Clear position, two or three priority initiatives, expected impact, sequence, data and tenant needs, risks, and a pilot.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "scoring",
+      "objective": "Terminal stage. The live interview concludes unscored.",
+      "interviewer_prompt": "Thank you. That concludes the live case interview.",
+      "advance_criteria": "n/a",
+      "probe_bank": [],
+      "hint_ladder": []
+    }
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_retail_baseline",
+      "title": "Airport Retail Baseline",
+      "stage": "data_reveal",
+      "synthesized": true,
+      "data": {
+        "international": { "daily_passengers": 60000, "conversion_pct": 40, "avg_spend_sar": 150 },
+        "domestic": { "daily_passengers": 40000, "conversion_pct": 20, "avg_spend_sar": 80 }
+      }
+    }
+  ],
+  "quant": {
+    "stage": "data_reveal",
+    "question": "Estimate the potential daily retail revenue, and the uplift from a conversion improvement.",
+    "solution_steps": [
+      "International buyers per day = 60,000 x 40% = 24,000.",
+      "Domestic buyers per day = 40,000 x 20% = 8,000.",
+      "International retail revenue = 24,000 x SAR 150 = SAR 3,600,000 per day.",
+      "Domestic retail revenue = 8,000 x SAR 80 = SAR 640,000 per day.",
+      "Total daily retail revenue = SAR 4,240,000.",
+      "A five-percentage-point international conversion gain adds 60,000 x 5% = 3,000 buyers, about SAR 450,000 per day and about SAR 164,000,000 per year."
+    ],
+    "answer": "Total daily retail revenue is approximately SAR 4,240,000. A conversion-uplift scenario adds approximately 3,000 additional buyers per day, approximately SAR 450,000 per day, and approximately SAR 164,000,000 per year.",
+    "answer_value": 4240000,
+    "tolerance": 1000
+  },
+  "scoring_rubric": {
+    "scale": "1-5 per dimension",
+    "dimensions": [
+      { "name": "structure", "weight": 0.2, "description": "Pain-point-led, MECE structure tailored to the airport before proposing AI tools.", "anchors": { "1": "Jumps straight to AI tools with no structure.", "3": "Reasonable buckets but partly generic.", "5": "Tailored structure covering revenue, cost, experience, and enablers." } },
+      { "name": "hypothesis", "weight": 0.2, "description": "Forms and tests a clear point of view driven toward the target.", "anchors": { "1": "No hypothesis.", "3": "Implicit, weakly tested.", "5": "Explicit, evidence-driven, refined as data arrives." } },
+      { "name": "quant", "weight": 0.2, "description": "Correct market-sizing and uplift math with clear narration.", "anchors": { "1": "Math wrong or not attempted.", "3": "Right approach, arithmetic slips.", "5": "Correct daily total and uplift with talked-through steps." } },
+      { "name": "synthesis", "weight": 0.2, "description": "Turns the numbers into a clear, prioritized recommendation.", "anchors": { "1": "No synthesis.", "3": "Under-supported recommendation.", "5": "Crisp recommendation backed by the economics, with risks and next steps." } },
+      { "name": "communication", "weight": 0.2, "description": "Structured, concise, top-down delivery.", "anchors": { "1": "Rambling.", "3": "Clear but buries the answer.", "5": "Answer-first and executive-ready." } }
+    ]
+  },
+  "target_solution_notes": "A strong candidate concludes that data and AI can materially support the move from 25% to 35% non-aeronautical share, prioritizes two or three high-value retail and passenger-monetisation initiatives (personalised offers, footfall and tenant-mix optimisation, dynamic pricing on parking and lounges), quantifies the opportunity from the daily retail baseline and the conversion-uplift scenario, sequences a pilot before scaling, names the data-integration, privacy, and tenant data-sharing requirements, and proposes measurement against the three-year target."
+}

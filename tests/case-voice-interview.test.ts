@@ -11,17 +11,86 @@ import {
   formatCaseVoiceElapsed,
   caseVoiceLiveCaption,
   caseVoiceRecoveryMessage,
+  caseVoiceStartAvailability,
   caseVoiceStartOverrides,
   caseVoiceTranscript,
   fetchCaseVoiceProjection,
+  fetchPreviewCatalog,
   readCaseVoicePending,
   shouldApplyCaseProjection,
   uniqueCaseExhibits,
   writeCaseVoicePending,
   type CaseVoiceProjection,
   type PendingCaseVoiceCapability,
+  type PreviewCaseChoice,
 } from "@/components/CaseVoiceInterview";
+import { PREVIEW_LLM_CASES } from "@/lib/voice/case-catalog";
 import type { CaseExhibit, CaseScore } from "@/lib/types";
+
+const CATALOG_CASES: PreviewCaseChoice[] = [
+  { id: "airport_profitability", title: "Airport Profitability", description: "Airport case." },
+  { id: "gcc_premium_gym_market_entry", title: "GCC Premium Gym Market Entry", description: "Gym case." },
+];
+
+describe("Case Voice two-case picker state", () => {
+  it("cannot start an interview while the catalog is loading", () => {
+    const view = caseVoiceStartAvailability({
+      catalogStatus: "loading",
+      cases: [],
+      selectedCaseId: null,
+      configured: true,
+    });
+    expect(view).toMatchObject({ showLoading: true, showCases: false, canStart: false, canRetry: false });
+  });
+
+  it("cannot start on a catalog error but offers Retry", () => {
+    const view = caseVoiceStartAvailability({
+      catalogStatus: "error",
+      cases: [],
+      selectedCaseId: null,
+      configured: true,
+    });
+    expect(view).toMatchObject({ showError: true, canStart: false, canRetry: true });
+  });
+
+  it("keeps Start disabled until a valid case is explicitly selected", () => {
+    const base = { catalogStatus: "loaded" as const, cases: CATALOG_CASES, configured: true };
+    expect(caseVoiceStartAvailability({ ...base, selectedCaseId: null }).canStart).toBe(false);
+    expect(caseVoiceStartAvailability({ ...base, selectedCaseId: "not_a_case" }).canStart).toBe(false);
+    expect(caseVoiceStartAvailability({ ...base, selectedCaseId: "airport_profitability" }).canStart).toBe(true);
+    expect(caseVoiceStartAvailability({ ...base, selectedCaseId: "gcc_premium_gym_market_entry" }).canStart).toBe(true);
+    // Unconfigured voice can never start.
+    expect(
+      caseVoiceStartAvailability({ ...base, selectedCaseId: "airport_profitability", configured: false }).canStart,
+    ).toBe(false);
+  });
+
+  it("loads the catalog and reloads it on retry", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ cases: CATALOG_CASES }), { status: 200 }));
+    const loaded = await fetchPreviewCatalog(fetcher as unknown as typeof fetch);
+    expect(loaded.status).toBe("loaded");
+    expect(loaded.cases.map((entry) => entry.id)).toEqual([
+      "airport_profitability",
+      "gcc_premium_gym_market_entry",
+    ]);
+    await fetchPreviewCatalog(fetcher as unknown as typeof fetch);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an error state on a failed or unparseable catalog fetch", async () => {
+    const http500 = vi.fn(async () => new Response("nope", { status: 500 }));
+    expect(await fetchPreviewCatalog(http500 as unknown as typeof fetch)).toMatchObject({ status: "error", cases: [] });
+    const network = vi.fn(async () => { throw new Error("network"); });
+    expect(await fetchPreviewCatalog(network as unknown as typeof fetch)).toMatchObject({ status: "error", cases: [] });
+  });
+
+  it("offers exactly the two cases and no Beautify or Diconsa options", () => {
+    const ids = PREVIEW_LLM_CASES.map((entry) => entry.id);
+    expect(ids).toEqual(["airport_profitability", "gcc_premium_gym_market_entry"]);
+    expect(ids).not.toContain("beautify");
+    expect(ids).not.toContain("diconsa");
+  });
+});
 
 const SCORE: CaseScore = {
   dimension_scores: [
@@ -104,21 +173,22 @@ afterEach(() => {
 });
 
 describe("CaseVoiceInterview Vapi start contract", () => {
-  it("passes only the Beautify bootstrap variables and session metadata to Vapi", () => {
+  it("passes only the selected-case bootstrap variables and session metadata to Vapi", () => {
     const bootstrap = {
       sessionId: "case-session-1",
       projectionToken: "never-forward-this-token",
       openingPrompt: "Here is the authored opening.",
-      caseTitle: "Beautify - Virtual Beauty Advisors",
+      caseId: "airport_profitability",
+      caseTitle: "Airport Profitability",
     };
 
     expect(caseVoiceStartOverrides(bootstrap)).toEqual({
       variableValues: {
         sessionId: "case-session-1",
         openingPrompt: "Here is the authored opening.",
-        caseTitle: "Beautify - Virtual Beauty Advisors",
+        caseTitle: "Airport Profitability",
       },
-      metadata: { sessionId: "case-session-1", caseId: "beautify" },
+      metadata: { sessionId: "case-session-1", caseId: "airport_profitability" },
     });
     expect(JSON.stringify(caseVoiceStartOverrides(bootstrap))).not.toContain("never-forward-this-token");
   });

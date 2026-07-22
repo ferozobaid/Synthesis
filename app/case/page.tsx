@@ -89,11 +89,11 @@ export default function CasePage() {
               Case Coach
             </h1>
             <span style={{ fontSize: 13, color: "var(--ink-3)", marginLeft: "auto" }}>
-              Beautify · Virtual Beauty Advisors
+              Live voice case interview
             </span>
           </div>
 
-          <CaseVoiceInterview caseId="beautify" onComplete={completeVoiceInterview} />
+          <CaseVoiceInterview onComplete={completeVoiceInterview} />
         </div>
       )}
     </div>

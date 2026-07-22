@@ -7,6 +7,18 @@ import type { CaseCandidateIntent } from "@/lib/voice/case-intent";
 
 export const CASE_READINESS_PROMPT =
   "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Are you ready to begin?";
+
+/** Per-case readiness wording; legacy Beautify keeps the original constant. */
+const CASE_READINESS_PROMPTS: Record<string, string> = {
+  airport_profitability:
+    "Hello, I’ll be your case interviewer today. We’ll be working through the Airport Profitability case. Are you ready to begin?",
+  gcc_premium_gym_market_entry:
+    "Hello, I’ll be your case interviewer today. We’ll be working through the GCC Premium Gym Market Entry case. Are you ready to begin?",
+};
+
+export function caseReadinessPrompt(caseId: string): string {
+  return CASE_READINESS_PROMPTS[caseId] ?? CASE_READINESS_PROMPT;
+}
 export const CASE_READINESS_CONFIRMED = "Great, let’s begin.";
 export const CASE_NOT_READY_RESPONSE = "No problem. Let me know when you’re ready.";
 export const CASE_ALREADY_READY_RESPONSE =

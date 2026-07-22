@@ -36,8 +36,9 @@ import type { CaseVoiceSession } from "@/lib/voice/types";
 
 const SECRET = "test-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
+const AIRPORT = "airport_profitability";
 const INTRO_ANSWER =
-  "We're being asked one core question: would retraining most of Beautify's in-store consultants into virtual social-media advisors be profitable? Two things drive it: first, shoppers are moving online and consultants sit idle; second, the retraining investment must pay back within a reasonable horizon while protecting the brand and retail relationships.";
+  "We are being asked whether data and AI can grow the airport's non-aeronautical revenue from a quarter to a bit over a third of total revenue within three years, and if so, how.";
 
 function makeReq(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api", {
@@ -63,7 +64,7 @@ async function bootstrap(): Promise<{
   openingPrompt: string;
 }> {
   const response = await sessionPOST(
-    makeReq({ module: "case", caseId: "beautify" }) as never,
+    makeReq({ module: "case", caseId: AIRPORT }) as never,
   );
   expect(response.status).toBe(200);
   return await response.json();
@@ -81,17 +82,17 @@ beforeEach(() => {
 });
 
 describe("POST /api/vapi/session (Case bootstrap)", () => {
-  it("starts Beautify and stores only the projection capability hash", async () => {
+  it("starts the selected Airport case and stores only the projection capability hash", async () => {
     const started = await bootstrap();
     const record = stored(started.sessionId);
 
     expect(started.projectionToken.length).toBeGreaterThan(20);
     expect(started.openingPrompt).toBe(
-      "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Are you ready to begin?",
+      "Hello, I’ll be your case interviewer today. We’ll be working through the Airport Profitability case. Are you ready to begin?",
     );
     expect(record.module).toBe("case");
-    expect(record.caseId).toBe("beautify");
-    expect(record.interviewerMode).toBe("legacy");
+    expect(record.caseId).toBe(AIRPORT);
+    expect(record.interviewerMode).toBe("llm");
     expect(record.interviewerVersion).toEqual(expect.any(String));
     expect(record.callId).toBeNull();
     expect(record.turnSeq).toBe(0);

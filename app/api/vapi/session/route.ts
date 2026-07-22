@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { startBehavioural } from "@/lib/behavioural/runner";
-import { startCase } from "@/lib/fsm/case-runner";
+import { initSession } from "@/lib/fsm/case-fsm";
 import {
   MOCK_JD_TEXT,
   MOCK_QUESTIONS,
   MOCK_USER_ID,
-  mockCase,
 } from "@/lib/__mocks__/fixtures";
 import { useMocks } from "@/lib/config";
 import { saveSession } from "@/lib/voice/session-store";
 import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
-import { CASE_READINESS_PROMPT } from "@/lib/voice/case-conversation";
-import { newCaseVoiceInterviewerSnapshot } from "@/lib/voice/case-interviewer-mode";
+import { caseReadinessPrompt } from "@/lib/voice/case-conversation";
+import { CASE_VOICE_LLM_VERSION } from "@/lib/voice/case-interviewer-mode";
+import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case-catalog";
+import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 
 // POST /api/vapi/session — bootstrap a voice session (called when a call starts).
 //   { module: "behavioural", jdText, candidateName?, targetRole?, companyName? }
@@ -122,11 +123,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (module === "case") {
-    const caseId = asString((body as { caseId?: unknown }).caseId);
-    if (!caseId) {
-      return NextResponse.json({ error: "caseId required" }, { status: 400 });
-    }
-    if (caseId.length > MAX_CASE_ID_LENGTH) {
+    const requestedCaseId = asString((body as { caseId?: unknown }).caseId);
+    if (requestedCaseId !== undefined && requestedCaseId.length > MAX_CASE_ID_LENGTH) {
       return NextResponse.json({ error: "caseId exceeds length limit" }, { status: 400 });
     }
     const candidateName = asString((body as { candidateName?: unknown }).candidateName);
@@ -134,31 +132,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "candidateName exceeds length limit" }, { status: 400 });
     }
 
-    const c = mockCase(caseId);
+    // The Case Simulator supports exactly two LLM cases. Require an explicit,
+    // catalog-listed selection and fail closed (400) on a missing, unknown, or
+    // retired (Beautify/Diconsa) id. Never default to a case.
+    if (!requestedCaseId) {
+      return NextResponse.json({ error: "caseId required" }, { status: 400 });
+    }
+    if (!isPreviewLlmCaseId(requestedCaseId)) {
+      return NextResponse.json({ error: "unsupported_case" }, { status: 400 });
+    }
+    const resolvedCaseId = requestedCaseId;
+
+    const c = voiceCaseRecord(resolvedCaseId);
     if (!c) {
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
-    if (caseId !== "beautify") {
-      return NextResponse.json({ error: "unsupported_case" }, { status: 400 });
-    }
+    const catalogEntry = previewLlmCaseCatalogEntry(resolvedCaseId);
 
-    const started = await startCase(c, MOCK_USER_ID);
-    // Readiness is a voice-only pre-case gate. The first scored answer still uses
-    // the existing clarification stage, but the authored prompt is withheld until
-    // the candidate confirms they are ready.
-    const voiceSession = { ...started.session, fsm_state: "clarification" as const };
-    const openingText = CASE_READINESS_PROMPT;
+    // Readiness is a voice-only pre-case gate. The authored prompt is withheld
+    // until the candidate confirms they are ready. The two cases always run the
+    // LLM interviewer (v2) — there is no legacy voice path.
+    const voiceSession = {
+      ...initSession(MOCK_USER_ID, resolvedCaseId),
+      fsm_state: "clarification" as const,
+    };
+    const openingText = caseReadinessPrompt(resolvedCaseId);
     const now = new Date().toISOString();
     const sessionId = newSessionId();
     const projectionToken = randomBytes(32).toString("hex");
     const projectionTokenHash = createHash("sha256").update(projectionToken).digest("hex");
-    const interviewer = newCaseVoiceInterviewerSnapshot();
     const record: CaseVoiceSession = {
       module: "case",
       session: voiceSession,
-      caseId,
-      interviewerMode: interviewer.mode,
-      interviewerVersion: interviewer.version,
+      caseId: resolvedCaseId,
+      selectedCaseTitle: catalogEntry?.title ?? c.title,
+      selectedCaseDescription: catalogEntry?.description,
+      interviewerMode: "llm",
+      interviewerVersion: CASE_VOICE_LLM_VERSION,
       liveStatus: "active",
       concludedAt: null,
       openingText,
@@ -187,7 +197,9 @@ export async function POST(req: NextRequest) {
       sessionId,
       projectionToken,
       openingPrompt: openingText,
+      caseId: resolvedCaseId,
       caseTitle: c.title,
+      caseDescription: catalogEntry?.description ?? null,
       stage: voiceSession.fsm_state,
       stageIndex: CASE_STATES.indexOf(voiceSession.fsm_state),
       candidateName: candidateName ?? null,

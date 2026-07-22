@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { mockCase } from "@/lib/__mocks__/fixtures";
+import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import { loadSession } from "@/lib/voice/session-store";
 import { CASE_STATES } from "@/lib/types";
 
@@ -28,7 +28,7 @@ export async function GET(
   if (!record || record.module !== "case" || !record.projectionTokenHash) return notFound();
   if (!tokenMatches(token, record.projectionTokenHash)) return notFound();
 
-  const c = mockCase(record.caseId);
+  const c = voiceCaseRecord(record.caseId);
   if (!c) return notFound();
 
   const stage = record.session.fsm_state;
@@ -46,6 +46,7 @@ export async function GET(
   return NextResponse.json({
     caseId: record.caseId,
     caseTitle: c.title,
+    caseDescription: record.selectedCaseDescription ?? null,
     openingText: record.openingText ?? c.prompt ?? "Let's begin.",
     readinessStatus: record.readinessStatus ?? "confirmed",
     readinessConfirmedAt: record.readinessConfirmedAt ?? null,
