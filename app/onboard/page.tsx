@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useReadiness } from "@/components/readiness-store";
-import { DocumentInput } from "@/components/DocumentInput";
 
 /** Naive role-title guess from a pasted JD (client-only convenience). */
 function guessRole(jd: string): { role: string | null; company: string | null } {
@@ -68,12 +67,29 @@ export default function Onboard() {
               <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--accent-tint)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>◎</div>
               <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>Your resume</span>
             </div>
-            <DocumentInput
-              kind="resume"
+            <div style={{ border: "1.5px dashed var(--line)", borderRadius: 12, padding: "20px 18px", textAlign: "center", background: "var(--surface-2)" }}>
+              <div style={{ fontSize: 13, color: "var(--ink-2)", marginBottom: 4 }}>Paste your resume below</div>
+              <div style={{ fontSize: 11, color: "var(--ink-4)" }}>PDF upload coming soon</div>
+            </div>
+            <textarea
               value={resume}
-              onTextChange={setResume}
-              textareaLabel="Your resume text"
+              onChange={(e) => setResume(e.target.value)}
               placeholder="…paste your resume text here"
+              aria-label="Your resume text"
+              style={{
+                marginTop: 12,
+                width: "100%",
+                height: 120,
+                resize: "vertical",
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "11px 12px",
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: "var(--ink)",
+                background: "var(--surface)",
+                outline: "none",
+              }}
             />
           </div>
 
@@ -100,13 +116,24 @@ export default function Onboard() {
                 marginBottom: 10,
               }}
             />
-            <DocumentInput
-              kind="job description"
+            <textarea
               value={jd}
-              onTextChange={setJd}
-              textareaLabel="Target job description text"
+              onChange={(e) => setJd(e.target.value)}
               placeholder="Paste the job description"
-              height={104}
+              aria-label="Target job description"
+              style={{
+                width: "100%",
+                height: 152,
+                resize: "vertical",
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "11px 12px",
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: "var(--ink)",
+                background: "var(--surface)",
+                outline: "none",
+              }}
             />
           </div>
         </div>
