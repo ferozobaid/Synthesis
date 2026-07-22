@@ -117,7 +117,7 @@ export interface PendingCaseVoiceReadResult {
   expired: boolean;
 }
 
-interface CaseBootstrap {
+export interface CaseBootstrap {
   architecture?: "custom_llm";
   sessionId: string;
   projectionToken: string;
@@ -127,7 +127,7 @@ interface CaseBootstrap {
   caseDescription?: string | null;
 }
 
-interface NativeCaseBootstrap {
+export interface NativeCaseBootstrap {
   architecture: "vapi_native";
   sessionId: string;
   assistantId: string;
@@ -135,6 +135,12 @@ interface NativeCaseBootstrap {
   reportStatus: "pending";
   caseId: string;
   caseTitle: string;
+}
+
+export interface NativeCaseVoiceTranscriptLine {
+  role: "assistant" | "user";
+  text: string;
+  sequence: number;
 }
 
 export interface PreviewCaseChoice {
@@ -227,6 +233,88 @@ export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
     },
     metadata: { sessionId: bootstrap.sessionId, caseId: bootstrap.caseId },
   };
+}
+
+export function nativeCaseVoiceStartOverrides(
+  bootstrap: Pick<NativeCaseBootstrap, "sessionId" | "caseId">,
+) {
+  return {
+    variableValues: {
+      sessionId: bootstrap.sessionId,
+      caseId: bootstrap.caseId,
+    },
+  };
+}
+
+export function caseVoiceCallStartContract(
+  bootstrap: CaseBootstrap | NativeCaseBootstrap,
+  customAssistantId: string | undefined,
+): { assistantId: string; overrides: ReturnType<typeof caseVoiceStartOverrides> | ReturnType<typeof nativeCaseVoiceStartOverrides> } {
+  if (bootstrap.architecture === "vapi_native") {
+    return {
+      assistantId: bootstrap.assistantId,
+      overrides: nativeCaseVoiceStartOverrides(bootstrap),
+    };
+  }
+  if (!customAssistantId) throw new Error("Case voice is not configured for this deployment.");
+  return {
+    assistantId: customAssistantId,
+    overrides: caseVoiceStartOverrides(bootstrap),
+  };
+}
+
+export async function startCaseVoiceSdkCall(
+  vapi: Pick<VapiLike, "start">,
+  contract: ReturnType<typeof caseVoiceCallStartContract>,
+): Promise<unknown> {
+  return vapi.start(contract.assistantId, contract.overrides);
+}
+
+export function shouldPreserveNativeCaseReportAfterStartFailure(
+  pending: PendingNativeCaseReport | null,
+): pending is PendingNativeCaseReport {
+  return pending !== null;
+}
+
+export function nativeCaseVoiceTranscriptLine(
+  message: unknown,
+  sequence: number,
+): NativeCaseVoiceTranscriptLine | null {
+  const value = message as {
+    type?: unknown;
+    role?: unknown;
+    transcriptType?: unknown;
+    transcript?: unknown;
+  } | null;
+  const type = typeof value?.type === "string" ? value.type : "";
+  const final = value?.transcriptType === "final" || type.includes('transcriptType="final"');
+  if (
+    !value ||
+    (type !== "transcript" && !type.startsWith("transcript[")) ||
+    !final ||
+    (value.role !== "assistant" && value.role !== "user")
+  ) {
+    return null;
+  }
+  const text = typeof value.transcript === "string" ? value.transcript.trim() : "";
+  return text ? { role: value.role, text, sequence } : null;
+}
+
+export function appendNativeCaseVoiceTranscript(
+  current: NativeCaseVoiceTranscriptLine[],
+  next: NativeCaseVoiceTranscriptLine,
+): NativeCaseVoiceTranscriptLine[] {
+  const previous = current.at(-1);
+  if (previous?.role === next.role && previous.text === next.text) return current;
+  const appended = [...current, next];
+  return appended.length > TRANSCRIPT_CAP ? appended.slice(-TRANSCRIPT_CAP) : appended;
+}
+
+export function nativeCaseReportPollingReady(
+  pending: PendingNativeCaseReport | null,
+  callActive: boolean,
+): pending is PendingNativeCaseReport {
+  return pending !== null && !callActive;
 }
 
 export function caseVoiceControls(
@@ -494,7 +582,9 @@ export default function CaseVoiceInterview({
 }: {
   onComplete?: (score: CaseScore) => void;
 }) {
-  const configured = Boolean(WEB_KEY && ASSISTANT_ID);
+  // Native sessions receive their closed-mapped assistant id from bootstrap;
+  // only the public Web SDK key is needed before the architecture is known.
+  const configured = Boolean(WEB_KEY);
   const [catalogStatus, setCatalogStatus] = useState<CaseCatalogStatus>("loading");
   const [catalog, setCatalog] = useState<PreviewCaseChoice[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -507,6 +597,8 @@ export default function CaseVoiceInterview({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [capability, setCapability] = useState<PendingCaseVoiceCapability | null>(null);
   const [nativeCapability, setNativeCapability] = useState<PendingNativeCaseReport | null>(null);
+  const [nativeLiveCapability, setNativeLiveCapability] = useState<PendingNativeCaseReport | null>(null);
+  const [nativeTranscript, setNativeTranscript] = useState<NativeCaseVoiceTranscriptLine[]>([]);
   const [projection, setProjection] = useState<CaseVoiceProjection | null>(null);
   const [liveCaption, setLiveCaption] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED);
@@ -514,6 +606,7 @@ export default function CaseVoiceInterview({
   const [timerEndedAt, setTimerEndedAt] = useState<number | null>(null);
 
   const vapiRef = useRef<VapiLike | null>(null);
+  const nativeLiveCapabilityRef = useRef<PendingNativeCaseReport | null>(null);
   const projectionRef = useRef<CaseVoiceProjection | null>(null);
   const callActiveRef = useRef(false);
   const statusRef = useRef<CaseVoiceStatus>("idle");
@@ -592,6 +685,16 @@ export default function CaseVoiceInterview({
     setMuted(false);
     endedAtRef.current = Date.now();
     setTimerEndedAt(endedAtRef.current);
+    const nativePending = nativeLiveCapabilityRef.current;
+    if (nativePending) {
+      nativeLiveCapabilityRef.current = null;
+      setNativeLiveCapability(null);
+      setNativeCapability(nativePending);
+      setStatus("ended");
+      setError(null);
+      setNotice(null);
+      return;
+    }
     clearCaseVoicePending();
     const latest = projectionRef.current;
     if (latest?.complete && latest.score) {
@@ -613,8 +716,12 @@ export default function CaseVoiceInterview({
     endedAtRef.current = null;
     firstNotFoundAtRef.current = null;
     projectionRef.current = null;
+    nativeLiveCapabilityRef.current = null;
     setProjection(null);
     setCapability(null);
+    setNativeCapability(null);
+    setNativeLiveCapability(null);
+    setNativeTranscript([]);
     setLiveCaption(null);
     setShowTranscript(false);
     setTimerEndedAt(null);
@@ -638,6 +745,7 @@ export default function CaseVoiceInterview({
       if (!response.ok) throw new Error("Could not start the voice case session.");
       const bootstrap = (await response.json()) as Partial<CaseBootstrap> | Partial<NativeCaseBootstrap>;
       if (attempt !== startAttemptRef.current) return;
+      let validatedBootstrap: CaseBootstrap | NativeCaseBootstrap;
       if (bootstrap.architecture === "vapi_native") {
         if (
           typeof bootstrap.sessionId !== "string" ||
@@ -657,33 +765,35 @@ export default function CaseVoiceInterview({
           createdAt: Date.now(),
         };
         writePendingNativeCaseReport(pending);
-        setNativeCapability(pending);
-        setCallIsActive(false);
-        setStatus("ended");
-        setNotice("Native Case Voice is prepared but remains disabled until the Vapi assistants are configured.");
-        return;
-      }
-      const customBootstrap = bootstrap as Partial<CaseBootstrap>;
-      if (
-        typeof customBootstrap.sessionId !== "string" ||
-        typeof customBootstrap.projectionToken !== "string" ||
-        typeof customBootstrap.openingPrompt !== "string" ||
-        typeof customBootstrap.caseId !== "string" ||
-        typeof customBootstrap.caseTitle !== "string"
-      ) {
-        throw new Error("The voice case session did not initialise.");
+        nativeLiveCapabilityRef.current = pending;
+        setNativeLiveCapability(pending);
+        validatedBootstrap = bootstrap as NativeCaseBootstrap;
+      } else {
+        const customBootstrap = bootstrap as Partial<CaseBootstrap>;
+        if (
+          typeof customBootstrap.sessionId !== "string" ||
+          typeof customBootstrap.projectionToken !== "string" ||
+          typeof customBootstrap.openingPrompt !== "string" ||
+          typeof customBootstrap.caseId !== "string" ||
+          typeof customBootstrap.caseTitle !== "string"
+        ) {
+          throw new Error("The voice case session did not initialise.");
+        }
+
+        const pending: PendingCaseVoiceCapability = {
+          sessionId: customBootstrap.sessionId,
+          projectionToken: customBootstrap.projectionToken,
+          caseId: customBootstrap.caseId,
+          caseTitle: customBootstrap.caseTitle,
+          openingPrompt: customBootstrap.openingPrompt,
+          createdAt: Date.now(),
+        };
+        writeCaseVoicePending(pending);
+        setCapability(pending);
+        validatedBootstrap = customBootstrap as CaseBootstrap;
       }
 
-      const pending: PendingCaseVoiceCapability = {
-        sessionId: customBootstrap.sessionId,
-        projectionToken: customBootstrap.projectionToken,
-        caseId: customBootstrap.caseId,
-        caseTitle: customBootstrap.caseTitle,
-        openingPrompt: customBootstrap.openingPrompt,
-        createdAt: Date.now(),
-      };
-      writeCaseVoicePending(pending);
-      setCapability(pending);
+      const callContract = caseVoiceCallStartContract(validatedBootstrap, ASSISTANT_ID);
 
       const module = await import("@vapi-ai/web");
       if (attempt !== startAttemptRef.current) return;
@@ -730,6 +840,10 @@ export default function CaseVoiceInterview({
           handleCallEnd(payload);
           return;
         }
+        if (nativeLiveCapabilityRef.current) {
+          handleCallEnd(payload);
+          return;
+        }
         startAttemptRef.current += 1;
         teardown();
         const failedAt = Date.now();
@@ -754,15 +868,21 @@ export default function CaseVoiceInterview({
             timestamp: new Date(finalizedAt).toISOString(),
           });
         }
+        if (nativeLiveCapabilityRef.current) {
+          setNativeTranscript((current) => {
+            const line = nativeCaseVoiceTranscriptLine(
+              message,
+              (current.at(-1)?.sequence ?? 0) + 1,
+            );
+            return line ? appendNativeCaseVoiceTranscript(current, line) : current;
+          });
+        }
         const text = caseVoiceLiveCaption(message);
         if (!text) return;
         setLiveCaption(text);
       });
 
-      const startedCall = await vapi.start(
-        ASSISTANT_ID!,
-        caseVoiceStartOverrides(customBootstrap as CaseBootstrap),
-      ) as {
+      const startedCall = await startCaseVoiceSdkCall(vapi, callContract) as {
         id?: unknown;
         assistant?: { maxDurationSeconds?: unknown };
         maxDurationSeconds?: unknown;
@@ -790,7 +910,15 @@ export default function CaseVoiceInterview({
       setStatus((current) => (current === "connecting" ? "listening" : current));
     } catch (cause) {
       if (attempt !== startAttemptRef.current) return;
+      const preserveNativeReport = shouldPreserveNativeCaseReportAfterStartFailure(
+        nativeLiveCapabilityRef.current,
+      );
       teardown();
+      if (!preserveNativeReport) {
+        nativeLiveCapabilityRef.current = null;
+        clearPendingNativeCaseReport();
+        setNativeLiveCapability(null);
+      }
       clearCaseVoicePending();
       setCapability(null);
       setStatus("error");
@@ -800,10 +928,20 @@ export default function CaseVoiceInterview({
 
   const endCall = useCallback(() => {
     const latest = projectionRef.current;
+    const nativePending = nativeLiveCapabilityRef.current;
     startAttemptRef.current += 1;
     teardown();
     endedAtRef.current = Date.now();
     setTimerEndedAt(endedAtRef.current);
+    if (nativePending) {
+      nativeLiveCapabilityRef.current = null;
+      setNativeLiveCapability(null);
+      setNativeCapability(nativePending);
+      setStatus("ended");
+      setError(null);
+      setNotice(null);
+      return;
+    }
     clearCaseVoicePending();
     if (latest?.complete && latest.score) {
       setStatus("completed");
@@ -977,7 +1115,7 @@ export default function CaseVoiceInterview({
   // The Case Simulator always opens on the two-case picker. It shows whenever no
   // session is active, and Start stays disabled until the catalog has loaded and
   // a case is explicitly selected.
-  const showPicker = !callActive && !capability;
+  const showPicker = !callActive && !capability && !nativeLiveCapability;
   const availability = caseVoiceStartAvailability({
     catalogStatus,
     cases: catalog,
@@ -986,6 +1124,7 @@ export default function CaseVoiceInterview({
   });
   const caseLabel = projection?.caseTitle
     ?? capability?.caseTitle
+    ?? nativeLiveCapability?.caseTitle
     ?? catalog.find((entry) => entry.id === selectedCaseId)?.title
     ?? "Live voice";
 
@@ -994,8 +1133,11 @@ export default function CaseVoiceInterview({
     teardown();
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
+    nativeLiveCapabilityRef.current = null;
     setCapability(null);
     setNativeCapability(null);
+    setNativeLiveCapability(null);
+    setNativeTranscript([]);
     setProjection(null);
     projectionRef.current = null;
     endedAtRef.current = null;
@@ -1007,7 +1149,7 @@ export default function CaseVoiceInterview({
     setSyncError(null);
   };
 
-  if (nativeCapability) {
+  if (nativeCaseReportPollingReady(nativeCapability, callActive)) {
     return (
       <CaseNativeVoiceInterview
         pending={nativeCapability}
@@ -1188,6 +1330,66 @@ export default function CaseVoiceInterview({
         <p role="status" style={{ margin: "9px 2px 0", fontSize: 12, color: "var(--partial)" }}>
           {syncError}
         </p>
+      )}
+
+      {nativeLiveCapability && (
+        <>
+          {liveCaption && (
+            <div
+              style={{ marginTop: 14, maxWidth: 720, opacity: 0.78 }}
+              aria-label="Temporary live caption"
+              aria-live="polite"
+            >
+              <ChatBubble role="candidate" text={liveCaption} label="Live caption" />
+            </div>
+          )}
+
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              aria-expanded={showTranscript}
+              onClick={() => setShowTranscript((current) => !current)}
+              style={buttonStyle("ghost")}
+            >
+              {showTranscript ? "Hide transcript" : "Show transcript"} ({nativeTranscript.length})
+            </button>
+          </div>
+
+          {showTranscript && (
+            <div
+              style={{
+                marginTop: 16,
+                border: "1px solid var(--line)",
+                borderRadius: 8,
+                background: "var(--surface)",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+                <SectionLabel>Transcript</SectionLabel>
+              </div>
+              <div
+                style={{
+                  height: 480,
+                  overflowY: "auto",
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+                aria-live="polite"
+              >
+                {nativeTranscript.map((line) => (
+                  <ChatBubble
+                    key={line.sequence}
+                    role={line.role === "assistant" ? "interviewer" : "candidate"}
+                    text={line.text}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {projection && (

@@ -104,10 +104,20 @@ export function fullAuthoritativeCaseScore(
   };
 }
 
-/**
- * Dormant native-flow recovery surface. Phase 1 does not start a Vapi call; it
- * only retains and polls a capability if a native session is bootstrapped.
- */
+export function nativeCaseReportStatusMessage(
+  report: NativeCaseReportProjection | null,
+): string {
+  if (!report || report.status === "pending") {
+    return "Waiting for Vapi’s authoritative end-of-call report.";
+  }
+  if (report.status === "processing") return "Your Case report is being processed.";
+  if (report.status === "failed") return "The Case report could not be produced.";
+  return report.partial
+    ? "A partial Case report is ready. It will not update readiness."
+    : "Your authoritative Case report is ready.";
+}
+
+/** Polls the protected report capability after a native call ends or refreshes. */
 export default function CaseNativeVoiceInterview({
   pending,
   onComplete,
@@ -154,14 +164,8 @@ export default function CaseNativeVoiceInterview({
 
   return (
     <div style={{ marginTop: 18 }}>
-      <p style={{ color: "var(--ink-2)", fontSize: 14 }}>
-        {report?.status === "done"
-          ? report.partial
-            ? "A partial Case report is ready. It will not update readiness."
-            : "Your authoritative Case report is ready."
-          : report?.status === "failed"
-            ? "The Case report could not be produced."
-            : "Native Case Voice is prepared but not enabled for live calls in this phase."}
+      <p role="status" aria-live="polite" style={{ color: "var(--ink-2)", fontSize: 14 }}>
+        {nativeCaseReportStatusMessage(report)}
       </p>
       {error && <p role="status" style={{ color: "var(--gap)", fontSize: 12 }}>{error}</p>}
       <button type="button" onClick={onReset}>Back to cases</button>
