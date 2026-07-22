@@ -1,0 +1,681 @@
+{
+  "version": 2,
+  "track": "technical",
+  "role": "data_analyst",
+  "title": "Data Analyst Technical Round",
+  "description": "Five scenario questions. Each question focuses on one practical data analysis decision.",
+  "question_count": 5,
+  "default_order": [
+    "da_monthly_revenue_sql",
+    "da_conversion_metric",
+    "da_sales_dashboard",
+    "da_active_users_drop",
+    "da_checkout_ab_test"
+  ],
+  "scoring": {
+    "question_weighting": "equal",
+    "per_question_weight": 0.2,
+    "scale": "1-5",
+    "pass_threshold": 3,
+    "final_score_normalization": "round((weighted_average / 5) * 100)"
+  },
+  "questions": [
+    {
+      "id": "da_monthly_revenue_sql",
+      "order": 1,
+      "role": "data_analyst",
+      "title": "Monthly Revenue Query",
+      "domain": "sql_analysis",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "You have a customers table with one row per customer and an orders table with order date, status, and amount. The business wants monthly revenue and unique purchasing customers by region.",
+        "constraints": [
+          "Canceled orders must be excluded.",
+          "A customer can place multiple orders in the same month."
+        ],
+        "prompt": "Describe the SQL logic you would use, how you would avoid double counting, and one way you would validate the result."
+      },
+      "objective": "Assess whether the candidate can reason about filtering, joins, aggregation, and query validation.",
+      "target_elements": [
+        {
+          "id": "filter_grain",
+          "description": "Filters valid orders and identifies the order-level input grain.",
+          "required": true
+        },
+        {
+          "id": "join_aggregate",
+          "description": "Joins customers safely and calculates revenue and distinct customers by month and region.",
+          "required": true
+        },
+        {
+          "id": "validate",
+          "description": "Uses a simple reconciliation or duplicate check.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_customer_count",
+            "trigger": "The candidate counts order rows as customers.",
+            "prompt": "How would you count a customer who places three orders in the same month?",
+            "target_element_ids": [
+              "join_aggregate"
+            ]
+          },
+          {
+            "id": "probe_join",
+            "trigger": "The candidate does not consider join duplication.",
+            "prompt": "What would you check if revenue increases after joining customers?",
+            "target_element_ids": [
+              "validate"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Filter the orders first, then join and aggregate.",
+          "Use SUM for revenue, COUNT DISTINCT for customers, and reconcile totals before and after the join."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.1,
+            "description": "Recognizes the requested grain, measures, and exclusions.",
+            "anchors": {
+              "1": "Misses the requested output or cancellation rule.",
+              "3": "Understands the monthly regional output.",
+              "5": "Clearly identifies the input and output grains and required filters."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.3,
+            "description": "Uses sound filtering, join, grouping, and distinct-count logic.",
+            "anchors": {
+              "1": "Uses incorrect joins or aggregations.",
+              "3": "Provides workable SQL logic.",
+              "5": "Provides precise logic and anticipates join cardinality."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Prevents double counting and validates the output.",
+            "anchors": {
+              "1": "Would double count revenue or customers.",
+              "3": "Produces correct measures and includes a basic check.",
+              "5": "Also checks unmatched keys and reconciles totals across stages."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Explains a meaningful join or aggregation choice.",
+            "anchors": {
+              "1": "Makes choices without explanation.",
+              "3": "Explains the main choice.",
+              "5": "Concise reasoning covers both correctness and business meaning."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains the query in a clear sequence.",
+            "anchors": {
+              "1": "The logic is difficult to follow.",
+              "3": "The main steps are understandable.",
+              "5": "The filter, join, aggregate, and validation steps are concise and ordered."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Filter the orders to the requested date range and valid statuses, then derive the reporting month from order_date.",
+          "Join each order to the single matching customer, group by month and region, calculate SUM(amount), and use COUNT(DISTINCT customer_id) for purchasing customers.",
+          "Compare order counts and revenue before and after the join, and check for duplicate customer rows or unmatched customer IDs."
+        ],
+        "acceptable_alternatives": [
+          "An inner join or a left join is acceptable if the treatment of customers with an unknown region is stated.",
+          "Pre-aggregating orders by customer and month is acceptable when the final revenue total remains correct."
+        ],
+        "red_flags": [
+          "Counts order rows as unique customers.",
+          "Joins to a non-unique customer table without checking cardinality.",
+          "Includes canceled orders or performs no validation."
+        ]
+      }
+    },
+    {
+      "id": "da_conversion_metric",
+      "order": 2,
+      "role": "data_analyst",
+      "title": "Conversion Rate Definition",
+      "domain": "metric_definition",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "Marketing and Product report different website conversion rates. Users can visit more than once, and a purchase may happen up to seven days after the first visit.",
+        "constraints": [
+          "The company needs one definition for weekly reporting.",
+          "Test users and bots should not affect the metric."
+        ],
+        "prompt": "Define a weekly conversion-rate metric, including its grain, numerator, denominator, attribution window, and one validation check."
+      },
+      "objective": "Assess whether the candidate can turn an ambiguous business term into a consistent, testable metric.",
+      "target_elements": [
+        {
+          "id": "numerator_denominator",
+          "description": "Defines eligible converted users and the matching eligible population.",
+          "required": true
+        },
+        {
+          "id": "grain_window",
+          "description": "Chooses a user or session grain and a clear conversion window.",
+          "required": true
+        },
+        {
+          "id": "consistency_validation",
+          "description": "Documents exclusions and validates that numerator records belong to the denominator.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_grain",
+            "trigger": "The candidate mixes visits and users in the same ratio.",
+            "prompt": "Would one user with five visits appear once or five times in your denominator?",
+            "target_element_ids": [
+              "numerator_denominator",
+              "grain_window"
+            ]
+          },
+          {
+            "id": "probe_late_purchase",
+            "trigger": "The candidate does not address delayed purchases.",
+            "prompt": "How would a purchase six days after the first visit be counted?",
+            "target_element_ids": [
+              "grain_window"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Choose either a user-based or session-based metric and keep both sides of the ratio at that grain.",
+          "State who is eligible, what counts as conversion, and how long a conversion can occur after the starting event."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Clarifies the business question behind conversion.",
+            "anchors": {
+              "1": "Uses the term conversion without defining it.",
+              "3": "Identifies the main event and eligible audience.",
+              "5": "Connects the grain and window to the weekly business decision."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.25,
+            "description": "Defines a coherent numerator, denominator, grain, and attribution window.",
+            "anchors": {
+              "1": "Mixes incompatible grains or time windows.",
+              "3": "Provides a workable metric definition.",
+              "5": "Defines eligibility and timing precisely without overcomplicating the metric."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Keeps the ratio consistent and excludes invalid traffic.",
+            "anchors": {
+              "1": "The numerator is not a valid subset of the denominator.",
+              "3": "Uses consistent populations and basic exclusions.",
+              "5": "Also includes a clear reconciliation or monitoring check."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Explains the effect of the selected grain or attribution window.",
+            "anchors": {
+              "1": "Makes the choice without explanation.",
+              "3": "States the main tradeoff.",
+              "5": "Explains how the choice changes interpretation and comparability."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "States the metric in language that teams can apply consistently.",
+            "anchors": {
+              "1": "The definition remains ambiguous.",
+              "3": "The definition is understandable.",
+              "5": "The definition is concise, testable, and ready to document."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Use a user-based weekly cohort: the denominator is unique eligible users whose first qualifying visit occurs that week, excluding bots and test users.",
+          "The numerator is those same users who complete a valid purchase within seven days of that qualifying visit, using a documented time zone and purchase-status rule.",
+          "Check that every converted user exists in the denominator, compare counts with source events, and publish the definition with its exclusions and window."
+        ],
+        "acceptable_alternatives": [
+          "A session-based conversion rate is acceptable if both numerator and denominator are session-based and attribution is explicit.",
+          "A same-week or same-day window is acceptable if it matches the business use case and is applied consistently over time."
+        ],
+        "red_flags": [
+          "Divides purchases by visits while describing the result as user conversion.",
+          "Leaves the attribution window undefined.",
+          "Changes exclusions or the denominator between reports."
+        ]
+      }
+    },
+    {
+      "id": "da_sales_dashboard",
+      "order": 3,
+      "role": "data_analyst",
+      "title": "Weekly Sales Dashboard",
+      "domain": "data_visualization",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "Sales leaders need a weekly dashboard showing revenue versus target. Executives want a quick overview, while regional managers need to identify which regions or products are behind.",
+        "constraints": [
+          "The first page should be understandable in under a minute.",
+          "The dashboard should support region and product filtering."
+        ],
+        "prompt": "What would you put on the first page, which chart types would you use, and how would you prevent the dashboard from being misleading?"
+      },
+      "objective": "Assess whether the candidate can select focused visuals that support overview and diagnosis.",
+      "target_elements": [
+        {
+          "id": "information_hierarchy",
+          "description": "Prioritizes overall performance, trend, and the main breakdown.",
+          "required": true
+        },
+        {
+          "id": "visual_choices",
+          "description": "Uses chart types appropriate for comparisons and trends.",
+          "required": true
+        },
+        {
+          "id": "context_usability",
+          "description": "Adds clear definitions, targets, filters, refresh context, and honest scales.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_first_view",
+            "trigger": "The candidate lists many charts without prioritization.",
+            "prompt": "What are the first three things an executive should see?",
+            "target_element_ids": [
+              "information_hierarchy"
+            ]
+          },
+          {
+            "id": "probe_misleading",
+            "trigger": "The candidate does not discuss visual integrity.",
+            "prompt": "What chart or labeling choice could exaggerate a small performance gap?",
+            "target_element_ids": [
+              "context_usability"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Start with current performance, change over time, and where the gap comes from.",
+          "Use a KPI, a trend line, and a ranked comparison with clear targets, dates, units, and filters."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Addresses both executive overview and manager investigation.",
+            "anchors": {
+              "1": "Ignores one of the audiences.",
+              "3": "Supports the main needs of both audiences.",
+              "5": "Creates a clear overview-to-detail path."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.25,
+            "description": "Selects appropriate visuals and interactions.",
+            "anchors": {
+              "1": "Uses unsuitable or confusing charts.",
+              "3": "Uses workable charts and filters.",
+              "5": "Uses a focused hierarchy of complementary visuals."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.2,
+            "description": "Shows consistent metrics, targets, dates, units, and refresh state.",
+            "anchors": {
+              "1": "Leaves important metric or time context ambiguous.",
+              "3": "Labels the main measures correctly.",
+              "5": "Also exposes definitions, freshness, and filter state."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.2,
+            "description": "Balances speed of understanding with useful detail.",
+            "anchors": {
+              "1": "Adds detail without prioritization.",
+              "3": "Keeps the first page focused.",
+              "5": "Explains what belongs on the first page and what should be drill-down detail."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.2,
+            "description": "Presents a clear visual story with honest emphasis.",
+            "anchors": {
+              "1": "The dashboard concept is cluttered or misleading.",
+              "3": "The main message is clear.",
+              "5": "The visual order, labels, and annotations make the action obvious."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Show headline revenue, target, and variance first, followed by a weekly revenue-versus-target trend.",
+          "Use a ranked bar chart or compact table for regional performance, with filters or drill-down for product detail.",
+          "Use clear units, dates, metric definitions, refresh time, consistent colors, and honest axes; keep nonessential charts off the first page."
+        ],
+        "acceptable_alternatives": [
+          "Small multiples by region are acceptable when there are few regions and trend comparison is important.",
+          "A variance table with conditional formatting is acceptable when managers need exact values."
+        ],
+        "red_flags": [
+          "Uses many pie charts or an overcrowded first page.",
+          "Uses truncated axes or color without labels to exaggerate differences.",
+          "Shows revenue without target, date range, or metric definition."
+        ]
+      }
+    },
+    {
+      "id": "da_active_users_drop",
+      "order": 4,
+      "role": "data_analyst",
+      "title": "Regional Active-User Drop",
+      "domain": "diagnostic_analysis",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "Daily active users fall 20 percent in one region on the same day a new tracking version is released. Other regions appear stable.",
+        "constraints": [
+          "The team needs to know whether user behavior changed or measurement broke.",
+          "A conclusion is needed before the next daily report."
+        ],
+        "prompt": "Describe the first analysis steps you would take to separate a real business decline from a tracking or data issue."
+      },
+      "objective": "Assess whether the candidate can validate a metric, segment the change, and reach an evidence-based conclusion.",
+      "target_elements": [
+        {
+          "id": "validate_metric",
+          "description": "Checks the active-user definition, completeness, timing, and baseline.",
+          "required": true
+        },
+        {
+          "id": "segment_compare",
+          "description": "Segments by useful dimensions and compares affected and unaffected groups or sources.",
+          "required": true
+        },
+        {
+          "id": "conclude_communicate",
+          "description": "States what evidence would support each explanation and how findings would be communicated.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_tracking",
+            "trigger": "The candidate assumes the release caused the drop.",
+            "prompt": "What evidence would show that tracking changed rather than user behavior?",
+            "target_element_ids": [
+              "segment_compare"
+            ]
+          },
+          {
+            "id": "probe_baseline",
+            "trigger": "The candidate only compares with the previous day.",
+            "prompt": "What comparison period would help control for normal weekly patterns?",
+            "target_element_ids": [
+              "validate_metric"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "First confirm the metric and data completeness, then segment the drop.",
+          "Compare app versions, platforms, events, and unaffected regions against a normal day-of-week baseline."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Frames the competing business and measurement explanations.",
+            "anchors": {
+              "1": "Assumes one explanation immediately.",
+              "3": "Recognizes both possible explanations.",
+              "5": "States clear evidence that would distinguish them."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.25,
+            "description": "Uses useful baselines, segments, and source comparisons.",
+            "anchors": {
+              "1": "Only inspects the top-line number.",
+              "3": "Checks relevant segments and recent trends.",
+              "5": "Uses affected-versus-control comparisons to isolate the cause."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Validates metric logic and data completeness before concluding.",
+            "anchors": {
+              "1": "Draws a conclusion from incomplete or unverified data.",
+              "3": "Checks definition, freshness, and event volume.",
+              "5": "Also reconciles against an independent source or unaffected event."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Prioritizes checks that provide fast, useful evidence.",
+            "anchors": {
+              "1": "Proposes broad analysis with no priority.",
+              "3": "Starts with high-signal checks.",
+              "5": "Explains a short sequence that balances speed and confidence."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Communicates findings with appropriate confidence.",
+            "anchors": {
+              "1": "States uncertainty as fact.",
+              "3": "Explains the likely cause and evidence.",
+              "5": "Also states impact, confidence, and the next validation step."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Confirm the active-user definition, time zone, refresh completeness, and whether the drop remains against the same weekday and recent trend.",
+          "Break the change down by app version, platform, event type, and user segment; compare the affected region with stable regions and compare tracked events with an independent source if available.",
+          "If only the new version loses a key event, treat it as tracking and correct or backfill the metric; if multiple independent signals decline, investigate the business drivers and communicate the evidence and confidence."
+        ],
+        "acceptable_alternatives": [
+          "A before-and-after comparison is acceptable when seasonality and other simultaneous changes are addressed.",
+          "A temporary dashboard warning is appropriate while measurement integrity is uncertain."
+        ],
+        "red_flags": [
+          "Assumes the tracking release or the business is responsible without testing.",
+          "Looks only at the regional total.",
+          "Reports a conclusion before checking freshness and event completeness."
+        ]
+      }
+    },
+    {
+      "id": "da_checkout_ab_test",
+      "order": 5,
+      "role": "data_analyst",
+      "title": "Checkout Experiment Result",
+      "domain": "experiment_analysis",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "An A/B test shows checkout conversion is 3 percent higher in the treatment group. The sample is still small, the treatment group has more mobile users, and checkout-error rate is a guardrail metric.",
+        "constraints": [
+          "The product team wants a rollout recommendation.",
+          "Both conversion impact and checkout reliability matter."
+        ],
+        "prompt": "What would you check before recommending a rollout, and how would you summarize the result if the evidence is not yet conclusive?"
+      },
+      "objective": "Assess whether the candidate can evaluate experiment validity, uncertainty, practical impact, and guardrails.",
+      "target_elements": [
+        {
+          "id": "experiment_validity",
+          "description": "Checks randomization, sample balance, exposure, duration, and data quality.",
+          "required": true
+        },
+        {
+          "id": "effect_uncertainty",
+          "description": "Evaluates effect size with uncertainty rather than relying on the observed uplift alone.",
+          "required": true
+        },
+        {
+          "id": "segments_guardrails",
+          "description": "Examines device imbalance and the checkout-error guardrail before making a recommendation.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_balance",
+            "trigger": "The candidate accepts the overall uplift without checking group comparability.",
+            "prompt": "Why could the extra mobile users change the observed result?",
+            "target_element_ids": [
+              "experiment_validity",
+              "segments_guardrails"
+            ]
+          },
+          {
+            "id": "probe_uncertainty",
+            "trigger": "The candidate recommends rollout based only on the positive point estimate.",
+            "prompt": "What would you report if the confidence interval includes no effect?",
+            "target_element_ids": [
+              "effect_uncertainty"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Check whether the groups are comparable before interpreting the uplift.",
+          "Report the effect and its uncertainty, then check device segments and the error-rate guardrail."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Frames the decision around conversion, reliability, and uncertainty.",
+            "anchors": {
+              "1": "Treats positive uplift as sufficient.",
+              "3": "Recognizes validity and guardrail concerns.",
+              "5": "Clearly defines the evidence needed for a rollout decision."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.3,
+            "description": "Checks assignment, balance, sample, effect size, and uncertainty.",
+            "anchors": {
+              "1": "Only compares raw conversion rates.",
+              "3": "Checks balance and statistical uncertainty.",
+              "5": "Connects experiment validity, effect size, and practical significance."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.25,
+            "description": "Validates exposure data, group comparability, and guardrails.",
+            "anchors": {
+              "1": "Ignores imbalance or error-rate data.",
+              "3": "Checks the main validity and guardrail measures.",
+              "5": "Also checks sample-ratio or instrumentation anomalies."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Balances potential conversion gain with uncertainty and user risk.",
+            "anchors": {
+              "1": "Recommends rollout or rejection without weighing risks.",
+              "3": "Explains the main benefit-risk tradeoff.",
+              "5": "Makes a proportionate recommendation such as continue, stop, or limited rollout."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Summarizes evidence without overstating certainty.",
+            "anchors": {
+              "1": "Presents an inconclusive result as a win.",
+              "3": "States the result and uncertainty clearly.",
+              "5": "Gives a concise recommendation, rationale, and next step."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Check random assignment, sample-ratio balance, exposure logging, experiment duration, and whether the mobile imbalance is random or indicates a setup problem.",
+          "Report the absolute and relative conversion difference with a confidence interval or equivalent uncertainty measure, and compare it with a meaningful business threshold.",
+          "Review conversion by device and the checkout-error guardrail; if the result is uncertain or errors worsen, do not claim a win and recommend continuing or correcting the test before rollout."
+        ],
+        "acceptable_alternatives": [
+          "Frequentist or Bayesian analysis is acceptable if uncertainty and the decision threshold are explained.",
+          "A limited rollout is acceptable when risk is controlled and monitoring and stop criteria are explicit."
+        ],
+        "red_flags": [
+          "Rolls out because the point estimate is positive.",
+          "Ignores device imbalance or the checkout-error guardrail.",
+          "Uses statistical significance alone without considering effect size or business impact."
+        ]
+      }
+    }
+  ]
+}
