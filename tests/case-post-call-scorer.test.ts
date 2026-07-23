@@ -336,6 +336,7 @@ describe("Case post-call exact model dimension contract", () => {
       expect.stringContaining("Dimension rationales must be entirely qualitative"),
       expect.stringContaining("only prose field that may discuss numbers"),
       expect.stringContaining("protected expected answers, hidden calculations"),
+      expect.stringContaining("original candidate-specific coaching"),
     ]));
     expect(prompt.outputRules.partialReport).toEqual(expect.arrayContaining([
       expect.stringContaining("rationale may be an empty string"),
@@ -366,6 +367,38 @@ describe("Case post-call exact model dimension contract", () => {
     expect(result.report.score.improved_framework_outline).toHaveLength(2);
     expect(result.report.score.improved_recommendation_outline).toHaveLength(2);
     expect(result.report.score.quantitative_assessment).toContain("business implication");
+  });
+
+  it("keeps the safe Haiku report when one observed stage-feedback item overlaps", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const mapped = mappedFullTranscript();
+    const copiedCandidateText = mapped.turns.find(
+      (turn) => turn.role === "candidate" && turn.stage === "framework",
+    )!.text;
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: copiedCandidateText,
+      }],
+    })));
+
+    const result = await scoreCasePostCall(getVoiceLlmCaseRecord(AIRPORT)!, mapped);
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.failureCategory).toBeNull();
+    expect(result.report.score.summary).toContain("worked through the case");
+    expect(result.report.score.improved_framework_outline).toHaveLength(2);
+    expect(result.report.score.stage_feedback).toContainEqual({
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    });
+    expect(JSON.stringify(result.report)).not.toContain(copiedCandidateText);
+    expect(JSON.stringify(result.modelDiagnostic)).not.toContain(copiedCandidateText);
   });
 
   it("uses the deterministic candidate-safe fallback when Haiku fails", async () => {
@@ -817,7 +850,7 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(result.proposal.stageFeedback).toEqual([]);
   });
 
-  it("still rejects unsafe feedback for an answered stage", () => {
+  it("replaces candidate-overlap feedback for an answered stage without rejecting the proposal", () => {
     const mapped = mappedStages(["framework"]);
     const copiedCandidateText = mapped.turns.find(
       (turn) => turn.role === "candidate",
@@ -831,11 +864,59 @@ describe("Case post-call proposal validation diagnostics", () => {
         },
       ],
     });
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mapped,
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([{
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    }]);
+    expect(JSON.stringify(result.proposal)).not.toContain(copiedCandidateText);
+  });
+
+  it("replaces protected-reference overlap feedback for an answered stage", () => {
+    const protectedReference =
+      "Pain-point-led, MECE structure tailored to the airport before proposing AI tools.";
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: protectedReference,
+      }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([{
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    }]);
+    expect(JSON.stringify(result.proposal)).not.toContain(protectedReference);
+  });
+
+  it("continues to reject unsafe numeric feedback for an answered stage", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: "The framework covered 3 clear areas.",
+      }],
+    });
+    expectValidationIssue(
+      proposal,
+      mappedStages(["framework"]),
       "stageFeedback",
-      "candidate_overlap",
+      "unsafe_numeric_claim",
       "string",
     );
   });

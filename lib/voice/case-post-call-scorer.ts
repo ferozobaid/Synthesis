@@ -740,9 +740,36 @@ type ValidatedStageFeedback =
   | { ok: true; value: CasePostCallStageFeedback[] }
   | { ok: false; result: CasePostCallProposalValidationResult };
 
+function deterministicStageFeedbackForStage(
+  stage: CaseReportStage,
+  dimensions: readonly CasePostCallModelDimension[],
+): CasePostCallStageFeedback | null {
+  const dimension = dimensions.find((item) =>
+    item.score !== null && DIMENSION_STAGES[item.dimension].includes(stage),
+  );
+  if (!dimension || dimension.score === null) return null;
+  if (dimension.score >= 4) {
+    return {
+      stage,
+      kind: "strength",
+      text: `${DIM_LABEL[INTERNAL_DIMENSION[dimension.dimension]]} was a relative strength.`,
+    };
+  }
+  if (dimension.score < 3) {
+    return {
+      stage,
+      kind: "improvement",
+      text: `Build a more explicit ${DIM_LABEL[INTERNAL_DIMENSION[dimension.dimension]].toLowerCase()} approach.`,
+    };
+  }
+  return null;
+}
+
 function validateStageFeedback(
   value: unknown,
   mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+  dimensions: readonly CasePostCallModelDimension[],
 ): ValidatedStageFeedback {
   if (!Array.isArray(value)) {
     return {
@@ -758,6 +785,13 @@ function validateStageFeedback(
   }
   const answered = new Set(mapped.answeredStages);
   const output: CasePostCallStageFeedback[] = [];
+  const discardedStages = new Set<CaseReportStage>();
+  const discardOverlappingFeedback = (stage: CaseReportStage) => {
+    if (discardedStages.has(stage)) return;
+    discardedStages.add(stage);
+    const fallback = deterministicStageFeedbackForStage(stage, dimensions);
+    if (fallback) output.push(fallback);
+  };
   for (const item of value) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       return {
@@ -766,30 +800,27 @@ function validateStageFeedback(
       };
     }
     const record = item as Record<string, unknown>;
-    let stage: CaseReportStage | null = null;
-    if (mapped.partial) {
-      if (!Object.prototype.hasOwnProperty.call(record, "stage")) {
-        return {
-          ok: false,
-          result: invalidProposal("stageFeedback", "missing_required_field"),
-        };
-      }
-      if (
-        typeof record.stage !== "string" ||
-        !REPORT_STAGES.includes(record.stage as CaseReportStage)
-      ) {
-        return {
-          ok: false,
-          result: invalidProposal("stageFeedback", "invalid_enum", record.stage),
-        };
-      }
-      stage = record.stage as CaseReportStage;
-      // A valid unanswered stage cannot contribute candidate-visible partial
-      // feedback. Discard it before inspecting any other provider-authored
-      // field, including kind, text, or additional properties.
-      if (!answered.has(stage)) continue;
+    if (!Object.prototype.hasOwnProperty.call(record, "stage")) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "missing_required_field"),
+      };
     }
-    for (const key of ["stage", "kind", "text"] as const) {
+    if (
+      typeof record.stage !== "string" ||
+      !REPORT_STAGES.includes(record.stage as CaseReportStage)
+    ) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "invalid_enum", record.stage),
+      };
+    }
+    const stage = record.stage as CaseReportStage;
+    // A valid unanswered stage cannot contribute candidate-visible partial
+    // feedback. Discard it before inspecting any other provider-authored
+    // field, including kind, text, or additional properties.
+    if (mapped.partial && !answered.has(stage)) continue;
+    for (const key of ["kind", "text"] as const) {
       if (!Object.prototype.hasOwnProperty.call(record, key)) {
         return {
           ok: false,
@@ -803,28 +834,10 @@ function validateStageFeedback(
         result: invalidProposal("stageFeedback", "unexpected_field"),
       };
     }
-    if (!mapped.partial) {
-      if (
-        typeof record.stage !== "string" ||
-        !REPORT_STAGES.includes(record.stage as CaseReportStage)
-      ) {
-        return {
-          ok: false,
-          result: invalidProposal("stageFeedback", "invalid_enum", record.stage),
-        };
-      }
-      stage = record.stage as CaseReportStage;
-    }
     if (record.kind !== "strength" && record.kind !== "improvement") {
       return {
         ok: false,
         result: invalidProposal("stageFeedback", "invalid_enum", record.kind),
-      };
-    }
-    if (stage === null) {
-      return {
-        ok: false,
-        result: invalidProposal("stageFeedback", "unknown_validation_error"),
       };
     }
     const text = validateText(
@@ -833,6 +846,44 @@ function validateStageFeedback(
       FEEDBACK_ITEM_MAX_LENGTH,
     );
     if (!text.ok) return text;
+    const sourceSafetyReason = modelTextSafetyReason(
+      record.text as string,
+      "stageFeedback",
+      mapped,
+      caseRecord,
+    );
+    if (
+      sourceSafetyReason === "candidate_overlap" ||
+      sourceSafetyReason === "protected_reference_overlap"
+    ) {
+      discardOverlappingFeedback(stage);
+      continue;
+    }
+    if (sourceSafetyReason) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", sourceSafetyReason, record.text),
+      };
+    }
+    const finalSafetyReason = modelTextSafetyReason(
+      text.value,
+      "stageFeedback",
+      mapped,
+      caseRecord,
+    );
+    if (
+      finalSafetyReason === "candidate_overlap" ||
+      finalSafetyReason === "protected_reference_overlap"
+    ) {
+      discardOverlappingFeedback(stage);
+      continue;
+    }
+    if (finalSafetyReason) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", finalSafetyReason, text.value),
+      };
+    }
     output.push({ stage, kind: record.kind, text: text.value });
   }
   return { ok: true, value: output };
@@ -919,19 +970,8 @@ function candidateVisibleSourceText(
     addArray(value.improvements, "improvements");
   }
 
-  if (Array.isArray(value.stageFeedback)) {
-    for (const item of value.stageFeedback) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-      const record = item as Record<string, unknown>;
-      if (
-        typeof record.text === "string" &&
-        typeof record.stage === "string" &&
-        (!mapped.partial || answered.has(record.stage as CaseReportStage))
-      ) {
-        output.push({ path: "stageFeedback", text: record.text });
-      }
-    }
-  }
+  // Stage feedback is source-safety checked item by item in
+  // validateStageFeedback so overlap-only failures can be discarded locally.
 
   if (!mapped.partial || answered.has("framework")) {
     addArray(value.improvedFrameworkOutline, "frameworkOutline");
@@ -1075,7 +1115,12 @@ function validateCasePostCallModelProposalInternal(
       );
   if (!improvements.ok) return improvements.result;
 
-  const stageFeedback = validateStageFeedback(value.stageFeedback, mapped);
+  const stageFeedback = validateStageFeedback(
+    value.stageFeedback,
+    mapped,
+    caseRecord,
+    dimensions,
+  );
   if (!stageFeedback.ok) return stageFeedback.result;
 
   const answered = new Set(mapped.answeredStages);
@@ -1391,6 +1436,7 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
         "Return no more than 12 stageFeedback entries.",
         "Each strength, improvement, outline entry, and stageFeedback text must be no more than 320 characters.",
         "overallSummary, strengths, improvements, stageFeedback, and outlines must be entirely qualitative and contain no numerical claims.",
+        "Phrase stage feedback as original candidate-specific coaching. Do not reproduce or closely paraphrase reference-solution wording; use general coaching language rather than model-answer language.",
         "quantitativeAssessment is the only prose field that may discuss numbers. Use only numbers stated by the candidate or visible to the candidate in the case opening or assistant discussion.",
         "Never introduce protected expected answers, hidden calculations, or unsupported numerical claims. Structured dimension scores are separate from prose.",
         "Do not quote or closely reproduce candidate transcript wording.",
