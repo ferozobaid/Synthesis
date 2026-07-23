@@ -1,0 +1,21 @@
+[
+  { "role": "assistant", "message": "Are you ready to begin?" },
+  { "role": "user", "message": "I'm ready." },
+  { "role": "assistant", "message": "Before you structure your approach, what would you like to clarify? Take your time." },
+  { "role": "user", "message": "Can I have a minute?" },
+  { "role": "assistant", "message": "Of course." },
+  { "role": "user", "message": "I would clarify the objective, scope, timing, and available operating constraints." },
+  { "role": "assistant", "message": "How would you structure your approach to this. Problem? Please walk me through it." },
+  { "role": "user", "message": "I'm ready." },
+  { "role": "user", "message": "I would separate revenue opportunities, operational efficiency, customer experience, and implementation enablers." },
+  { "role": "assistant", "message": "The CEO is particularly interested in improving airport retail. Brainstorm. Ways. Data. And AI could increase retail revenue per passenger. Start broadly." },
+  { "role": "user", "message": "I would assess customer targeting, conversion, tenant mix, and operational levers, then prioritize by impact and feasibility." },
+  { "role": "assistant", "message": "I am now sharing the Airport Retail Baseline. Using these inputs, estimate the potential daily retail revenue. Explain your approach." },
+  { "role": "user", "message": "I would calculate each passenger segment separately, combine the results, and test whether the total is commercially plausible." },
+  { "role": "assistant", "message": "What is the revenue uplift if AI improves the international retail conversion rate by 5 percentage points? Talk me through the implication." },
+  { "role": "user", "message": "I would calculate the incremental buyers, apply average spend, annualize the impact, and compare it with implementation cost." },
+  { "role": "assistant", "message": "The CEO is ready for your recommendation. What should the airport do?" },
+  { "role": "user", "message": "I recommend a focused pilot, supported by clear economics, implementation ownership, risk controls, and measurable success criteria." },
+  { "role": "assistant", "message": "Thank you. That concludes the interview." },
+  { "role": "user", "message": "Thank you." }
+]

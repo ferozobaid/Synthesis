@@ -21,23 +21,71 @@ export interface CaseStageAnchorManifest {
 
 export interface CaseStageTaggedTurn extends NormalizedVoiceTranscriptTurn {
   stage: CaseReportStage;
+  substantiveCandidateResponse: boolean;
 }
+
+export type CaseTranscriptPartialReason =
+  | "missing_anchor"
+  | "missing_candidate_response"
+  | "transcript_truncated"
+  | "unusable_transcript";
 
 export interface MappedCaseTranscript {
   turns: CaseStageTaggedTurn[];
   observedStages: CaseReportStage[];
+  answeredStages: CaseReportStage[];
   missingStages: CaseReportStage[];
+  partialReasons: CaseTranscriptPartialReason[];
   partial: boolean;
 }
 
-function canonical(text: string): string {
-  return text
+const NUMBER_WORDS: Readonly<Record<string, string>> = {
+  zero: "0",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+  eleven: "11",
+  twelve: "12",
+};
+
+/**
+ * Deterministic normalization shared by authored anchors and Vapi assistant
+ * transcript text. It tolerates transcription punctuation and common spoken
+ * number variants without introducing fuzzy or candidate-driven matching.
+ */
+export function normalizeCaseStageAnchor(text: string): string {
+  const normalized = text
     .normalize("NFKC")
     .toLocaleLowerCase("en-US")
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019\u02bc']/g, "")
+    .replace(/[\u201c\u201d\u00ab\u00bb"]/g, " ")
+    .replace(/%/g, " percent ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+  const tokens = normalized.split(" ").filter(Boolean);
+  const canonical: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "per" && tokens[index + 1] === "cent") {
+      canonical.push("percent");
+      index += 1;
+      continue;
+    }
+    if (token === "percentage") {
+      canonical.push("percent");
+      continue;
+    }
+    canonical.push(NUMBER_WORDS[token] ?? token);
+  }
+  return canonical.join(" ");
 }
 
 export function caseStageAnchorManifest(
@@ -64,18 +112,40 @@ function anchorStage(
   text: string,
   manifest: CaseStageAnchorManifest,
 ): CaseReportStage | null {
-  const spoken = canonical(text);
+  const spoken = normalizeCaseStageAnchor(text);
   for (const stage of CASE_REPORT_STAGES) {
-    const anchor = canonical(manifest.anchors[stage]);
-    // Exact canonical anchor, optionally preceded/followed by brief natural wording.
-    // Candidate speech is never inspected by this function.
-    if (spoken === anchor || spoken.includes(anchor)) return stage;
+    const anchor = normalizeCaseStageAnchor(manifest.anchors[stage]);
+    // Token-bounded ordered phrase match, optionally surrounded by additional
+    // assistant wording. Candidate speech is never inspected here.
+    if (` ${spoken} `.includes(` ${anchor} `)) return stage;
   }
   return null;
 }
 
 function isClosingSmallTalk(text: string): boolean {
   return /^(?:thank you|thanks|that concludes|we(?:'re| are) done|goodbye)\b/i.test(text.trim());
+}
+
+const NON_ANSWER_PATTERNS: readonly RegExp[] = [
+  /^(?:can|could|may) i (?:have|get|take) (?:a|1|another) (?:minute|moment)(?: please)?$/,
+  /^(?:please )?(?:give me|let me have) (?:a|1|another) (?:minute|moment)$/,
+  /^i (?:need|would like) (?:a|1|another) (?:minute|moment)$/,
+  /^(?:1|just a) moment(?: please)?$/,
+  /^(?:hold on|please wait|let me think|im thinking)$/,
+  /^(?:im|i am) ready but (?:please )?(?:give me|i need) (?:a|1|another) (?:minute|moment)$/,
+  /^(?:(?:yes|okay|ok) )?(?:im|i am) ready(?: to (?:begin|continue|start))?$/,
+  /^(?:ready|yes im ready|yes i am ready)$/,
+  /^(?:im|i am) done$/,
+  /^(?:done|thats all|that is all|no more)$/,
+  /^(?:thank you|thanks|thank you very much|thanks very much)$/,
+  /^(?:ok|okay|got it|sure|yes|no)$/,
+];
+
+/** True only for candidate speech that contains assessable stage content. */
+export function isSubstantiveCaseCandidateResponse(text: string): boolean {
+  const normalized = normalizeCaseStageAnchor(text);
+  if (!normalized) return false;
+  return !NON_ANSWER_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 /**
@@ -112,24 +182,39 @@ export function mapCaseTranscript(
     }
     if (currentIndex < 0) continue; // readiness and greeting material
     const stage = CASE_REPORT_STAGES[currentIndex];
-    turns.push({ ...turn, stage });
+    const substantiveCandidateResponse =
+      turn.role === "candidate" && isSubstantiveCaseCandidateResponse(turn.text);
+    turns.push({ ...turn, stage, substantiveCandidateResponse });
     // A stage is answered only by non-empty candidate speech occurring after
     // that stage's canonical assistant anchor. Pre-anchor candidate speech is
     // ignored above and can never satisfy a later stage.
-    if (turn.role === "candidate" && turn.text.trim() && observed.has(stage)) {
+    if (substantiveCandidateResponse && observed.has(stage)) {
       answered.add(stage);
     }
   }
 
   const observedStages = CASE_REPORT_STAGES.filter((stage) => observed.has(stage));
-  const missingStages = CASE_REPORT_STAGES.filter((stage) => !observed.has(stage));
+  const answeredStages = CASE_REPORT_STAGES.filter((stage) => answered.has(stage));
+  const missingAnchorStages = CASE_REPORT_STAGES.filter((stage) => !observed.has(stage));
+  const missingCandidateStages = CASE_REPORT_STAGES.filter(
+    (stage) => observed.has(stage) && !answered.has(stage),
+  );
+  const missingStages = CASE_REPORT_STAGES.filter(
+    (stage) => !observed.has(stage) || !answered.has(stage),
+  );
+  const partialReasons: CaseTranscriptPartialReason[] = [];
+  if (missingAnchorStages.length > 0) partialReasons.push("missing_anchor");
+  if (missingCandidateStages.length > 0) partialReasons.push("missing_candidate_response");
+  if (options.truncated === true) partialReasons.push("transcript_truncated");
+  if (observedStages.length === 0 || answeredStages.length === 0) {
+    partialReasons.push("unusable_transcript");
+  }
   return {
     turns,
     observedStages,
+    answeredStages,
     missingStages,
-    partial:
-      options.truncated === true ||
-      missingStages.length > 0 ||
-      CASE_REPORT_STAGES.some((stage) => !answered.has(stage)),
+    partialReasons,
+    partial: partialReasons.length > 0,
   };
 }

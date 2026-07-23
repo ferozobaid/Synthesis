@@ -49,19 +49,40 @@ export interface CasePostCallDimensionScore {
   evidence: string | null;
 }
 
+export interface CasePostCallStageFeedback {
+  stage: CaseReportStage;
+  kind: "strength" | "improvement";
+  text: string;
+}
+
 export interface CasePostCallScore {
   dimension_scores: CasePostCallDimensionScore[];
   /** Null for partial reports: no synthetic overall score is inferred from missing stages. */
   overall: number | null;
+  summary: string;
   strengths: string[];
   improvements: string[];
   next_focus: string[];
+  /** Backend stage association used to scope partial-report projection. */
+  stage_feedback: CasePostCallStageFeedback[];
+  improved_framework_outline: string[] | null;
+  improved_recommendation_outline: string[] | null;
+  quantitative_assessment: string | null;
 }
 
 export interface CasePostCallReport {
   partial: boolean;
   observedStages: CaseReportStage[];
+  /** Backend-only completed-stage set used for partial feedback scoping. */
+  answeredStages: CaseReportStage[];
   missingStages: CaseReportStage[];
+  /** Backend-only safe classification; omitted from the public polling projection. */
+  partialReasons: Array<
+    | "missing_anchor"
+    | "missing_candidate_response"
+    | "transcript_truncated"
+    | "unusable_transcript"
+  >;
   score: CasePostCallScore;
 }
 

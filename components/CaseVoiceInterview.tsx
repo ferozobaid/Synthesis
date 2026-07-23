@@ -580,7 +580,7 @@ function statusLabel(status: CaseVoiceStatus): string {
 export default function CaseVoiceInterview({
   onComplete,
 }: {
-  onComplete?: (score: CaseScore) => void;
+  onComplete?: (score: CaseScore, context?: { preserveNativeReport?: boolean }) => void;
 }) {
   // Native sessions receive their closed-mapped assistant id from bootstrap;
   // only the public Web SDK key is needed before the architecture is known.
@@ -650,6 +650,14 @@ export default function CaseVoiceInterview({
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
     onCompleteRef.current?.(score);
+  }, []);
+
+  const reportNativeCompletion = useCallback((score: CaseScore) => {
+    if (completionReportedRef.current) return;
+    completionReportedRef.current = true;
+    clearCaseVoicePending();
+    clearPendingNativeCaseReport();
+    onCompleteRef.current?.(score, { preserveNativeReport: true });
   }, []);
 
   const expireSession = useCallback(() => {
@@ -1153,7 +1161,7 @@ export default function CaseVoiceInterview({
     return (
       <CaseNativeVoiceInterview
         pending={nativeCapability}
-        onComplete={reportCompletion}
+        onComplete={reportNativeCompletion}
         onReset={resetToPicker}
       />
     );

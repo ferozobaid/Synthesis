@@ -11,6 +11,8 @@ import {
 } from "@/components/CaseVoiceInterview";
 import {
   fetchNativeCaseReport,
+  fullAuthoritativeCaseScore,
+  nativeCaseReportPresentation,
   nativeCaseReportStatusMessage,
   readPendingNativeCaseReport,
   writePendingNativeCaseReport,
@@ -215,5 +217,87 @@ describe("native Case report status presentation", () => {
     expect(nativeCaseReportStatusMessage(report({ status: "done", partial: false }))).toContain("authoritative");
     expect(nativeCaseReportStatusMessage(report({ status: "done", partial: true }))).toContain("partial");
     expect(nativeCaseReportStatusMessage(report({ status: "failed" }))).toContain("could not be produced");
+  });
+
+  it("presents all five dimensions and qualitative feedback for a full report", () => {
+    const score = {
+      overall: 4.2,
+      dimension_scores: [
+        "structure",
+        "hypothesis_driven_thinking",
+        "quantitative_reasoning",
+        "synthesis",
+        "communication",
+      ].map((dimension) => ({
+        dimension,
+        score: 4,
+        justification: `${dimension} feedback`,
+        evidence: null,
+      })),
+      summary: "A concise qualitative summary.",
+      strengths: ["Clear commercial structure."],
+      improvements: ["State the hypothesis earlier."],
+      next_focus: ["Practice top-down synthesis."],
+      stage_feedback: [],
+      improved_framework_outline: ["Define the decision before structuring the drivers."],
+      improved_recommendation_outline: ["Lead with the decision and close with next steps."],
+      quantitative_assessment: "The calculations were clearly narrated and interpreted.",
+    } as NativeCaseReportProjection["score"];
+    const full = report({
+      status: "done",
+      partial: false,
+      observedStages: ["clarification", "framework", "analysis", "data_reveal", "pressure_test", "recommendation"],
+      score,
+    });
+    const presentation = nativeCaseReportPresentation(full)!;
+
+    expect(presentation.label).toBe("Case Report");
+    expect(presentation.dimensions).toHaveLength(5);
+    expect(presentation.summary).toContain("qualitative summary");
+    expect(presentation.frameworkFeedback).toHaveLength(1);
+    expect(presentation.quantitativeFeedback).toContain("calculations");
+    expect(presentation.recommendationFeedback).toHaveLength(1);
+    expect(presentation.nextPracticePriorities).toHaveLength(1);
+    expect(presentation.readinessUpdated).toBe(true);
+    expect(fullAuthoritativeCaseScore(full)).not.toBeNull();
+  });
+
+  it("presents only observed feedback and missing stages for a partial report", () => {
+    const partial = report({
+      status: "done",
+      partial: true,
+      observedStages: ["clarification", "framework"],
+      missingStages: ["analysis", "data_reveal", "pressure_test", "recommendation"],
+      score: {
+        overall: null,
+        dimension_scores: [
+          { dimension: "structure", score: 3, justification: "Observed structure.", evidence: null },
+          { dimension: "synthesis", score: null, justification: "Unobserved synthesis.", evidence: null },
+        ],
+        summary: "This report reflects only observed stages.",
+        strengths: ["The initial structure was assessable."],
+        improvements: ["Complete the remaining case stages."],
+        next_focus: ["Practice full case completion."],
+        stage_feedback: [
+          { stage: "framework", kind: "strength", text: "The initial structure was assessable." },
+          { stage: "framework", kind: "improvement", text: "Make the observed structure more explicit." },
+        ],
+        improved_framework_outline: ["Clarify the decision and structure the drivers."],
+        improved_recommendation_outline: null,
+        quantitative_assessment: null,
+      },
+    });
+    const presentation = nativeCaseReportPresentation(partial)!;
+
+    expect(presentation.label).toBe("Partial Report");
+    expect(presentation.overall).toBeNull();
+    expect(presentation.dimensions.map((dimension) => dimension.dimension)).toEqual(["structure"]);
+    expect(presentation.missingStages).toContain("Recommendation");
+    expect(presentation.strengths).toContain("The initial structure was assessable.");
+    expect(presentation.frameworkFeedback).not.toBeNull();
+    expect(presentation.recommendationFeedback).toBeNull();
+    expect(presentation.quantitativeFeedback).toBeNull();
+    expect(presentation.readinessUpdated).toBe(false);
+    expect(fullAuthoritativeCaseScore(partial)).toBeNull();
   });
 });

@@ -9,7 +9,9 @@ import {
 import {
   CASE_REPORT_STAGES,
   caseStageAnchorManifest,
+  isSubstantiveCaseCandidateResponse,
   mapCaseTranscript,
+  normalizeCaseStageAnchor,
 } from "@/lib/voice/case-transcript";
 import { issueReportCapability, verifyReportCapability } from "@/lib/voice/report-capability";
 import {
@@ -29,6 +31,9 @@ const AIRPORT = "airport_profitability";
 const GYM = "gcc_premium_gym_market_entry";
 const airportManifest = readFileSync("context/vapi/airport-profitability-assistant-v1.md", "utf8");
 const gymManifest = readFileSync("context/vapi/gcc-premium-gym-assistant-v1.md", "utf8");
+const airportNativeTranscript = JSON.parse(
+  readFileSync("tests/fixtures/airport-native-redacted-transcript.json", "utf8"),
+) as Array<{ role: string; message: string }>;
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -138,6 +143,38 @@ describe("canonical stage mapping", () => {
     expect(mapped.partial).toBe(false);
   });
 
+  it("maps the redacted Airport transcript as full despite punctuation and number drift", () => {
+    const normalized = normalizeVoiceTranscript(airportNativeTranscript);
+    const mapped = mapCaseTranscript(
+      AIRPORT,
+      CASE_VOICE_STAGE_ANCHOR_VERSION,
+      normalized.turns,
+      { truncated: normalized.truncated },
+    )!;
+    expect(mapped.observedStages).toEqual(CASE_REPORT_STAGES);
+    expect(mapped.answeredStages).toEqual(CASE_REPORT_STAGES);
+    expect(mapped.missingStages).toEqual([]);
+    expect(mapped.partialReasons).toEqual([]);
+    expect(mapped.partial).toBe(false);
+  });
+
+  it("normalizes punctuation drift for Framework and Analysis anchors", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    expect(normalizeCaseStageAnchor("How would you structure your approach to this. Problem?"))
+      .toBe(normalizeCaseStageAnchor(manifest.anchors.framework));
+    expect(normalizeCaseStageAnchor("Brainstorm. Ways. Data. And AI could increase retail revenue per passenger."))
+      .toBe(normalizeCaseStageAnchor("Brainstorm ways data and AI could increase retail revenue per passenger."));
+  });
+
+  it("normalizes five/5 and ten/10 percentage anchors deterministically", () => {
+    const airport = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const gym = caseStageAnchorManifest(GYM, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    expect(normalizeCaseStageAnchor(airport.anchors.pressure_test.replace("five", "5")))
+      .toBe(normalizeCaseStageAnchor(airport.anchors.pressure_test));
+    expect(normalizeCaseStageAnchor(gym.anchors.pressure_test.replace("ten", "10")))
+      .toBe(normalizeCaseStageAnchor(gym.anchors.pressure_test));
+  });
+
   it("never lets candidate speech advance a stage", () => {
     const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
     const transcript = normalizeVoiceTranscript([
@@ -185,6 +222,8 @@ describe("canonical stage mapping", () => {
       normalizeVoiceTranscript(messages).turns,
     )!;
     expect(mapped.observedStages).toContain("recommendation");
+    expect(mapped.missingStages).toContain("recommendation");
+    expect(mapped.partialReasons).toContain("missing_candidate_response");
     expect(mapped.partial).toBe(true);
   });
 
@@ -202,7 +241,35 @@ describe("canonical stage mapping", () => {
       normalizeVoiceTranscript(messages).turns,
     )!;
     expect(mapped.observedStages).toContain("analysis");
+    expect(mapped.missingStages).toContain("analysis");
     expect(mapped.partial).toBe(true);
+  });
+
+  it("does not count pauses, readiness, or closing phrases as substantive answers", () => {
+    for (const phrase of [
+      "Can I have a minute?",
+      "Give me one minute.",
+      "I'm ready.",
+      "I'm ready, but give me another minute.",
+      "I'm done.",
+      "Thank you.",
+      "Okay.",
+    ]) {
+      expect(isSubstantiveCaseCandidateResponse(phrase)).toBe(false);
+    }
+  });
+
+  it("counts a substantive answer after a pause without crediting the pause", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const mapped = mapCaseTranscript(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION, normalizeVoiceTranscript([
+      { role: "assistant", message: manifest.anchors.framework },
+      { role: "user", message: "Can I have a minute?" },
+      { role: "assistant", message: "Of course." },
+      { role: "user", message: "I would structure the problem around commercial value, feasibility, and risk." },
+    ]).turns)!;
+    const candidateTurns = mapped.turns.filter((turn) => turn.role === "candidate");
+    expect(candidateTurns.map((turn) => turn.substantiveCandidateResponse)).toEqual([false, true]);
+    expect(mapped.answeredStages).toContain("framework");
   });
 
   it("marks an otherwise complete truncated normalization as partial", () => {
@@ -213,6 +280,7 @@ describe("canonical stage mapping", () => {
       { truncated: true },
     )!;
     expect(mapped.observedStages).toEqual(CASE_REPORT_STAGES);
+    expect(mapped.partialReasons).toContain("transcript_truncated");
     expect(mapped.partial).toBe(true);
   });
 
@@ -224,6 +292,21 @@ describe("canonical stage mapping", () => {
       { truncated: false },
     )!;
     expect(mapped.partial).toBe(false);
+  });
+
+  it("records an unusable transcript reason without inventing observed stages", () => {
+    const mapped = mapCaseTranscript(
+      AIRPORT,
+      CASE_VOICE_STAGE_ANCHOR_VERSION,
+      normalizeVoiceTranscript([
+        { role: "assistant", message: "Are you ready?" },
+        { role: "user", message: "I'm ready." },
+      ]).turns,
+    )!;
+    expect(mapped.observedStages).toEqual([]);
+    expect(mapped.partialReasons).toContain("missing_anchor");
+    expect(mapped.partialReasons).toContain("unusable_transcript");
+    expect(mapped.partial).toBe(true);
   });
 
   it("assistant manifests contain anchors but no scoring or answer material", () => {
@@ -287,8 +370,13 @@ describe("native client capability recovery", () => {
       failureCode: null,
       score: {
         overall: 4,
-        dimension_scores: ["structure", "hypothesis", "quant", "synthesis", "communication"].map((dimension) => ({ dimension, score: 4, justification: "Observed.", evidence: "Evidence." })),
+        dimension_scores: ["structure", "hypothesis_driven_thinking", "quantitative_reasoning", "synthesis", "communication"].map((dimension) => ({ dimension, score: 4, justification: "Observed.", evidence: "Evidence." })),
+        summary: "Complete report.",
         strengths: [], improvements: [], next_focus: [],
+        stage_feedback: [],
+        improved_framework_outline: [],
+        improved_recommendation_outline: [],
+        quantitative_assessment: "Observed quantitative reasoning.",
       },
     } as any;
     expect(fullAuthoritativeCaseScore({ ...base, status: "done", partial: false })).not.toBeNull();

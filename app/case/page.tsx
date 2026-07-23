@@ -15,8 +15,11 @@ export default function CasePage() {
   const { setModule } = useReadiness();
   const [voiceScore, setVoiceScore] = useState<CaseScore | null>(null);
 
-  function completeVoiceInterview(finalScore: CaseScore) {
-    setVoiceScore(finalScore);
+  function completeVoiceInterview(
+    finalScore: CaseScore,
+    context?: { preserveNativeReport?: boolean },
+  ) {
+    if (!context?.preserveNativeReport) setVoiceScore(finalScore);
     setModule("case", {
       status: "done",
       score: to100(finalScore.overall),

@@ -20,6 +20,54 @@ export const maxDuration = 300;
 const LOCK_LEASE_SECONDS = 180;
 const STALE_PROCESSING_MS = 150_000;
 
+type SafeScorerOutcome = "model" | "deterministic_fallback" | "failed";
+type SafeScorerFailureCategory =
+  | "mock_mode"
+  | "invalid_model_output"
+  | "unsafe_model_output"
+  | "model_error"
+  | "empty_transcript"
+  | "unusable_transcript"
+  | "stage_anchor_unavailable"
+  | "scoring_failed"
+  | "unknown"
+  | null;
+
+const SAFE_FAILURE_CATEGORIES = new Set<Exclude<SafeScorerFailureCategory, null>>([
+  "mock_mode",
+  "invalid_model_output",
+  "unsafe_model_output",
+  "model_error",
+  "empty_transcript",
+  "unusable_transcript",
+  "stage_anchor_unavailable",
+  "scoring_failed",
+  "unknown",
+]);
+
+function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" && SAFE_FAILURE_CATEGORIES.has(
+    value as Exclude<SafeScorerFailureCategory, null>,
+  )
+    ? value as Exclude<SafeScorerFailureCategory, null>
+    : "unknown";
+}
+
+function recordCasePostCallScoringDiagnostic(input: {
+  sessionCorrelationId: string;
+  selectedCaseId: string;
+  observedStageCount: number;
+  missingStageCount: number;
+  partial: boolean;
+  scorerOutcome: SafeScorerOutcome;
+  scorerDurationMs: number;
+  reportStatus: "done" | "failed";
+  failureCategory: SafeScorerFailureCategory;
+}): void {
+  console.info("[case-native-report] scoring", input);
+}
+
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -141,7 +189,11 @@ export async function POST(req: NextRequest) {
     }
 
     let final: CaseVoiceSession;
+    let scorerOutcome: SafeScorerOutcome = "failed";
+    let failureCategory: SafeScorerFailureCategory = null;
+    const scorerStartedAt = Date.now();
     if (!mapped) {
+      failureCategory = "stage_anchor_unavailable";
       final = {
         ...claimed,
         reportStatus: "failed",
@@ -153,6 +205,12 @@ export async function POST(req: NextRequest) {
     } else {
       try {
         const scoring = await scoreCasePostCall(caseRecord, mapped);
+        scorerOutcome = scoring.ok
+          ? scoring.scorerOutcome ?? "deterministic_fallback"
+          : "failed";
+        failureCategory = scoring.ok
+          ? safeFailureCategory(scoring.failureCategory)
+          : safeFailureCategory(scoring.failureCode);
         final = scoring.ok
           ? {
               ...claimed,
@@ -171,6 +229,8 @@ export async function POST(req: NextRequest) {
               updatedAt: new Date().toISOString(),
             };
       } catch {
+        scorerOutcome = "failed";
+        failureCategory = "scoring_failed";
         final = {
           ...claimed,
           reportStatus: "failed",
@@ -181,6 +241,18 @@ export async function POST(req: NextRequest) {
         };
       }
     }
+
+    recordCasePostCallScoringDiagnostic({
+      sessionCorrelationId: sessionId,
+      selectedCaseId: record.caseId,
+      observedStageCount: mapped?.observedStages.length ?? 0,
+      missingStageCount: mapped?.missingStages.length ?? 6,
+      partial: mapped?.partial ?? true,
+      scorerOutcome,
+      scorerDurationMs: Math.max(0, Date.now() - scorerStartedAt),
+      reportStatus: final.reportStatus === "done" ? "done" : "failed",
+      failureCategory,
+    });
 
     try {
       await saveCaseSessionIfReportFence(sessionId, attempt, fencingToken, final);
