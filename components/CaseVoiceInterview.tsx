@@ -7,6 +7,13 @@ import { ExhibitCard } from "@/components/ui/ExhibitCard";
 import { StageTracker } from "@/components/ui/StageTracker";
 import { SectionLabel } from "@/components/ui/primitives";
 import { to100 } from "@/components/ui/verdict";
+import {
+  NATIVE_CASE_LIVE_STAGE_LABELS,
+  advanceNativeCaseLiveProgress,
+  endNativeCaseLiveProgress,
+  initialNativeCaseLiveProgress,
+  nativeCaseLiveElapsedMilliseconds,
+} from "@/lib/voice/case-native-live";
 import CaseNativeVoiceInterview, {
   clearPendingNativeCaseReport,
   readPendingNativeCaseReport,
@@ -604,6 +611,9 @@ export default function CaseVoiceInterview({
   const [showTranscript, setShowTranscript] = useState(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [timerEndedAt, setTimerEndedAt] = useState<number | null>(null);
+  const [nativeLiveProgress, setNativeLiveProgress] = useState(
+    initialNativeCaseLiveProgress,
+  );
 
   const vapiRef = useRef<VapiLike | null>(null);
   const nativeLiveCapabilityRef = useRef<PendingNativeCaseReport | null>(null);
@@ -691,8 +701,10 @@ export default function CaseVoiceInterview({
     setSdkReady(false);
     setCallIsActive(false);
     setMuted(false);
-    endedAtRef.current = Date.now();
-    setTimerEndedAt(endedAtRef.current);
+    const endedAt = Date.now();
+    endedAtRef.current = endedAt;
+    setTimerEndedAt(endedAt);
+    setNativeLiveProgress((current) => endNativeCaseLiveProgress(current, endedAt));
     const nativePending = nativeLiveCapabilityRef.current;
     if (nativePending) {
       nativeLiveCapabilityRef.current = null;
@@ -734,6 +746,7 @@ export default function CaseVoiceInterview({
     setShowTranscript(false);
     setTimerEndedAt(null);
     setTimerNow(Date.now());
+    setNativeLiveProgress(initialNativeCaseLiveProgress());
     lastFinalTranscriptAtRef.current = null;
     endedReasonRef.current = null;
     setError(null);
@@ -877,6 +890,18 @@ export default function CaseVoiceInterview({
           });
         }
         if (nativeLiveCapabilityRef.current) {
+          const finalizedLine = nativeCaseVoiceTranscriptLine(message, 0);
+          if (finalizedLine) {
+            const pending = nativeLiveCapabilityRef.current;
+            setNativeLiveProgress((current) =>
+              advanceNativeCaseLiveProgress(
+                current,
+                pending.caseId,
+                finalizedLine,
+                Date.now(),
+              )
+            );
+          }
           setNativeTranscript((current) => {
             const line = nativeCaseVoiceTranscriptLine(
               message,
@@ -939,8 +964,10 @@ export default function CaseVoiceInterview({
     const nativePending = nativeLiveCapabilityRef.current;
     startAttemptRef.current += 1;
     teardown();
-    endedAtRef.current = Date.now();
-    setTimerEndedAt(endedAtRef.current);
+    const endedAt = Date.now();
+    endedAtRef.current = endedAt;
+    setTimerEndedAt(endedAt);
+    setNativeLiveProgress((current) => endNativeCaseLiveProgress(current, endedAt));
     if (nativePending) {
       nativeLiveCapabilityRef.current = null;
       setNativeLiveCapability(null);
@@ -1084,18 +1111,28 @@ export default function CaseVoiceInterview({
   }, [capability, expireSession, reportCompletion]);
 
   useEffect(() => {
-    const running =
+    const nativeRunning =
+      nativeLiveCapability !== null &&
+      nativeLiveProgress.startedAt !== null &&
+      nativeLiveProgress.endedAt === null &&
+      callActive;
+    const customRunning =
+      nativeLiveCapability === null &&
       projection?.readinessStatus === "confirmed" &&
       projection.liveStatus !== "concluded_unscored" &&
       callActive &&
       !projection.complete &&
       timerEndedAt === null;
+    const running = nativeRunning || customRunning;
     if (!running) return;
     setTimerNow(Date.now());
     const timer = setInterval(() => setTimerNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, [
     callActive,
+    nativeLiveCapability,
+    nativeLiveProgress.endedAt,
+    nativeLiveProgress.startedAt,
     projection?.complete,
     projection?.liveStatus,
     projection?.readinessStatus,
@@ -1112,13 +1149,17 @@ export default function CaseVoiceInterview({
   );
   const controls = caseVoiceControls(status, callActive, sdkReady);
   const active = status === "listening" || status === "speaking" || status === "connecting";
-  const elapsed = formatCaseVoiceElapsed(
-    caseVoiceElapsedMilliseconds(
-      projection?.readinessConfirmedAt ?? null,
-      timerNow,
-      timerEndedAt,
-    ),
-  );
+  const nativeTimerWaiting =
+    nativeLiveCapability !== null && nativeLiveProgress.startedAt === null;
+  const elapsed = nativeLiveCapability
+    ? formatCaseVoiceElapsed(nativeCaseLiveElapsedMilliseconds(nativeLiveProgress, timerNow))
+    : formatCaseVoiceElapsed(
+        caseVoiceElapsedMilliseconds(
+          projection?.readinessConfirmedAt ?? null,
+          timerNow,
+          timerEndedAt,
+        ),
+      );
 
   // The Case Simulator always opens on the two-case picker. It shows whenever no
   // session is active, and Start stays disabled until the catalog has loaded and
@@ -1146,6 +1187,7 @@ export default function CaseVoiceInterview({
     setNativeCapability(null);
     setNativeLiveCapability(null);
     setNativeTranscript([]);
+    setNativeLiveProgress(initialNativeCaseLiveProgress());
     setProjection(null);
     projectionRef.current = null;
     endedAtRef.current = null;
@@ -1284,7 +1326,7 @@ export default function CaseVoiceInterview({
           <div
             aria-label="Case interview timer"
             style={{
-              minWidth: 62,
+              minWidth: nativeTimerWaiting ? 118 : 62,
               padding: "7px 10px",
               border: "1px solid var(--line)",
               borderRadius: 8,
@@ -1293,8 +1335,14 @@ export default function CaseVoiceInterview({
             }}
           >
             <div style={{ fontSize: 9, color: "var(--ink-4)", fontWeight: 600 }}>CASE TIME</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--ink)", fontWeight: 600 }}>
-              {elapsed}
+            <div style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: nativeTimerWaiting ? 10 : 14,
+              color: "var(--ink)",
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}>
+              {nativeTimerWaiting ? "Waiting to begin" : elapsed}
             </div>
           </div>
           {controls.start && (
@@ -1342,6 +1390,39 @@ export default function CaseVoiceInterview({
 
       {nativeLiveCapability && (
         <>
+          <div
+            style={{
+              marginTop: 14,
+              padding: "14px 16px",
+              border: "1px solid var(--line)",
+              borderRadius: 10,
+              background: "var(--surface)",
+              overflowX: "auto",
+            }}
+            aria-label="Live case stage progress"
+          >
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 12,
+            }}>
+              <SectionLabel>Case progress</SectionLabel>
+              <span style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                color: "var(--ink-3)",
+              }}>
+                {Math.max(0, nativeLiveProgress.stageIndex + 1)} of {NATIVE_CASE_LIVE_STAGE_LABELS.length}
+              </span>
+            </div>
+            <StageTracker
+              stages={[...NATIVE_CASE_LIVE_STAGE_LABELS]}
+              currentIdx={nativeLiveProgress.stageIndex}
+            />
+          </div>
+
           {liveCaption && (
             <div
               style={{ marginTop: 14, maxWidth: 720, opacity: 0.78 }}

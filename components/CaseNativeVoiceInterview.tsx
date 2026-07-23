@@ -177,14 +177,21 @@ export function fullAuthoritativeCaseScore(
 export function nativeCaseReportStatusMessage(
   report: NativeCaseReportProjection | null,
 ): string {
-  if (!report || report.status === "pending") {
-    return "Waiting for Vapi’s authoritative end-of-call report.";
+  if (!report || report.status === "pending" || report.status === "processing") {
+    return "Generating your personalized case report…";
   }
-  if (report.status === "processing") return "Your Case report is being processed.";
   if (report.status === "failed") return "The Case report could not be produced.";
   return report.partial
     ? "A partial Case report is ready. It will not update readiness."
     : "Your authoritative Case report is ready.";
+}
+
+export function nativeCaseReportSupportingMessage(
+  report: NativeCaseReportProjection | null,
+): string | null {
+  return !report || report.status === "pending" || report.status === "processing"
+    ? "This usually takes a few moments."
+    : null;
 }
 
 /** Polls the protected report capability after a native call ends or refreshes. */
@@ -233,12 +240,40 @@ export default function CaseNativeVoiceInterview({
   }, [onComplete, pending]);
 
   const presentation = report ? nativeCaseReportPresentation(report) : null;
+  const supportingMessage = nativeCaseReportSupportingMessage(report);
 
   return (
     <div style={{ marginTop: 18, maxWidth: 820, marginInline: "auto" }}>
-      <p role="status" aria-live="polite" style={{ color: "var(--ink-2)", fontSize: 14 }}>
-        {nativeCaseReportStatusMessage(report)}
-      </p>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}
+      >
+        {supportingMessage && (
+          <span
+            aria-label="Report generation in progress"
+            style={{
+              width: 10,
+              height: 10,
+              marginTop: 5,
+              flex: "0 0 auto",
+              borderRadius: "50%",
+              background: "var(--accent)",
+              animation: "pulseDot 1.2s ease-in-out infinite",
+            }}
+          />
+        )}
+        <div>
+          <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
+            {nativeCaseReportStatusMessage(report)}
+          </p>
+          {supportingMessage && (
+            <p style={{ margin: "4px 0 0", color: "var(--ink-3)", fontSize: 12 }}>
+              {supportingMessage}
+            </p>
+          )}
+        </div>
+      </div>
       {error && <p role="status" style={{ color: "var(--gap)", fontSize: 12 }}>{error}</p>}
       {presentation && (
         <NativeCaseReportView presentation={presentation} />

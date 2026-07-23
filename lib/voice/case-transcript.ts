@@ -16,6 +16,7 @@ export const CASE_REPORT_STAGES: readonly CaseReportStage[] = [
 export interface CaseStageAnchorManifest {
   version: string;
   caseId: string;
+  openingAnchor: string;
   anchors: Record<CaseReportStage, string>;
 }
 
@@ -94,18 +95,20 @@ export function caseStageAnchorManifest(
 ): CaseStageAnchorManifest | null {
   const source = anchorSource as {
     version: string;
-    cases: Record<string, Record<CaseReportStage, string>>;
+    cases: Record<string, Record<CaseReportStage, string> & { openingAnchor?: string }>;
   };
   if (source.version !== version) return null;
   const selected = source.cases[caseId];
   if (!selected) return null;
+  const openingAnchor = selected.openingAnchor;
+  if (typeof openingAnchor !== "string" || !openingAnchor.trim()) return null;
   const anchors = {} as Record<CaseReportStage, string>;
   for (const stage of CASE_REPORT_STAGES) {
     const value = selected?.[stage];
     if (typeof value !== "string" || !value.trim()) return null;
     anchors[stage] = value.trim();
   }
-  return { version: source.version, caseId, anchors };
+  return { version: source.version, caseId, openingAnchor: openingAnchor.trim(), anchors };
 }
 
 function anchorStage(

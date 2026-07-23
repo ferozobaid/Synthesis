@@ -315,6 +315,26 @@ describe("canonical stage mapping", () => {
       expect(manifest).not.toMatch(/scoring rubric|target_solution|answer key|preferred recommendation|protected calculation/i);
     }
   });
+
+  it("requires explicit readiness and reconfirms ambiguous speech in both assistant prompts", () => {
+    for (const manifest of [airportManifest, gymManifest]) {
+      expect(manifest).toContain("Do not present the case statement or begin Clarification");
+      expect(manifest).toContain("“I'm ready”, “Yes, I'm ready”, “Ready”,");
+      expect(manifest).toContain("“Give me a minute”, “I'm writing”, “Sure”, and “Okay”");
+      expect(manifest).toContain("“Just to confirm, are you ready to begin the case?”");
+      expect(manifest).toContain("Never infer readiness from candidate silence");
+    }
+  });
+
+  it("uses the report-generation closing without claiming that scoring is complete", () => {
+    const closing =
+      "Your personalized report is\nnow being generated in Synthesis and will appear shortly.";
+    for (const manifest of [airportManifest, gymManifest]) {
+      expect(manifest).toContain(closing);
+      expect(manifest).toContain("Do not say or imply that the report or score is already complete.");
+      expect(manifest).not.toContain("A score is not available yet.");
+    }
+  });
 });
 
 describe("dedicated post-call scoring", () => {

@@ -14,11 +14,21 @@ import {
   fullAuthoritativeCaseScore,
   nativeCaseReportPresentation,
   nativeCaseReportStatusMessage,
+  nativeCaseReportSupportingMessage,
   readPendingNativeCaseReport,
   writePendingNativeCaseReport,
   type NativeCaseReportProjection,
   type PendingNativeCaseReport,
 } from "@/components/CaseNativeVoiceInterview";
+import {
+  NATIVE_CASE_LIVE_STAGE_LABELS,
+  advanceNativeCaseLiveProgress,
+  endNativeCaseLiveProgress,
+  initialNativeCaseLiveProgress,
+  nativeCaseLiveElapsedMilliseconds,
+} from "@/lib/voice/case-native-live";
+import { CASE_VOICE_STAGE_ANCHOR_VERSION } from "@/lib/voice/case-native-config";
+import { caseStageAnchorManifest } from "@/lib/voice/case-transcript";
 
 const nativeBootstrap: NativeCaseBootstrap = {
   architecture: "vapi_native",
@@ -38,6 +48,8 @@ const pending: PendingNativeCaseReport = {
   caseTitle: nativeBootstrap.caseTitle,
   createdAt: 100,
 };
+const AIRPORT = "airport_profitability";
+const GYM = "gcc_premium_gym_market_entry";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -211,9 +223,15 @@ describe("native Case Voice client start contract", () => {
 
 describe("native Case report status presentation", () => {
   it("distinguishes pending, processing, full, partial, and failed reports", () => {
-    expect(nativeCaseReportStatusMessage(null)).toContain("Waiting");
-    expect(nativeCaseReportStatusMessage(report({ status: "pending" }))).toContain("Waiting");
-    expect(nativeCaseReportStatusMessage(report({ status: "processing" }))).toContain("processed");
+    expect(nativeCaseReportStatusMessage(null)).toBe("Generating your personalized case report…");
+    expect(nativeCaseReportStatusMessage(report({ status: "pending" })))
+      .toBe("Generating your personalized case report…");
+    expect(nativeCaseReportStatusMessage(report({ status: "processing" })))
+      .toBe("Generating your personalized case report…");
+    expect(nativeCaseReportSupportingMessage(null)).toBe("This usually takes a few moments.");
+    expect(nativeCaseReportSupportingMessage(report({ status: "processing" })))
+      .toBe("This usually takes a few moments.");
+    expect(nativeCaseReportSupportingMessage(report({ status: "done" }))).toBeNull();
     expect(nativeCaseReportStatusMessage(report({ status: "done", partial: false }))).toContain("authoritative");
     expect(nativeCaseReportStatusMessage(report({ status: "done", partial: true }))).toContain("partial");
     expect(nativeCaseReportStatusMessage(report({ status: "failed" }))).toContain("could not be produced");
@@ -299,5 +317,137 @@ describe("native Case report status presentation", () => {
     expect(presentation.quantitativeFeedback).toBeNull();
     expect(presentation.readinessUpdated).toBe(false);
     expect(fullAuthoritativeCaseScore(partial)).toBeNull();
+  });
+});
+
+describe("native Case live stage progress and timer", () => {
+  it("keeps the timer inactive through readiness and starts at the canonical case opening", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    let progress = initialNativeCaseLiveProgress();
+    progress = advanceNativeCaseLiveProgress(
+      progress,
+      AIRPORT,
+      { role: "assistant", text: "Are you ready to begin?" },
+      1_000,
+    );
+    progress = advanceNativeCaseLiveProgress(
+      progress,
+      AIRPORT,
+      { role: "user", text: "I'm ready." },
+      2_000,
+    );
+    expect(progress.startedAt).toBeNull();
+    expect(nativeCaseLiveElapsedMilliseconds(progress, 9_000)).toBe(0);
+
+    progress = advanceNativeCaseLiveProgress(
+      progress,
+      AIRPORT,
+      { role: "assistant", text: manifest.openingAnchor },
+      10_000,
+    );
+    expect(progress.startedAt).toBe(10_000);
+    expect(nativeCaseLiveElapsedMilliseconds(progress, 10_000)).toBe(0);
+
+    const clarificationOnly = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      AIRPORT,
+      { role: "assistant", text: manifest.anchors.clarification },
+      12_000,
+    );
+    expect(clarificationOnly.startedAt).toBe(12_000);
+  });
+
+  it("does not restart the timer and freezes it when the call ends", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const started = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      AIRPORT,
+      { role: "assistant", text: manifest.openingAnchor },
+      1_000,
+    );
+    const rerendered = advanceNativeCaseLiveProgress(
+      started,
+      AIRPORT,
+      { role: "assistant", text: manifest.anchors.clarification },
+      5_000,
+    );
+    expect(rerendered.startedAt).toBe(1_000);
+
+    const ended = endNativeCaseLiveProgress(rerendered, 8_000);
+    expect(nativeCaseLiveElapsedMilliseconds(ended, 20_000)).toBe(7_000);
+    expect(endNativeCaseLiveProgress(ended, 30_000).endedAt).toBe(8_000);
+  });
+
+  it("advances only from finalized assistant anchors and never from candidate speech", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const candidate = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      AIRPORT,
+      { role: "user", text: manifest.anchors.framework },
+      1_000,
+    );
+    expect(candidate.stageIndex).toBe(-1);
+
+    const partial = nativeCaseVoiceTranscriptLine({
+      type: "transcript",
+      transcriptType: "partial",
+      role: "assistant",
+      transcript: manifest.anchors.framework,
+    }, 1);
+    expect(partial).toBeNull();
+
+    const finalized = nativeCaseVoiceTranscriptLine({
+      type: "transcript",
+      transcriptType: "final",
+      role: "assistant",
+      transcript: manifest.anchors.framework,
+    }, 1)!;
+    expect(advanceNativeCaseLiveProgress(candidate, AIRPORT, finalized, 2_000).stageIndex).toBe(1);
+  });
+
+  it("preserves monotonic stage order when an earlier assistant anchor is repeated", () => {
+    const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const pressureTest = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      AIRPORT,
+      { role: "assistant", text: manifest.anchors.pressure_test },
+      1_000,
+    );
+    const repeatedFramework = advanceNativeCaseLiveProgress(
+      pressureTest,
+      AIRPORT,
+      { role: "assistant", text: manifest.anchors.framework },
+      2_000,
+    );
+    expect(pressureTest.stageIndex).toBe(4);
+    expect(repeatedFramework.stageIndex).toBe(4);
+  });
+
+  it("maps Airport and Gym anchors to the shared six-stage display", () => {
+    const airport = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const gym = caseStageAnchorManifest(GYM, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+    const airportAnalysis = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      AIRPORT,
+      { role: "assistant", text: airport.anchors.analysis },
+      1_000,
+    );
+    const gymSizing = advanceNativeCaseLiveProgress(
+      initialNativeCaseLiveProgress(),
+      GYM,
+      { role: "assistant", text: gym.anchors.data_reveal },
+      1_000,
+    );
+
+    expect(NATIVE_CASE_LIVE_STAGE_LABELS[airportAnalysis.stageIndex]).toBe("Analysis");
+    expect(NATIVE_CASE_LIVE_STAGE_LABELS[gymSizing.stageIndex]).toBe("Market sizing");
+    expect(NATIVE_CASE_LIVE_STAGE_LABELS).toEqual([
+      "Clarification",
+      "Framework",
+      "Analysis",
+      "Market sizing",
+      "Pressure test",
+      "Recommendation",
+    ]);
   });
 });
