@@ -295,34 +295,50 @@ describe("authenticated report binding, idempotency and fencing", () => {
     scorePostCallMock.mockResolvedValueOnce({
       ok: true,
       report: completeReport(),
-      scorerOutcome: "model",
-      failureCategory: null,
+      scorerOutcome: "deterministic_fallback",
+      failureCategory: "provider_error",
+      modelDiagnostic: {
+        httpStatus: 503,
+        anthropicErrorType: "private_provider_type_that_must_not_pass_through",
+        stopReason: "private_provider_stop_reason_that_must_not_pass_through",
+        inputTokens: 432,
+        outputTokens: 876,
+        providerMessage: transcriptSecret,
+      },
     });
 
     await reportPOST(request("http://localhost/api/vapi/case/report", payload) as any);
 
     const diagnostic = info.mock.calls.find((call) => call[0] === "[case-native-report] scoring");
     expect(diagnostic?.[1]).toEqual({
-      sessionCorrelationId: json.sessionId,
       selectedCaseId: AIRPORT,
       observedStageCount: 1,
       missingStageCount: 5,
       partial: true,
-      scorerOutcome: "model",
+      scorerOutcome: "deterministic_fallback",
       scorerDurationMs: expect.any(Number),
       reportStatus: "done",
-      failureCategory: null,
+      failureCategory: "provider_error",
+      httpStatus: 503,
+      anthropicErrorType: "unknown",
+      stopReason: "unknown",
+      inputTokens: 432,
+      outputTokens: 876,
     });
     expect(Object.keys(diagnostic?.[1] ?? {}).sort()).toEqual([
+      "anthropicErrorType",
       "failureCategory",
+      "httpStatus",
+      "inputTokens",
       "missingStageCount",
       "observedStageCount",
+      "outputTokens",
       "partial",
       "reportStatus",
       "scorerDurationMs",
       "scorerOutcome",
       "selectedCaseId",
-      "sessionCorrelationId",
+      "stopReason",
     ]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(transcriptSecret);
     expect(JSON.stringify(info.mock.calls)).not.toContain(json.reportToken);

@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  AuthenticationError,
+  BadRequestError,
+  NotFoundError,
+} from "@anthropic-ai/sdk";
 
 const { completeMock } = vi.hoisted(() => ({ completeMock: vi.fn() }));
 
 vi.mock("@/lib/claude", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/claude")>();
-  return { ...actual, complete: completeMock };
+  return { ...actual, completeWithMetadata: completeMock };
 });
 
 import {
@@ -28,6 +35,24 @@ const EXPECTED_DIMENSIONS = [
   "synthesis",
   "communication",
 ] as const;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+function completion(
+  text: string,
+  overrides: Partial<{
+    stopReason: "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "pause_turn" | "refusal" | null;
+    inputTokens: number;
+    outputTokens: number;
+  }> = {},
+) {
+  return {
+    text,
+    stopReason: "end_turn" as const,
+    inputTokens: 321,
+    outputTokens: 654,
+    ...overrides,
+  };
+}
 
 function mappedFullTranscript() {
   const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
@@ -107,6 +132,20 @@ function validRows(score = 4) {
   return EXPECTED_DIMENSIONS.map((dimension) => ({ dimension, score }));
 }
 
+function anthropicApiError(
+  ErrorClass: typeof AuthenticationError | typeof NotFoundError | typeof BadRequestError,
+  status: 400 | 401 | 404,
+  type: "invalid_request_error" | "authentication_error" | "not_found_error",
+) {
+  return new ErrorClass(
+    status as never,
+    { error: { type, message: "PRIVATE provider-controlled error content" } },
+    "PRIVATE provider-controlled error content",
+    new Headers(),
+    type,
+  );
+}
+
 async function deterministicReport() {
   process.env.SYNTHESIS_USE_MOCKS = "true";
   const result = await scoreCasePostCall(getVoiceLlmCaseRecord(AIRPORT)!, mappedFullTranscript());
@@ -117,7 +156,7 @@ async function deterministicReport() {
 async function expectDeterministicFallback(modelOutput: string) {
   const expected = await deterministicReport();
   process.env.SYNTHESIS_USE_MOCKS = "false";
-  completeMock.mockResolvedValueOnce(modelOutput);
+  completeMock.mockResolvedValueOnce(completion(modelOutput));
   const actual = await scoreCasePostCall(getVoiceLlmCaseRecord(AIRPORT)!, mappedFullTranscript());
   expect(completeMock).toHaveBeenCalledTimes(1);
   expect(actual.ok).toBe(true);
@@ -125,6 +164,7 @@ async function expectDeterministicFallback(modelOutput: string) {
   if (!actual.ok || !expected.ok) return;
   expect(actual.report).toEqual(expected.report);
   expect(actual.scorerOutcome).toBe("deterministic_fallback");
+  expect(actual.failureCategory).toBe("schema_validation_error");
   if (actual.ok) {
     expect(actual.report.partial).toBe(false);
     expect(actual.report.score.overall).not.toBeNull();
@@ -133,10 +173,13 @@ async function expectDeterministicFallback(modelOutput: string) {
 
 beforeEach(() => {
   completeMock.mockReset();
+  process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
 });
 
 afterEach(() => {
   process.env.SYNTHESIS_USE_MOCKS = "true";
+  if (ORIGINAL_ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+  else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_API_KEY;
 });
 
 describe("Case post-call exact model dimension contract", () => {
@@ -174,7 +217,7 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("uses exactly one Haiku call and preserves the qualitative proposal", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal());
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -191,6 +234,13 @@ describe("Case post-call exact model dimension contract", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.scorerOutcome).toBe("model");
+    expect(result.modelDiagnostic).toEqual({
+      httpStatus: null,
+      anthropicErrorType: null,
+      stopReason: "end_turn",
+      inputTokens: 321,
+      outputTokens: 654,
+    });
     expect(result.report.partial).toBe(false);
     expect(result.report.score.dimension_scores).toHaveLength(5);
     expect(result.report.score.dimension_scores[0].justification).toBe(
@@ -215,7 +265,7 @@ describe("Case post-call exact model dimension contract", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.scorerOutcome).toBe("deterministic_fallback");
-    expect(result.failureCategory).toBe("model_error");
+    expect(result.failureCategory).toBe("unknown_model_error");
     expect(result.report.score.summary).toContain("complete case sequence");
   });
 
@@ -225,7 +275,7 @@ describe("Case post-call exact model dimension contract", () => {
       dimension,
       score: dimension === "structure" || dimension === "communication" ? 3 : null,
     }));
-    completeMock.mockResolvedValueOnce(qualitativeProposal(rows));
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(rows)));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -248,9 +298,9 @@ describe("Case post-call exact model dimension contract", () => {
       score: dimension === "structure" || dimension === "communication" ? 3 : null,
       rationale: "MODEL-AUTHORED rationale praising the missing Recommendation.",
     }));
-    completeMock.mockResolvedValueOnce(qualitativeProposal(validRows(), {
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
       dimensionScores: rows,
-    }));
+    })));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -272,7 +322,7 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("lists only answered stages in a multi-stage partial dimension rationale", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal());
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -292,7 +342,7 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("limits a partial quantitative rationale to an answered Data reveal calculation", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal());
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -313,7 +363,7 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("leaves a partial dimension unscored when none of its stages were answered", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal());
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
 
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
@@ -334,9 +384,9 @@ describe("Case post-call exact model dimension contract", () => {
   it("rejects qualitative output that reproduces candidate transcript text", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
     const copied = "For framework, I would structure the evidence, test a hypothesis, quantify the result, and synthesize an answer.";
-    completeMock.mockResolvedValueOnce(qualitativeProposal(validRows(), {
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
       overallSummary: copied,
-    }));
+    })));
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
       mappedFullTranscript(),
@@ -349,13 +399,13 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("excludes Recommendation coaching when Recommendation was not answered", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal(validRows(), {
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
       stageFeedback: [
         { stage: "framework", kind: "strength", text: "The observed framework was logically organized." },
         { stage: "recommendation", kind: "improvement", text: "Missing-stage recommendation criticism." },
       ],
       improvedRecommendationOutline: ["Missing-stage recommendation coaching."],
-    }));
+    })));
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
       mappedStages(["framework"]),
@@ -368,12 +418,12 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("excludes Framework coaching when Framework was not answered", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal(validRows(), {
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
       improvedFrameworkOutline: ["Missing-stage framework coaching."],
       stageFeedback: [
         { stage: "analysis", kind: "strength", text: "The observed analysis considered practical tradeoffs." },
       ],
-    }));
+    })));
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
       mappedStages(["analysis"]),
@@ -386,7 +436,7 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("excludes quantitative feedback when neither quantitative stage was answered", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal());
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
       mappedStages(["framework", "analysis"]),
@@ -398,12 +448,12 @@ describe("Case post-call exact model dimension contract", () => {
 
   it("discards missing-stage model feedback while retaining observed-stage feedback", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
-    completeMock.mockResolvedValueOnce(qualitativeProposal(validRows(), {
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
       stageFeedback: [
         { stage: "framework", kind: "strength", text: "Observed framework feedback retained." },
         { stage: "recommendation", kind: "improvement", text: "Missing recommendation feedback discarded." },
       ],
-    }));
+    })));
     const result = await scoreCasePostCall(
       getVoiceLlmCaseRecord(AIRPORT)!,
       mappedStages(["framework"]),
@@ -429,5 +479,146 @@ describe("Case post-call exact model dimension contract", () => {
     expect(result.report.score.improved_framework_outline).toBeNull();
     expect(result.report.score.improved_recommendation_outline).toBeNull();
     expect(result.report.score.quantitative_assessment).toBeNull();
+  });
+});
+
+describe("Case post-call safe model failure classification", () => {
+  async function expectFailure(
+    expected: string,
+    arrange: () => void,
+  ) {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    arrange();
+    const result = await scoreCasePostCall(
+      getVoiceLlmCaseRecord(AIRPORT)!,
+      mappedFullTranscript(),
+    );
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return null;
+    expect(result.scorerOutcome).toBe("deterministic_fallback");
+    expect(result.failureCategory).toBe(expected);
+    expect(result.report.partial).toBe(false);
+    return result;
+  }
+
+  it("classifies a missing API key without exposing the thrown message", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const secret = "sk-ant-private-candidate-fragment";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expectFailure("missing_api_key", () => {
+      completeMock.mockRejectedValueOnce(new Error(secret));
+    });
+    expect(JSON.stringify([...info.mock.calls, ...error.mock.calls])).not.toContain(secret);
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  it("classifies an Anthropic authentication error with safe metadata", async () => {
+    const result = await expectFailure("authentication_error", () => {
+      completeMock.mockRejectedValueOnce(anthropicApiError(
+        AuthenticationError,
+        401,
+        "authentication_error",
+      ));
+    });
+    expect(result?.modelDiagnostic).toEqual({
+      httpStatus: 401,
+      anthropicErrorType: "authentication_error",
+      stopReason: null,
+      inputTokens: null,
+      outputTokens: null,
+    });
+  });
+
+  it("classifies an unavailable model", async () => {
+    const result = await expectFailure("model_not_found", () => {
+      completeMock.mockRejectedValueOnce(anthropicApiError(
+        NotFoundError,
+        404,
+        "not_found_error",
+      ));
+    });
+    expect(result?.modelDiagnostic.httpStatus).toBe(404);
+    expect(result?.modelDiagnostic.anthropicErrorType).toBe("not_found_error");
+  });
+
+  it("classifies an SDK timeout", async () => {
+    await expectFailure("timeout", () => {
+      completeMock.mockRejectedValueOnce(new APIConnectionTimeoutError());
+    });
+  });
+
+  it("classifies an SDK network error", async () => {
+    await expectFailure("network_error", () => {
+      completeMock.mockRejectedValueOnce(new APIConnectionError({
+        message: "PRIVATE network path",
+      }));
+    });
+  });
+
+  it("classifies other Anthropic API failures as provider errors", async () => {
+    const result = await expectFailure("provider_error", () => {
+      completeMock.mockRejectedValueOnce(anthropicApiError(
+        BadRequestError,
+        400,
+        "invalid_request_error",
+      ));
+    });
+    expect(result?.modelDiagnostic).toMatchObject({
+      httpStatus: 400,
+      anthropicErrorType: "invalid_request_error",
+    });
+  });
+
+  it("classifies an unrecognized thrown error without logging its content", async () => {
+    const secret = "PRIVATE serialized transcript and prompt";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expectFailure("unknown_model_error", () => {
+      completeMock.mockRejectedValueOnce(new Error(secret));
+    });
+    expect(JSON.stringify([...info.mock.calls, ...error.mock.calls])).not.toContain(secret);
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  it("classifies a max-token structured response before parsing", async () => {
+    const result = await expectFailure("max_tokens", () => {
+      completeMock.mockResolvedValueOnce(completion("{", {
+        stopReason: "max_tokens",
+        inputTokens: 900,
+        outputTokens: 1_800,
+      }));
+    });
+    expect(result?.modelDiagnostic).toMatchObject({
+      stopReason: "max_tokens",
+      inputTokens: 900,
+      outputTokens: 1_800,
+    });
+  });
+
+  it("classifies a refusal response before parsing", async () => {
+    const result = await expectFailure("refusal", () => {
+      completeMock.mockResolvedValueOnce(completion("refusal content", {
+        stopReason: "refusal",
+      }));
+    });
+    expect(result?.modelDiagnostic.stopReason).toBe("refusal");
+  });
+
+  it("classifies JSON extraction and parsing failures", async () => {
+    await expectFailure("malformed_json", () => {
+      completeMock.mockResolvedValueOnce(completion("not structured JSON"));
+    });
+  });
+
+  it("classifies locally invalid proposals as schema validation failures", async () => {
+    await expectFailure("schema_validation_error", () => {
+      completeMock.mockResolvedValueOnce(completion(JSON.stringify({
+        unexpected: true,
+      })));
+    });
   });
 });

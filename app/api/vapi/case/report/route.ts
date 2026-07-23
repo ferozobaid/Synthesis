@@ -11,7 +11,12 @@ import {
 import { storedCaseVoiceArchitecture } from "@/lib/voice/case-native-config";
 import { normalizeVoiceTranscript } from "@/lib/voice/transcript";
 import { mapCaseTranscript } from "@/lib/voice/case-transcript";
-import { scoreCasePostCall } from "@/lib/voice/case-post-call-scorer";
+import {
+  CASE_POST_CALL_ANTHROPIC_ERROR_TYPES,
+  scoreCasePostCall,
+  type CasePostCallAnthropicErrorType,
+  type CasePostCallStopReason,
+} from "@/lib/voice/case-post-call-scorer";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 import type { CaseVoiceSession } from "@/lib/voice/types";
 
@@ -23,9 +28,17 @@ const STALE_PROCESSING_MS = 150_000;
 type SafeScorerOutcome = "model" | "deterministic_fallback" | "failed";
 type SafeScorerFailureCategory =
   | "mock_mode"
-  | "invalid_model_output"
-  | "unsafe_model_output"
-  | "model_error"
+  | "missing_api_key"
+  | "authentication_error"
+  | "model_not_found"
+  | "timeout"
+  | "network_error"
+  | "provider_error"
+  | "max_tokens"
+  | "refusal"
+  | "malformed_json"
+  | "schema_validation_error"
+  | "unknown_model_error"
   | "empty_transcript"
   | "unusable_transcript"
   | "stage_anchor_unavailable"
@@ -35,15 +48,66 @@ type SafeScorerFailureCategory =
 
 const SAFE_FAILURE_CATEGORIES = new Set<Exclude<SafeScorerFailureCategory, null>>([
   "mock_mode",
-  "invalid_model_output",
-  "unsafe_model_output",
-  "model_error",
+  "missing_api_key",
+  "authentication_error",
+  "model_not_found",
+  "timeout",
+  "network_error",
+  "provider_error",
+  "max_tokens",
+  "refusal",
+  "malformed_json",
+  "schema_validation_error",
+  "unknown_model_error",
   "empty_transcript",
   "unusable_transcript",
   "stage_anchor_unavailable",
   "scoring_failed",
   "unknown",
 ]);
+
+const SAFE_STOP_REASONS = new Set<Exclude<CasePostCallStopReason, null>>([
+  "end_turn",
+  "max_tokens",
+  "stop_sequence",
+  "tool_use",
+  "pause_turn",
+  "refusal",
+  "unknown",
+]);
+
+function safeHttpStatus(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 100 &&
+    value <= 599
+    ? value
+    : null;
+}
+
+function safeAnthropicErrorType(value: unknown): CasePostCallAnthropicErrorType {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" &&
+    (CASE_POST_CALL_ANTHROPIC_ERROR_TYPES as readonly string[]).includes(value)
+    ? value as CasePostCallAnthropicErrorType
+    : "unknown";
+}
+
+function safeStopReason(value: unknown): CasePostCallStopReason {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" &&
+    SAFE_STOP_REASONS.has(value as Exclude<CasePostCallStopReason, null>)
+    ? value as CasePostCallStopReason
+    : "unknown";
+}
+
+function safeTokenCount(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+    ? value
+    : null;
+}
 
 function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
   if (value === null || value === undefined) return null;
@@ -55,7 +119,6 @@ function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
 }
 
 function recordCasePostCallScoringDiagnostic(input: {
-  sessionCorrelationId: string;
   selectedCaseId: string;
   observedStageCount: number;
   missingStageCount: number;
@@ -64,6 +127,11 @@ function recordCasePostCallScoringDiagnostic(input: {
   scorerDurationMs: number;
   reportStatus: "done" | "failed";
   failureCategory: SafeScorerFailureCategory;
+  httpStatus: number | null;
+  anthropicErrorType: CasePostCallAnthropicErrorType;
+  stopReason: CasePostCallStopReason;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }): void {
   console.info("[case-native-report] scoring", input);
 }
@@ -191,6 +259,13 @@ export async function POST(req: NextRequest) {
     let final: CaseVoiceSession;
     let scorerOutcome: SafeScorerOutcome = "failed";
     let failureCategory: SafeScorerFailureCategory = null;
+    let modelDiagnostic: {
+      httpStatus?: unknown;
+      anthropicErrorType?: unknown;
+      stopReason?: unknown;
+      inputTokens?: unknown;
+      outputTokens?: unknown;
+    } | null = null;
     const scorerStartedAt = Date.now();
     if (!mapped) {
       failureCategory = "stage_anchor_unavailable";
@@ -211,6 +286,7 @@ export async function POST(req: NextRequest) {
         failureCategory = scoring.ok
           ? safeFailureCategory(scoring.failureCategory)
           : safeFailureCategory(scoring.failureCode);
+        modelDiagnostic = scoring.ok ? scoring.modelDiagnostic ?? null : null;
         final = scoring.ok
           ? {
               ...claimed,
@@ -243,7 +319,6 @@ export async function POST(req: NextRequest) {
     }
 
     recordCasePostCallScoringDiagnostic({
-      sessionCorrelationId: sessionId,
       selectedCaseId: record.caseId,
       observedStageCount: mapped?.observedStages.length ?? 0,
       missingStageCount: mapped?.missingStages.length ?? 6,
@@ -252,6 +327,11 @@ export async function POST(req: NextRequest) {
       scorerDurationMs: Math.max(0, Date.now() - scorerStartedAt),
       reportStatus: final.reportStatus === "done" ? "done" : "failed",
       failureCategory,
+      httpStatus: safeHttpStatus(modelDiagnostic?.httpStatus),
+      anthropicErrorType: safeAnthropicErrorType(modelDiagnostic?.anthropicErrorType),
+      stopReason: safeStopReason(modelDiagnostic?.stopReason),
+      inputTokens: safeTokenCount(modelDiagnostic?.inputTokens),
+      outputTokens: safeTokenCount(modelDiagnostic?.outputTokens),
     });
 
     try {
