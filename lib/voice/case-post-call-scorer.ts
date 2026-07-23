@@ -581,47 +581,48 @@ function protectedNumericClaims(
   };
 }
 
-type NumericClaimSafety =
-  | "recoverable_qualitative_claim"
-  | "fatal_protected_claim"
-  | "fatal_unsupported_claim"
-  | null;
-
-function numericClaimSafety(
+/**
+ * Reports whether a prose field's numeric wording is unsafe to display.
+ *
+ * The safe action for any unsafe number is identical in every field: discard the
+ * model text and replace the single field with number-free deterministic prose,
+ * so the value (protected, hidden, or unsupported) never reaches candidate-visible
+ * output. This function therefore only decides display-safety; it never authorizes
+ * an unsafe number. Qualitative fields never legitimately display numbers, so any
+ * numeric wording is unsafe. quantitativeAssessment is the one field allowed to
+ * discuss numbers, so only protected final answers, hidden derivations, and
+ * numbers unsupported by candidate-visible grounding are unsafe there — grounded,
+ * candidate-visible numbers are kept.
+ */
+function numericClaimIsUnsafe(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
-): NumericClaimSafety {
+): boolean {
   const claims = canonicalNumericClaims(text);
-  if (claims.length === 0) return null;
+  if (claims.length === 0) return false;
 
-  // Qualitative fields never legitimately display numbers. Any numeric wording is
-  // recovered by dropping/replacing that single field, so the value (protected or
-  // not) never reaches candidate-visible output. Because the safe action is
-  // identical for every number, the protected/hidden check runs only for
-  // quantitativeAssessment — the one field allowed to discuss numbers — where a
-  // protected or unsupported number stays fatal.
-  if (path !== "quantitativeAssessment") return "recoverable_qualitative_claim";
+  if (path !== "quantitativeAssessment") return true;
 
   const visible = candidateVisibleNumericClaims(mapped, caseRecord);
   const protectedClaims = protectedNumericClaims(caseRecord, visible.authored);
   const answerTolerance = caseRecord.quant?.tolerance;
   for (const claim of claims) {
     if (hasMatchingNumericClaim(claim, protectedClaims.finalAnswer, answerTolerance)) {
-      return "fatal_protected_claim";
+      return true;
     }
     if (hasMatchingNumericClaim(claim, protectedClaims.hiddenDerivations)) {
-      return "fatal_protected_claim";
+      return true;
     }
   }
 
   for (const claim of claims) {
     if (!hasMatchingNumericClaim(claim, visible.all)) {
-      return "fatal_unsupported_claim";
+      return true;
     }
   }
-  return null;
+  return false;
 }
 
 interface ModelTextSafetyIssue {
@@ -636,9 +637,10 @@ interface ModelTextSafetyIssue {
  * Proposal failure matrix:
  * - malformed structure, identities, scores, stages, and unknown states are
  *   rejected by their structural validators;
- * - protected numeric claims and unsupported quantitative claims are fatal;
- * - prose-only issues are recoverable because the affected field can be
- *   replaced or omitted without trusting it or changing structured scores.
+ * - prose-only issues — including unsafe numeric claims in any field — are
+ *   recoverable because the single affected field is discarded and replaced with
+ *   number-free deterministic prose without trusting it or changing structured
+ *   scores. Recovery discards the unsafe text; it never authorizes the number.
  */
 function modelTextSafetyIssue(
   text: string,
@@ -648,12 +650,8 @@ function modelTextSafetyIssue(
 ): ModelTextSafetyIssue | null {
   const normalized = normalizedWords(text);
   if (!normalized) return { reason: "empty", recoverable: true };
-  const numericSafety = numericClaimSafety(text, path, mapped, caseRecord);
-  if (numericSafety) {
-    return {
-      reason: "unsafe_numeric_claim",
-      recoverable: numericSafety === "recoverable_qualitative_claim",
-    };
+  if (numericClaimIsUnsafe(text, path, mapped, caseRecord)) {
+    return { reason: "unsafe_numeric_claim", recoverable: true };
   }
 
   for (const turn of mapped.turns) {
@@ -794,9 +792,10 @@ function validateText(
     return { ok: true, value: allowEmpty ? "" : fallback };
   }
 
-  // Inspect the complete source before length normalization. Truncation may
-  // preserve safe text, but it must never hide protected or unsupported
-  // numerical content. Other prose-only failures recover at this field.
+  // Inspect the complete source before length normalization so truncation can
+  // never hide unsafe content behind a length cut. Prose-only failures — unsafe
+  // numeric wording included — recover here by replacing this field with safe
+  // deterministic prose; the unsafe source text is discarded, never displayed.
   const sourceIssue = modelTextSafetyIssue(value, path, mapped, caseRecord);
   if (sourceIssue) {
     return sourceIssue.recoverable

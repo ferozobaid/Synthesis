@@ -34,6 +34,7 @@ import { normalizeVoiceTranscript } from "@/lib/voice/transcript";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 
 const AIRPORT = "airport_profitability";
+const GYM = "gcc_premium_gym_market_entry";
 const EXPECTED_DIMENSIONS = [
   "structure",
   "hypothesis_driven_thinking",
@@ -60,8 +61,8 @@ function completion(
   };
 }
 
-function mappedFullTranscript() {
-  const manifest = caseStageAnchorManifest(AIRPORT, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+function mappedFullTranscriptForCase(caseId: string) {
+  const manifest = caseStageAnchorManifest(caseId, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
   const normalized = normalizeVoiceTranscript(CASE_REPORT_STAGES.flatMap((stage) => [
     { role: "assistant", message: manifest.anchors[stage] },
     {
@@ -70,11 +71,15 @@ function mappedFullTranscript() {
     },
   ]));
   return mapCaseTranscript(
-    AIRPORT,
+    caseId,
     CASE_VOICE_STAGE_ANCHOR_VERSION,
     normalized.turns,
     { truncated: normalized.truncated },
   )!;
+}
+
+function mappedFullTranscript() {
+  return mappedFullTranscriptForCase(AIRPORT);
 }
 
 function mappedPartialTranscript() {
@@ -1580,20 +1585,8 @@ describe("Case post-call proposal validation diagnostics", () => {
   const PROTECTED_ANSWER_PROSE =
     "The protected total daily retail revenue was SAR 4,240,000.";
 
-  it("keeps protected numerical answer leakage fatal in quantitativeAssessment", () => {
-    const proposal = proposalObject();
-    replaceProseField(proposal, "quantitativeAssessment", PROTECTED_ANSWER_PROSE);
-    expectValidationIssue(
-      proposal,
-      mappedFullTranscript(),
-      "quantitativeAssessment",
-      "unsafe_numeric_claim",
-      "string",
-    );
-  });
-
-  it.each(PROSE_FIELDS.filter((field) => field !== "quantitativeAssessment"))(
-    "recovers protected numerical answer leakage in the qualitative field %s",
+  it.each(PROSE_FIELDS)(
+    "recovers protected numerical answer leakage consistently in %s",
     (field) => {
       const proposal = proposalObject();
       replaceProseField(proposal, field, PROTECTED_ANSWER_PROSE);
@@ -1606,8 +1599,8 @@ describe("Case post-call proposal validation diagnostics", () => {
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      // The single affected field is replaced with safe deterministic prose;
-      // the protected value never reaches candidate-visible output.
+      // The single affected field — quantitativeAssessment included — is replaced
+      // with safe deterministic prose; the protected value never reaches output.
       expect(proseFieldValues(result.proposal, field).every(Boolean)).toBe(true);
       expect(JSON.stringify(result.proposal)).not.toContain(PROTECTED_ANSWER_PROSE);
       expect(JSON.stringify(result.proposal)).not.toContain("4,240,000");
@@ -1666,7 +1659,7 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects unsupported, protected final-answer, and hidden-derived numbers", () => {
+  it("replaces unsupported, protected final-answer, and hidden-derived numbers", () => {
     const caseRecord = getVoiceLlmCaseRecord(AIRPORT)!;
     const mapped = mappedFullTranscript();
     for (const quantitativeAssessment of [
@@ -1675,16 +1668,43 @@ describe("Case post-call proposal validation diagnostics", () => {
       "The assessment calculated 24,000 buyers.",
     ]) {
       const proposal = proposalObject(validRows(), { quantitativeAssessment });
-      expectValidationIssue(
-        proposal,
-        mapped,
-        "quantitativeAssessment",
-        "unsafe_numeric_claim",
-        "string",
-      );
+      const result = validateCasePostCallModelProposal(proposal, mapped, caseRecord);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // The unsafe quantitative paragraph is discarded and replaced with
+      // number-free deterministic feedback — the number never survives.
+      expect(result.proposal.quantitativeAssessment).not.toBe(quantitativeAssessment);
+      expect(result.proposal.quantitativeAssessment).not.toMatch(/\d/);
+      expect(JSON.stringify(result.proposal)).not.toContain(quantitativeAssessment);
+      expect(JSON.stringify(result.proposal)).not.toContain("4,240,000");
+      expect(JSON.stringify(result.proposal)).not.toContain("24,000");
+      // Structured dimension scores stay exactly as authored.
+      expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
       expect(caseRecord.quant?.answer).toContain("4,240,000");
     }
   });
+
+  it.each([
+    { quantitativeAssessment: 42, receivedType: "number" },
+    { quantitativeAssessment: null, receivedType: "null" },
+    { quantitativeAssessment: ["not", "a", "string"], receivedType: "array" },
+    { quantitativeAssessment: { text: "x" }, receivedType: "object" },
+  ] as const)(
+    "keeps a $receivedType quantitativeAssessment fatal",
+    ({ quantitativeAssessment, receivedType }) => {
+      expectValidationIssue(
+        proposalObject(validRows(), { quantitativeAssessment }),
+        mappedFullTranscript(),
+        "quantitativeAssessment",
+        "wrong_type",
+        receivedType,
+      );
+    },
+  );
 
   it("applies the same grounded numeric policy to partial quantitative assessments", () => {
     const mapped = mappedStages(["data_reveal"]);
@@ -1697,14 +1717,19 @@ describe("Case post-call proposal validation diagnostics", () => {
       getVoiceLlmCaseRecord(AIRPORT)!,
     );
     expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    expect(accepted.proposal.quantitativeAssessment).toContain("sixty thousand");
 
-    expectValidationIssue(
+    // An unsupported number in a partial assessment recovers the same way.
+    const recovered = validateCasePostCallModelProposal(
       proposalObject(validRows(), { quantitativeAssessment: "The assessment used 999 passengers." }),
       mapped,
-      "quantitativeAssessment",
-      "unsafe_numeric_claim",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(recovered.ok).toBe(true);
+    if (!recovered.ok) return;
+    expect(recovered.proposal.quantitativeAssessment).not.toMatch(/\d/);
+    expect(JSON.stringify(recovered.proposal)).not.toContain("999");
   });
 
   it("keeps a grounded quantitative assessment through the one-call model result", async () => {
@@ -1722,6 +1747,61 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(result.scorerOutcome).toBe("model");
     expect(result.report.score.quantitative_assessment).toContain("sixty thousand");
   });
+
+  it.each([
+    {
+      label: "GCC",
+      caseId: GYM,
+      unsafe: "The assessment reached approximately $56.7 million in annual TAM.",
+      leak: "56.7 million",
+    },
+    {
+      label: "Airport",
+      caseId: AIRPORT,
+      unsafe: "The assessment reached SAR 4,240,000 in total daily retail revenue.",
+      leak: "4,240,000",
+    },
+  ])(
+    "replaces an unsafe $label quantitativeAssessment through the one-call model result",
+    async ({ caseId, unsafe, leak }) => {
+      process.env.SYNTHESIS_USE_MOCKS = "false";
+      const mapped = mappedFullTranscriptForCase(caseId);
+      completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+        quantitativeAssessment: unsafe,
+      })));
+
+      const result = await scoreCasePostCall(getVoiceLlmCaseRecord(caseId)!, mapped);
+
+      // Exactly one Haiku call, no retries, no deterministic full fallback.
+      expect(completeMock).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.scorerOutcome).toBe("model");
+      expect(result.failureCategory).toBeNull();
+      expect(result.modelDiagnostic).toMatchObject({
+        validationPath: null,
+        validationReason: null,
+        validationReceivedType: null,
+      });
+      // The field is replaced with number-free deterministic feedback.
+      expect(result.report.score.quantitative_assessment).toBeTruthy();
+      expect(result.report.score.quantitative_assessment).not.toMatch(/\d/);
+      expect(result.report.score.quantitative_assessment).not.toBe(unsafe);
+      // Every safe Haiku field elsewhere survives unchanged.
+      expect(result.report.score.summary).toContain("worked through the case");
+      expect(result.report.score.strengths).toContain(
+        "The response connected commercial reasoning with practical execution considerations.",
+      );
+      expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
+      // The protected number never reaches the report, diagnostics, or logs.
+      expect(JSON.stringify(result.report)).not.toContain(unsafe);
+      expect(JSON.stringify(result.report)).not.toContain(leak);
+      expect(JSON.stringify(result.modelDiagnostic)).not.toContain(leak);
+    },
+  );
 
   it("shortens otherwise-safe model text without changing dimensions or scores", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
