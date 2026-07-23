@@ -35,6 +35,19 @@ const airportNativeTranscript = JSON.parse(
   readFileSync("tests/fixtures/airport-native-redacted-transcript.json", "utf8"),
 ) as Array<{ role: string; message: string }>;
 
+function occurrenceCount(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
+function transitionSpeech(manifest: string): string[] {
+  const section = manifest
+    .split("## Neutral transition patterns")[1]
+    ?.split("Use only candidate-safe case facts")[0] ?? "";
+  return [...section.matchAll(/Say:\s+“([\s\S]*?)”/g)].map((match) =>
+    match[1].replace(/\s+/g, " ").trim()
+  );
+}
+
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -333,6 +346,80 @@ describe("canonical stage mapping", () => {
       expect(manifest).toContain(closing);
       expect(manifest).toContain("Do not say or imply that the report or score is already complete.");
       expect(manifest).not.toContain("A score is not available yet.");
+    }
+  });
+
+  it("makes probes explicitly optional and conditional for both assistants", () => {
+    for (const manifest of [airportManifest, gymManifest]) {
+      expect(manifest).toContain(
+        "Ask a stage-specific probe only when the candidate’s answer is materially\n" +
+        "incomplete, unclear, or too brief to establish a usable response.",
+      );
+      expect(manifest).toContain("Do not ask a\nprobe merely because one is available.");
+      expect(manifest).toContain("A probe is optional, not mandatory.");
+      expect(manifest).toContain("Ask no more than one probe per stage.");
+      expect(manifest).toContain("the answer already contains several relevant and distinct points");
+      expect(manifest).toContain("the candidate has clearly completed the requested calculation");
+      expect(manifest).toContain("the candidate has already answered the probe’s substance");
+      expect(manifest).toContain("repeat the same response");
+    }
+  });
+
+  it("advances on usable or explicitly completed answers instead of automatically probing", () => {
+    for (const manifest of [airportManifest, gymManifest]) {
+      expect(manifest).toContain(
+        "“that is my answer”, “that is everything”, “I’m done”, or\n" +
+        "  an equivalent completion phrase",
+      );
+      expect(manifest).toContain(
+        "When\nthe response is usable, acknowledge it and advance without probing.",
+      );
+      expect(manifest).toContain("If the candidate confirms, advance immediately without another probe.");
+      expect(manifest).toContain("at least three relevant and\n  distinct areas");
+      expect(manifest).toContain("a numerical result or a substantive attempt");
+      expect(manifest).toContain("Do not require the exact authored framework.");
+    }
+  });
+
+  it("keeps each canonical anchor verbatim, complete, separate, and spoken once", () => {
+    const prompts = [
+      { caseId: AIRPORT, prompt: airportManifest },
+      { caseId: GYM, prompt: gymManifest },
+    ];
+    for (const { caseId, prompt } of prompts) {
+      const anchors = caseStageAnchorManifest(caseId, CASE_VOICE_STAGE_ANCHOR_VERSION)!;
+      const normalizedPrompt = prompt.replace(/\s+/g, " ");
+      for (const stage of CASE_REPORT_STAGES) {
+        expect(occurrenceCount(prompt, anchors.anchors[stage])).toBe(1);
+      }
+      expect(occurrenceCount(
+        normalizedPrompt,
+        "opening above verbatim as a separate sentence",
+      )).toBe(5);
+      expect(occurrenceCount(prompt, "Speak it once.")).toBe(5);
+    }
+  });
+
+  it("contains five neutral, case-specific transition acknowledgements per assistant", () => {
+    const airportTransitions = transitionSpeech(airportManifest);
+    const gymTransitions = transitionSpeech(gymManifest);
+    expect(airportTransitions).toHaveLength(5);
+    expect(gymTransitions).toHaveLength(5);
+    expect(airportTransitions.every((transition) => transition.startsWith("Thank you."))).toBe(true);
+    expect(gymTransitions.every((transition) => transition.startsWith("Thank you."))).toBe(true);
+    expect(airportTransitions.join(" ")).toMatch(/retail opportunity|conversion-uplift analysis/);
+    expect(gymTransitions.join(" ")).toMatch(/market-entry decision|Dubai opportunity|required location footprint/);
+  });
+
+  it("keeps transition speech neutral and free of evaluation or hidden answers", () => {
+    for (const manifest of [airportManifest, gymManifest]) {
+      const spokenTransitions = transitionSpeech(manifest).join(" ");
+      expect(spokenTransitions).not.toMatch(
+        /\b(?:score|scoring|grade|grading|correct|incorrect|passed|failed|answer key)\b/i,
+      );
+      expect(spokenTransitions).not.toMatch(
+        /(?:4[,.]?240[,.]?000|56[.]?7 million|eight locations|8 locations)/i,
+      );
     }
   });
 });
