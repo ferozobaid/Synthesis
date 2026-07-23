@@ -596,6 +596,14 @@ function numericClaimSafety(
   const claims = canonicalNumericClaims(text);
   if (claims.length === 0) return null;
 
+  // Qualitative fields never legitimately display numbers. Any numeric wording is
+  // recovered by dropping/replacing that single field, so the value (protected or
+  // not) never reaches candidate-visible output. Because the safe action is
+  // identical for every number, the protected/hidden check runs only for
+  // quantitativeAssessment — the one field allowed to discuss numbers — where a
+  // protected or unsupported number stays fatal.
+  if (path !== "quantitativeAssessment") return "recoverable_qualitative_claim";
+
   const visible = candidateVisibleNumericClaims(mapped, caseRecord);
   const protectedClaims = protectedNumericClaims(caseRecord, visible.authored);
   const answerTolerance = caseRecord.quant?.tolerance;
@@ -607,11 +615,6 @@ function numericClaimSafety(
       return "fatal_protected_claim";
     }
   }
-
-  // Qualitative fields never display numbers, but benign qualitative numeric
-  // wording can be replaced locally after protected values have been ruled
-  // out. Structured dimension scores are validated separately.
-  if (path !== "quantitativeAssessment") return "recoverable_qualitative_claim";
 
   for (const claim of claims) {
     if (!hasMatchingNumericClaim(claim, visible.all)) {

@@ -482,6 +482,45 @@ describe("Case post-call exact model dimension contract", () => {
     expect(JSON.stringify(result.modelDiagnostic)).not.toContain(copiedCandidateText);
   });
 
+  it("recovers a protected-number stage-feedback item through the one-call model result", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const mapped = mappedFullTranscript();
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: "The framework nailed the protected SAR 4,240,000 daily revenue answer.",
+      }],
+    })));
+
+    const result = await scoreCasePostCall(getVoiceLlmCaseRecord(AIRPORT)!, mapped);
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.failureCategory).toBeNull();
+    expect(result.modelDiagnostic).toMatchObject({
+      validationPath: null,
+      validationReason: null,
+      validationReceivedType: null,
+    });
+    // The overlapping item is replaced with deterministic stage feedback.
+    expect(result.report.score.stage_feedback).toContainEqual({
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    });
+    // Structured dimension scores survive the prose recovery untouched.
+    expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows());
+    // The protected value never reaches the report, diagnostics, or logs.
+    expect(JSON.stringify(result.report)).not.toContain("4,240,000");
+    expect(JSON.stringify(result.modelDiagnostic)).not.toContain("4,240,000");
+  });
+
   it.each(PROSE_FIELDS)(
     "keeps the model-backed report when candidate overlap occurs in %s",
     async (field) => {
@@ -1538,32 +1577,45 @@ describe("Case post-call proposal validation diagnostics", () => {
     }
   });
 
-  it.each(PROSE_FIELDS)(
-    "keeps protected numerical answer leakage fatal in %s",
+  const PROTECTED_ANSWER_PROSE =
+    "The protected total daily retail revenue was SAR 4,240,000.";
+
+  it("keeps protected numerical answer leakage fatal in quantitativeAssessment", () => {
+    const proposal = proposalObject();
+    replaceProseField(proposal, "quantitativeAssessment", PROTECTED_ANSWER_PROSE);
+    expectValidationIssue(
+      proposal,
+      mappedFullTranscript(),
+      "quantitativeAssessment",
+      "unsafe_numeric_claim",
+      "string",
+    );
+  });
+
+  it.each(PROSE_FIELDS.filter((field) => field !== "quantitativeAssessment"))(
+    "recovers protected numerical answer leakage in the qualitative field %s",
     (field) => {
       const proposal = proposalObject();
-      replaceProseField(
-        proposal,
-        field,
-        "The protected total daily retail revenue was SAR 4,240,000.",
-      );
-      const expectedPath = {
-        dimensionRationale: "dimensionScores.item.rationale",
-        overallSummary: "overallSummary",
-        strengths: "strengths",
-        improvements: "improvements",
-        stageFeedback: "stageFeedback",
-        frameworkOutline: "frameworkOutline",
-        recommendationOutline: "recommendationOutline",
-        quantitativeAssessment: "quantitativeAssessment",
-      }[field] as (typeof CASE_POST_CALL_VALIDATION_PATHS)[number];
-      expectValidationIssue(
+      replaceProseField(proposal, field, PROTECTED_ANSWER_PROSE);
+
+      const result = validateCasePostCallModelProposal(
         proposal,
         mappedFullTranscript(),
-        expectedPath,
-        "unsafe_numeric_claim",
-        "string",
+        getVoiceLlmCaseRecord(AIRPORT)!,
       );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // The single affected field is replaced with safe deterministic prose;
+      // the protected value never reaches candidate-visible output.
+      expect(proseFieldValues(result.proposal, field).every(Boolean)).toBe(true);
+      expect(JSON.stringify(result.proposal)).not.toContain(PROTECTED_ANSWER_PROSE);
+      expect(JSON.stringify(result.proposal)).not.toContain("4,240,000");
+      // Structured dimension scores are untouched by prose recovery.
+      expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
     },
   );
 
