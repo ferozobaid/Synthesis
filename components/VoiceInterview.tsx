@@ -520,6 +520,7 @@ export default function VoiceInterview({
 
   return (
     <div
+      className="behavioural-voice-panel"
       style={{
         display: "flex",
         flexDirection: "column",

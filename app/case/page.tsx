@@ -28,25 +28,10 @@ export default function CasePage() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 1120,
-        margin: "0 auto",
-        padding: "32px clamp(16px, 4vw, 32px) 40px",
-        animation: "fadeIn .4s ease both",
-      }}
-    >
+    <main className="page-shell case-shell" style={{ animation: "fadeIn .4s ease both" }}>
       <Link
         href="/dashboard"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 7,
-          fontSize: 13,
-          color: "var(--ink-3)",
-          textDecoration: "none",
-          marginBottom: 22,
-        }}
+        className="page-back"
       >
         ← Dashboard
       </Link>
@@ -55,43 +40,17 @@ export default function CasePage() {
         <CaseReport score={voiceScore} onDone={() => router.push("/dashboard")} />
       ) : (
         <div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 18,
-              flexWrap: "wrap",
-            }}
-          >
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 8,
-                background: "var(--neutral-tint)",
-                color: "var(--ink)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 16,
-              }}
-            >
+          <div className="page-heading-row case-heading">
+            <div className="page-icon case-heading__icon">
               ◆
             </div>
-            <h1
-              style={{
-                fontFamily: "var(--font-sans)",
-                fontWeight: 600,
-                fontSize: 24,
-                letterSpacing: 0,
-                margin: 0,
-                color: "var(--ink)",
-              }}
-            >
-              Case Coach
-            </h1>
-            <span style={{ fontSize: 13, color: "var(--ink-3)", marginLeft: "auto" }}>
+            <div>
+              <h1 className="page-title">Case Coach</h1>
+              <p className="page-description case-heading__description">
+                Choose a live case, structure your thinking aloud, and receive a native performance report.
+              </p>
+            </div>
+            <span className="case-heading__meta">
               Live voice case interview
             </span>
           </div>
@@ -99,7 +58,7 @@ export default function CasePage() {
           <CaseVoiceInterview onComplete={completeVoiceInterview} />
         </div>
       )}
-    </div>
+    </main>
   );
 }
 
@@ -112,7 +71,7 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
       : "A workable case with clear room to grow. Tighten your structure and lean harder on the exhibits to lift your score.";
 
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", animation: "fadeUp .5s ease both" }}>
+    <div className="case-report" style={{ maxWidth: 760, margin: "0 auto", animation: "fadeUp .5s ease both" }}>
       <SectionLabel color="var(--ink-3)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Case performance report</SectionLabel>
       <VerdictBanner
         score={score100}

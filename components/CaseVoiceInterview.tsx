@@ -1211,7 +1211,7 @@ export default function CaseVoiceInterview({
 
   if (showPicker) {
     return (
-      <div style={{ marginTop: 18 }}>
+      <div className="case-voice-picker surface-card" style={{ marginTop: 18 }}>
         <SectionLabel style={{ marginBottom: 12 }}>Choose a case</SectionLabel>
         {!configured && (
           <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
@@ -1238,7 +1238,7 @@ export default function CaseVoiceInterview({
 
         {availability.showCases && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
               {catalog.map((entry) => {
                 const selected = selectedCaseId === entry.id;
                 return (
@@ -1247,6 +1247,7 @@ export default function CaseVoiceInterview({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setSelectedCaseId(entry.id)}
+                    className={`case-picker-card${selected ? " is-selected" : ""}`}
                     style={{
                       textAlign: "left",
                       border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
@@ -1263,7 +1264,7 @@ export default function CaseVoiceInterview({
                 );
               })}
             </div>
-            <div style={{ marginTop: 16 }}>
+            <div className="case-picker-actions" style={{ marginTop: 16 }}>
               <button
                 type="button"
                 disabled={!availability.canStart}
@@ -1288,8 +1289,9 @@ export default function CaseVoiceInterview({
   }
 
   return (
-    <div style={{ marginTop: 18 }}>
+    <div className="case-voice-session" style={{ marginTop: 18 }}>
       <div
+        className="case-voice-statusbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -1325,6 +1327,7 @@ export default function CaseVoiceInterview({
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div
             aria-label="Case interview timer"
+            className="case-voice-timer"
             style={{
               minWidth: nativeTimerWaiting ? 118 : 62,
               padding: "7px 10px",
@@ -1391,6 +1394,7 @@ export default function CaseVoiceInterview({
       {nativeLiveCapability && (
         <>
           <div
+            className="case-progress-panel"
             style={{
               marginTop: 14,
               padding: "14px 16px",
@@ -1446,6 +1450,7 @@ export default function CaseVoiceInterview({
 
           {showTranscript && (
             <div
+              className="case-transcript-panel"
               style={{
                 marginTop: 16,
                 border: "1px solid var(--line)",
@@ -1512,9 +1517,9 @@ export default function CaseVoiceInterview({
             </button>
           </div>
 
-          <div className={showTranscript ? "case-grid" : undefined} style={{ marginTop: 16 }}>
+          <div className={showTranscript ? "case-grid case-workspace" : "case-workspace"} style={{ marginTop: 16 }}>
             {showTranscript && (
-              <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
+              <div className="case-transcript-panel" style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <SectionLabel>Transcript</SectionLabel>
               </div>
@@ -1541,7 +1546,7 @@ export default function CaseVoiceInterview({
               </div>
             )}
 
-            <div style={{ minWidth: 0 }}>
+            <div className="case-exhibits-panel" style={{ minWidth: 0 }}>
               <SectionLabel style={{ marginBottom: 10 }}>Exhibits</SectionLabel>
               {exhibits.length === 0 ? (
                 <div style={{ border: "1.5px dashed var(--line)", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "var(--surface-2)" }}>
