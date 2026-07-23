@@ -135,9 +135,16 @@ describe("Anthropic GA structured-output request", () => {
     expect(
       dimensionScores.items.properties.rationale.description,
     ).toContain("maxLength: 360");
+    expect(dimensionScores.items.properties.rationale.description)
+      .toContain("Do not include numbers");
+    expect(dimensionScores.items.properties.score.description).toContain("minimum: 1");
+    expect(dimensionScores.items.properties.score.description).toContain("maximum: 5");
     expect(properties.overallSummary.description).toContain("maxLength: 480");
+    expect(properties.overallSummary.description).toContain("no numbers");
     expect(properties.quantitativeAssessment.description)
       .toContain("maxLength: 480");
+    expect(properties.quantitativeAssessment.description)
+      .toContain("never include protected final answers");
     expect(properties.strengths.description).toContain("maxItems: 4");
     expect(properties.strengths.items.description).toContain("maxLength: 320");
     expect(properties.improvements.description).toContain("maxItems: 4");

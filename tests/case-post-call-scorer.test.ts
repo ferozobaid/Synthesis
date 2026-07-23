@@ -157,6 +157,75 @@ function proposalObject(
   return JSON.parse(qualitativeProposal(rows, overrides));
 }
 
+const PROSE_FIELDS = [
+  "dimensionRationale",
+  "overallSummary",
+  "strengths",
+  "improvements",
+  "stageFeedback",
+  "frameworkOutline",
+  "recommendationOutline",
+  "quantitativeAssessment",
+] as const;
+
+type ProseField = (typeof PROSE_FIELDS)[number];
+
+function replaceProseField(
+  proposal: Record<string, any>,
+  field: ProseField,
+  text: string,
+): void {
+  switch (field) {
+    case "dimensionRationale":
+      proposal.dimensionScores[0].rationale = text;
+      return;
+    case "overallSummary":
+      proposal.overallSummary = text;
+      return;
+    case "strengths":
+      proposal.strengths = [text];
+      return;
+    case "improvements":
+      proposal.improvements = [text];
+      return;
+    case "stageFeedback":
+      proposal.stageFeedback = [{ stage: "framework", kind: "strength", text }];
+      return;
+    case "frameworkOutline":
+      proposal.improvedFrameworkOutline = [text];
+      return;
+    case "recommendationOutline":
+      proposal.improvedRecommendationOutline = [text];
+      return;
+    case "quantitativeAssessment":
+      proposal.quantitativeAssessment = text;
+  }
+}
+
+function proseFieldValues(
+  proposal: Record<string, any>,
+  field: ProseField,
+): string[] {
+  switch (field) {
+    case "dimensionRationale":
+      return [proposal.dimensionScores[0].rationale];
+    case "overallSummary":
+      return [proposal.overallSummary];
+    case "strengths":
+      return proposal.strengths;
+    case "improvements":
+      return proposal.improvements;
+    case "stageFeedback":
+      return proposal.stageFeedback.map((item: Record<string, string>) => item.text);
+    case "frameworkOutline":
+      return proposal.improvedFrameworkOutline;
+    case "recommendationOutline":
+      return proposal.improvedRecommendationOutline;
+    case "quantitativeAssessment":
+      return [proposal.quantitativeAssessment];
+  }
+}
+
 function expectValidationIssue(
   raw: unknown,
   mapped: MappedCaseTranscript,
@@ -297,8 +366,19 @@ describe("Case post-call exact model dimension contract", () => {
     });
     expect(schema.properties.dimensionScores.items.properties.rationale.maxLength)
       .toBe(360);
+    expect(schema.properties.dimensionScores.items.properties.score).toMatchObject({
+      type: ["integer", "null"],
+      minimum: 1,
+      maximum: 5,
+    });
+    expect(schema.properties.dimensionScores.items.properties.rationale.description)
+      .toContain("Do not include numbers");
     expect(schema.properties.overallSummary.maxLength).toBe(480);
+    expect(schema.properties.overallSummary.description)
+      .toContain("no numbers");
     expect(schema.properties.quantitativeAssessment.maxLength).toBe(480);
+    expect(schema.properties.quantitativeAssessment.description)
+      .toContain("never include protected final answers");
     expect(schema.properties.strengths).toMatchObject({
       maxItems: 4,
       items: { maxLength: 320 },
@@ -326,7 +406,7 @@ describe("Case post-call exact model dimension contract", () => {
     const prompt = JSON.parse(completeMock.mock.calls[0][0]);
     expect(prompt.outputRules.allReports).toEqual(expect.arrayContaining([
       expect.stringContaining("exactly five dimension entries"),
-      expect.stringContaining("integer from 1 to 5 or null"),
+      expect.stringContaining("Use null only in a partial report"),
       expect.stringContaining("rationale must be concise and no more than 360 characters"),
       expect.stringContaining("overallSummary must be no more than 480 characters"),
       expect.stringContaining("quantitativeAssessment must be no more than 480 characters"),
@@ -335,7 +415,7 @@ describe("Case post-call exact model dimension contract", () => {
       expect.stringContaining("no more than 320 characters"),
       expect.stringContaining("Dimension rationales must be entirely qualitative"),
       expect.stringContaining("only prose field that may discuss numbers"),
-      expect.stringContaining("protected expected answers, hidden calculations"),
+      expect.stringContaining("protected expected answers or hidden calculations"),
       expect.stringContaining("original candidate-specific coaching"),
     ]));
     expect(prompt.outputRules.partialReport).toEqual(expect.arrayContaining([
@@ -400,6 +480,55 @@ describe("Case post-call exact model dimension contract", () => {
     expect(JSON.stringify(result.report)).not.toContain(copiedCandidateText);
     expect(JSON.stringify(result.modelDiagnostic)).not.toContain(copiedCandidateText);
   });
+
+  it.each(PROSE_FIELDS)(
+    "keeps the model-backed report when candidate overlap occurs in %s",
+    async (field) => {
+      process.env.SYNTHESIS_USE_MOCKS = "false";
+      const mapped = mappedFullTranscript();
+      const copiedCandidateText = mapped.turns.find(
+        (turn) => turn.role === "candidate" && turn.stage === "framework",
+      )!.text;
+      const proposal = proposalObject();
+      replaceProseField(proposal, field, copiedCandidateText);
+      completeMock.mockResolvedValueOnce(completion(JSON.stringify(proposal)));
+
+      const result = await scoreCasePostCall(
+        getVoiceLlmCaseRecord(AIRPORT)!,
+        mapped,
+      );
+
+      expect(completeMock).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.scorerOutcome).toBe("model");
+      expect(result.failureCategory).toBeNull();
+      expect(result.modelDiagnostic).toMatchObject({
+        validationPath: null,
+        validationReason: null,
+        validationReceivedType: null,
+      });
+      expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
+      expect(JSON.stringify(result.report)).not.toContain(copiedCandidateText);
+      expect(JSON.stringify(result.modelDiagnostic)).not.toContain(copiedCandidateText);
+      if (field !== "overallSummary") {
+        expect(result.report.score.summary).toContain("worked through the case");
+      }
+      if (field !== "strengths") {
+        expect(result.report.score.strengths).toContain(
+          "The response connected commercial reasoning with practical execution considerations.",
+        );
+      }
+      if (field !== "improvements") {
+        expect(result.report.score.improvements).toContain(
+          "Make the leading hypothesis more explicit before beginning detailed analysis.",
+        );
+      }
+    },
+  );
 
   it("uses the deterministic candidate-safe fallback when Haiku fails", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
@@ -469,6 +598,58 @@ describe("Case post-call exact model dimension contract", () => {
     );
   });
 
+  it("applies the same field recovery policy to observed partial-report coaching", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const mapped = mappedStages(["framework"]);
+    const copiedCandidateText = mapped.turns.find(
+      (turn) => turn.role === "candidate",
+    )!.text;
+    const rows = EXPECTED_DIMENSIONS.map((dimension) => ({
+      dimension,
+      score: dimension === "structure" || dimension === "communication" ? 4 : null,
+      rationale: dimension === "structure" || dimension === "communication"
+        ? "Safe model rationale that is discarded by the partial-report scope."
+        : "",
+    }));
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+      dimensionScores: rows,
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: copiedCandidateText,
+      }],
+      improvedFrameworkOutline: [
+        "Safe Haiku framework coaching remains available.",
+        copiedCandidateText,
+      ],
+    })));
+
+    const result = await scoreCasePostCall(
+      getVoiceLlmCaseRecord(AIRPORT)!,
+      mapped,
+    );
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.failureCategory).toBeNull();
+    expect(result.report.partial).toBe(true);
+    expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(rows.map(({ dimension, score }) => ({ dimension, score })));
+    expect(result.report.score.stage_feedback).toEqual([{
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    }]);
+    expect(result.report.score.improved_framework_outline).toEqual([
+      "Safe Haiku framework coaching remains available.",
+    ]);
+    expect(JSON.stringify(result.report)).not.toContain(copiedCandidateText);
+  });
+
   it("lists only answered stages in a multi-stage partial dimension rationale", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
     completeMock.mockResolvedValueOnce(completion(qualitativeProposal()));
@@ -530,7 +711,7 @@ describe("Case post-call exact model dimension contract", () => {
     );
   });
 
-  it("rejects qualitative output that reproduces candidate transcript text", async () => {
+  it("replaces a copied summary without discarding the safe Haiku report", async () => {
     process.env.SYNTHESIS_USE_MOCKS = "false";
     const copied = "For framework, I would structure the evidence, test a hypothesis, quantify the result, and synthesize an answer.";
     completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
@@ -542,7 +723,18 @@ describe("Case post-call exact model dimension contract", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.scorerOutcome).toBe("deterministic_fallback");
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.failureCategory).toBeNull();
+    expect(result.report.score.summary).toBe(
+      "The interview covered the complete case sequence and provides enough evidence for an overall assessment.",
+    );
+    expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows());
+    expect(result.report.score.strengths).toEqual([
+      "The response connected commercial reasoning with practical execution considerations.",
+    ]);
     expect(JSON.stringify(result.report)).not.toContain(copied);
   });
 
@@ -667,14 +859,24 @@ describe("Case post-call proposal validation diagnostics", () => {
       "string",
     );
 
-    const tooLong = proposalObject();
-    tooLong.dimensionScores[0].rationale = "x".repeat(361);
+    const wrongRationaleType = proposalObject();
+    wrongRationaleType.dimensionScores[0].rationale = { private: true };
     expectValidationIssue(
-      tooLong,
+      wrongRationaleType,
       mappedFullTranscript(),
       "dimensionScores.item.rationale",
-      "too_long",
-      "string",
+      "wrong_type",
+      "object",
+    );
+
+    expectValidationIssue(
+      proposalObject(validRows(), {
+        strengths: Array(5).fill("Structurally excessive feedback."),
+      }),
+      mappedFullTranscript(),
+      "strengths",
+      "wrong_count",
+      "array",
     );
 
     expectValidationIssue(
@@ -728,16 +930,25 @@ describe("Case post-call proposal validation diagnostics", () => {
       .every((item) => item.rationale === "")).toBe(true);
   });
 
-  it("rejects an empty rationale in a full report", () => {
+  it("replaces an empty rationale in a full report", () => {
     const proposal = proposalObject();
     proposal.dimensionScores[0].rationale = "";
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mappedFullTranscript(),
-      "dimensionScores.item.rationale",
-      "empty",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.dimensionScores[0]).toEqual({
+      dimension: "structure",
+      score: 4,
+      rationale: "Structure was a demonstrated strength across the observed stages.",
+    });
+    expect(result.proposal.dimensionScores.slice(1).map((item) => item.rationale))
+      .toEqual(Array(4).fill(
+        "The observed response demonstrated a clear and decision-focused approach.",
+      ));
   });
 
   it("permits an empty quantitative assessment when no quantitative stage was answered", () => {
@@ -753,14 +964,17 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(result.proposal.quantitativeAssessment).toBe("");
   });
 
-  it("requires a quantitative assessment when a quantitative stage was answered", () => {
+  it("replaces an empty quantitative assessment when a quantitative stage was answered", () => {
     const proposal = proposalObject(validRows(), { quantitativeAssessment: "" });
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mappedStages(["data_reveal"]),
-      "quantitativeAssessment",
-      "empty",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.quantitativeAssessment).toBe(
+      "The quantitative approach was clear and connected the calculations to the business decision.",
     );
   });
 
@@ -904,21 +1118,49 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(JSON.stringify(result.proposal)).not.toContain(protectedReference);
   });
 
-  it("continues to reject unsafe numeric feedback for an answered stage", () => {
+  it("replaces qualitative numeric feedback for an answered stage", () => {
     const proposal = proposalObject(validRows(), {
       stageFeedback: [{
         stage: "framework",
         kind: "strength",
-        text: "The framework covered 3 clear areas.",
+        text: "The framework covered 9 clear areas.",
       }],
     });
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mappedStages(["framework"]),
-      "stageFeedback",
-      "unsafe_numeric_claim",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([{
+      stage: "framework",
+      kind: "strength",
+      text: "Structure was a relative strength.",
+    }]);
+  });
+
+  it("omits recoverable optional stage prose when no deterministic item applies", () => {
+    const proposal = proposalObject(validRows(3), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+        text: "",
+      }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedFullTranscript(),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([]);
+    expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows(3));
+    expect(result.proposal.overallSummary).toContain("worked through the case");
   });
 
   it("still rejects malformed feedback for an answered stage", () => {
@@ -1014,10 +1256,13 @@ describe("Case post-call proposal validation diagnostics", () => {
     expect(JSON.stringify(result.report)).not.toContain(privateDiscardedContent);
   });
 
-  it("discards missing-stage outlines before validating their content", () => {
+  it("discards all out-of-scope partial content before validating its prose", () => {
     const privateModelValue = "PRIVATE-MISSING-STAGE-OUTLINE";
     const proposal = proposalObject(validRows(), {
+      strengths: { privateModelValue },
+      improvements: { privateModelValue },
       improvedRecommendationOutline: [{ privateModelValue }],
+      quantitativeAssessment: { privateModelValue },
     });
     const result = validateCasePostCallModelProposal(
       proposal,
@@ -1027,9 +1272,134 @@ describe("Case post-call proposal validation diagnostics", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.proposal.strengths).toEqual([]);
+    expect(result.proposal.improvements).toEqual([]);
     expect(result.proposal.improvedRecommendationOutline).toEqual([]);
+    expect(result.proposal.quantitativeAssessment).toBe("");
     expect(JSON.stringify(result.proposal)).not.toContain(privateModelValue);
   });
+
+  const recoverableReasons = [
+    "candidate_overlap",
+    "protected_reference_overlap",
+    "too_long",
+    "empty",
+    "qualitative_numeric_wording",
+  ] as const;
+
+  it.each(PROSE_FIELDS.flatMap((field) =>
+    recoverableReasons
+      .filter((reason) =>
+        field !== "quantitativeAssessment" ||
+        reason !== "qualitative_numeric_wording"
+      )
+      .map((reason) => ({ field, reason }))
+  ))(
+    "recovers $reason only within $field and preserves all structured scores",
+    ({ field, reason }) => {
+      const mapped = mappedFullTranscript();
+      const candidateText = mapped.turns.find(
+        (turn) => turn.role === "candidate" && turn.stage === "framework",
+      )!.text;
+      const sourceText = reason === "candidate_overlap"
+        ? candidateText
+        : reason === "protected_reference_overlap"
+          ? "Pain-point-led, MECE structure tailored to the airport before proposing AI tools."
+          : reason === "too_long"
+            ? "x".repeat(600)
+            : reason === "empty"
+              ? ""
+              : "The coaching referenced nine distinct themes.";
+      const proposal = proposalObject();
+      proposal.overallSummary = "Safe Haiku summary content remains available.";
+      proposal.strengths = ["Safe Haiku strength content remains available."];
+      proposal.improvements = ["Safe Haiku improvement content remains available."];
+      replaceProseField(proposal, field, sourceText);
+
+      const result = validateCasePostCallModelProposal(
+        proposal,
+        mapped,
+        getVoiceLlmCaseRecord(AIRPORT)!,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
+      expect(proseFieldValues(result.proposal, field).every(Boolean)).toBe(true);
+      if (sourceText) {
+        expect(JSON.stringify(result.proposal)).not.toContain(sourceText);
+      }
+      if (field !== "overallSummary") {
+        expect(result.proposal.overallSummary).toBe(
+          "Safe Haiku summary content remains available.",
+        );
+      }
+      if (field !== "strengths") {
+        expect(result.proposal.strengths).toContain(
+          "Safe Haiku strength content remains available.",
+        );
+      }
+      if (field !== "improvements") {
+        expect(result.proposal.improvements).toContain(
+          "Safe Haiku improvement content remains available.",
+        );
+      }
+    },
+  );
+
+  it.each([
+    "strengths",
+    "improvements",
+    "stageFeedback",
+    "frameworkOutline",
+    "recommendationOutline",
+  ] as const)(
+    "preserves safe sibling entries when one %s item is recoverable",
+    (field) => {
+      const mapped = mappedFullTranscript();
+      const copiedCandidateText = mapped.turns.find(
+        (turn) => turn.role === "candidate" && turn.stage === "framework",
+      )!.text;
+      const firstSafe = "First safe Haiku coaching item remains available.";
+      const secondSafe = "Second safe Haiku coaching item remains available.";
+      const proposal = proposalObject();
+      if (field === "stageFeedback") {
+        proposal.stageFeedback = [
+          { stage: "framework", kind: "strength", text: firstSafe },
+          { stage: "framework", kind: "strength", text: copiedCandidateText },
+          { stage: "analysis", kind: "improvement", text: secondSafe },
+        ];
+      } else {
+        replaceProseField(proposal, field, copiedCandidateText);
+        const key = field === "frameworkOutline"
+          ? "improvedFrameworkOutline"
+          : field === "recommendationOutline"
+            ? "improvedRecommendationOutline"
+            : field;
+        proposal[key] = [firstSafe, copiedCandidateText, secondSafe];
+      }
+
+      const result = validateCasePostCallModelProposal(
+        proposal,
+        mapped,
+        getVoiceLlmCaseRecord(AIRPORT)!,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const retained = proseFieldValues(result.proposal, field);
+      expect(retained).toContain(firstSafe);
+      expect(retained).toContain(secondSafe);
+      expect(retained).not.toContain(copiedCandidateText);
+      expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+        dimension,
+        score,
+      }))).toEqual(validRows());
+    },
+  );
 
   it("keeps exact dimension count, enum, uniqueness, and score checks", () => {
     expectValidationIssue(
@@ -1069,9 +1439,19 @@ describe("Case post-call proposal validation diagnostics", () => {
       "invalid_score",
       "number",
     );
+
+    const wrongScoreType = validRows() as Array<{ dimension: string; score: any }>;
+    wrongScoreType[0] = { dimension: "structure", score: "4" };
+    expectValidationIssue(
+      proposalObject(wrongScoreType),
+      mappedFullTranscript(),
+      "dimensionScores.item.score",
+      "wrong_type",
+      "string",
+    );
   });
 
-  it("preserves the full-report proposal contract", () => {
+  it("preserves the full-report structural contract while recovering empty prose", () => {
     const valid = validateCasePostCallModelProposal(
       proposalObject(),
       mappedFullTranscript(),
@@ -1079,61 +1459,114 @@ describe("Case post-call proposal validation diagnostics", () => {
     );
     expect(valid.ok).toBe(true);
 
-    expectValidationIssue(
+    const emptyProse = validateCasePostCallModelProposal(
       proposalObject(validRows(), { improvedFrameworkOutline: [] }),
       mappedFullTranscript(),
-      "frameworkOutline",
-      "empty",
-      "array",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(emptyProse.ok).toBe(true);
+    if (!emptyProse.ok) return;
+    expect(emptyProse.proposal.improvedFrameworkOutline).toEqual([
+      "Restate the decision and define the success criteria.",
+      "Organize the problem into distinct commercial, operational, and execution questions.",
+      "State the leading hypothesis and identify the analyses needed to test it.",
+    ]);
+
     expectValidationIssue(
-      proposalObject(validRows(), { quantitativeAssessment: "" }),
+      proposalObject(validRows(), { improvedFrameworkOutline: "not-an-array" }),
       mappedFullTranscript(),
-      "quantitativeAssessment",
-      "empty",
+      "frameworkOutline",
+      "wrong_type",
       "string",
     );
   });
 
   it.each([
-    ["digits", "The response referenced 5 commercial levers."],
-    ["number words", "The response referenced five commercial levers."],
-    ["percentages", "The response referenced 5 percent growth."],
+    ["digits", "The response referenced 9 commercial levers."],
+    ["number words", "The response referenced nine commercial levers."],
+    ["percentages", "The response referenced 7 percent growth."],
     ["currencies", "The response referenced $50 of value."],
-    ["dimension-score wording", "The response merits four out of five."],
-    ["stage-count wording", "The response covered six stages."],
-  ])("rejects %s in qualitative dimension rationales", (_label, rationale) => {
+    ["dimension-score wording", "The response merits nine out of ten."],
+    ["stage-count wording", "The response covered nine stages."],
+  ])("replaces %s in qualitative dimension rationales", (_label, rationale) => {
     const proposal = proposalObject();
     proposal.dimensionScores[0].rationale = rationale;
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mappedFullTranscript(),
-      "dimensionScores.item.rationale",
-      "unsafe_numeric_claim",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.dimensionScores[0].rationale).toBe(
+      "Structure was a demonstrated strength across the observed stages.",
+    );
+    expect(result.proposal.dimensionScores.slice(1).map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows().slice(1));
+    expect(result.proposal.overallSummary).toContain("worked through the case");
   });
 
   it.each([
-    ["overallSummary", (proposal: Record<string, any>) => { proposal.overallSummary = "The response covered 6 stages."; }],
-    ["strengths", (proposal: Record<string, any>) => { proposal.strengths = ["The response used 5 clear ideas."]; }],
-    ["improvements", (proposal: Record<string, any>) => { proposal.improvements = ["Add 2 clearer hypotheses."]; }],
-    ["stageFeedback", (proposal: Record<string, any>) => { proposal.stageFeedback = [{ stage: "framework", kind: "strength", text: "The framework had 3 clear areas." }]; }],
-    ["frameworkOutline", (proposal: Record<string, any>) => { proposal.improvedFrameworkOutline = ["Start with 3 workstreams."]; }],
-    ["recommendationOutline", (proposal: Record<string, any>) => { proposal.improvedRecommendationOutline = ["Name 2 implementation risks."]; }],
-  ])("rejects numerical claims in qualitative %s", (_label, mutate) => {
+    ["overallSummary", (proposal: Record<string, any>) => { proposal.overallSummary = "The response covered 9 stages."; }],
+    ["strengths", (proposal: Record<string, any>) => { proposal.strengths = ["The response used 9 clear ideas."]; }],
+    ["improvements", (proposal: Record<string, any>) => { proposal.improvements = ["Add 9 clearer hypotheses."]; }],
+    ["stageFeedback", (proposal: Record<string, any>) => { proposal.stageFeedback = [{ stage: "framework", kind: "strength", text: "The framework had 9 clear areas." }]; }],
+    ["frameworkOutline", (proposal: Record<string, any>) => { proposal.improvedFrameworkOutline = ["Start with 9 workstreams."]; }],
+    ["recommendationOutline", (proposal: Record<string, any>) => { proposal.improvedRecommendationOutline = ["Name 9 implementation risks."]; }],
+  ])("replaces numerical claims only within qualitative %s", (_label, mutate) => {
     const proposal = proposalObject();
     mutate(proposal);
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mappedFullTranscript(),
-      _label as any,
-      "unsafe_numeric_claim",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(JSON.stringify(result.proposal)).not.toMatch(
+      /9 stages|9 clear ideas|9 clearer hypotheses|9 clear areas|9 workstreams|9 implementation risks/,
+    );
+    expect(result.proposal.dimensionScores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows());
+    if (_label !== "overallSummary") {
+      expect(result.proposal.overallSummary).toContain("worked through the case");
+    }
   });
 
-  it("keeps structured dimension scores while rejecting numerical prose", () => {
+  it.each(PROSE_FIELDS)(
+    "keeps protected numerical answer leakage fatal in %s",
+    (field) => {
+      const proposal = proposalObject();
+      replaceProseField(
+        proposal,
+        field,
+        "The protected total daily retail revenue was SAR 4,240,000.",
+      );
+      const expectedPath = {
+        dimensionRationale: "dimensionScores.item.rationale",
+        overallSummary: "overallSummary",
+        strengths: "strengths",
+        improvements: "improvements",
+        stageFeedback: "stageFeedback",
+        frameworkOutline: "frameworkOutline",
+        recommendationOutline: "recommendationOutline",
+        quantitativeAssessment: "quantitativeAssessment",
+      }[field] as (typeof CASE_POST_CALL_VALIDATION_PATHS)[number];
+      expectValidationIssue(
+        proposal,
+        mappedFullTranscript(),
+        expectedPath,
+        "unsafe_numeric_claim",
+        "string",
+      );
+    },
+  );
+
+  it("keeps structured dimension scores independent from prose recovery", () => {
     const result = validateCasePostCallModelProposal(
       proposalObject(validRows(4)),
       mappedFullTranscript(),
@@ -1289,7 +1722,7 @@ describe("Case post-call proposal validation diagnostics", () => {
     }))).toEqual(validRows());
   });
 
-  it("does not use length normalization to repair unsafe model text", () => {
+  it("replaces unsafe source text instead of letting truncation repair it", () => {
     const mapped = mappedFullTranscript();
     const copiedCandidateText = mapped.turns.find(
       (turn) => turn.role === "candidate",
@@ -1300,13 +1733,17 @@ describe("Case post-call proposal validation diagnostics", () => {
     const proposal = proposalObject();
     proposal.dimensionScores[0].rationale = `${copiedCandidateText} ${safeTail}`;
 
-    expectValidationIssue(
+    const result = validateCasePostCallModelProposal(
       proposal,
       mapped,
-      "dimensionScores.item.rationale",
-      "candidate_overlap",
-      "string",
+      getVoiceLlmCaseRecord(AIRPORT)!,
     );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.dimensionScores[0].rationale).toBe(
+      "Structure was a demonstrated strength across the observed stages.",
+    );
+    expect(JSON.stringify(result.proposal)).not.toContain(copiedCandidateText);
   });
 
   it("attaches safe validation metadata without retaining rejected model content", async () => {

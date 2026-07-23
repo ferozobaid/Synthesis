@@ -236,26 +236,49 @@ export const CASE_POST_CALL_OUTPUT_SCHEMA = {
         type: "object",
         properties: {
           dimension: { type: "string", enum: [...DIMENSIONS] },
-          score: { type: ["number", "null"] },
+          score: {
+            type: ["integer", "null"],
+            minimum: 1,
+            maximum: 5,
+            description:
+              "Integer dimension score from 1 to 5, or null only when a partial report lacks evidence.",
+          },
           rationale: {
             type: "string",
             maxLength: DIMENSION_RATIONALE_MAX_LENGTH,
+            description:
+              "Concise original qualitative coaching. Do not include numbers, candidate transcript wording, or protected reference wording.",
           },
         },
         required: ["dimension", "score", "rationale"],
         additionalProperties: false,
       },
     },
-    overallSummary: { type: "string", maxLength: SUMMARY_MAX_LENGTH },
+    overallSummary: {
+      type: "string",
+      maxLength: SUMMARY_MAX_LENGTH,
+      description:
+        "Original qualitative summary with no numbers, candidate transcript wording, or protected reference wording.",
+    },
     strengths: {
       type: "array",
       maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
-      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+      items: {
+        type: "string",
+        maxLength: FEEDBACK_ITEM_MAX_LENGTH,
+        description:
+          "Original qualitative strength with no numbers, candidate transcript wording, or protected reference wording.",
+      },
     },
     improvements: {
       type: "array",
       maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
-      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+      items: {
+        type: "string",
+        maxLength: FEEDBACK_ITEM_MAX_LENGTH,
+        description:
+          "Original qualitative improvement with no numbers, candidate transcript wording, or protected reference wording.",
+      },
     },
     stageFeedback: {
       type: "array",
@@ -272,7 +295,12 @@ export const CASE_POST_CALL_OUTPUT_SCHEMA = {
             "recommendation",
           ] },
           kind: { type: "string", enum: ["strength", "improvement"] },
-          text: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+          text: {
+            type: "string",
+            maxLength: FEEDBACK_ITEM_MAX_LENGTH,
+            description:
+              "Original qualitative stage coaching with no numbers, candidate transcript wording, or protected reference wording.",
+          },
         },
         required: ["stage", "kind", "text"],
         additionalProperties: false,
@@ -281,16 +309,28 @@ export const CASE_POST_CALL_OUTPUT_SCHEMA = {
     improvedFrameworkOutline: {
       type: "array",
       maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
-      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+      items: {
+        type: "string",
+        maxLength: FEEDBACK_ITEM_MAX_LENGTH,
+        description:
+          "Original qualitative framework coaching with no numbers, candidate transcript wording, or protected reference wording.",
+      },
     },
     improvedRecommendationOutline: {
       type: "array",
       maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
-      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+      items: {
+        type: "string",
+        maxLength: FEEDBACK_ITEM_MAX_LENGTH,
+        description:
+          "Original qualitative recommendation coaching with no numbers, candidate transcript wording, or protected reference wording.",
+      },
     },
     quantitativeAssessment: {
       type: "string",
       maxLength: QUANTITATIVE_ASSESSMENT_MAX_LENGTH,
+      description:
+        "Original quantitative coaching without candidate transcript or protected reference wording. Any number must have been stated by the candidate or visible in the opening or assistant discussion; never include protected final answers, hidden derivations, or unsupported numbers.",
     },
   },
   required: [
@@ -406,6 +446,14 @@ const GENERIC_RECOMMENDATION_OUTLINE = [
   "Lead with a clear decision and the main supporting reasons.",
   "Connect the recommendation to the observed economics and strategic implications.",
   "Close with the key risk, mitigation, and immediate next step.",
+];
+
+const GENERIC_STRENGTHS = [
+  "The candidate maintained engagement across the observed case stages.",
+];
+
+const GENERIC_IMPROVEMENTS = [
+  "Keep the response concise while making the supporting logic explicit.",
 ];
 
 function clampScore(value: unknown): number | null {
@@ -533,49 +581,76 @@ function protectedNumericClaims(
   };
 }
 
-function numericClaimSafetyReason(
+type NumericClaimSafety =
+  | "recoverable_qualitative_claim"
+  | "fatal_protected_claim"
+  | "fatal_unsupported_claim"
+  | null;
+
+function numericClaimSafety(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
-): Extract<CasePostCallValidationReason, "unsafe_numeric_claim"> | null {
+): NumericClaimSafety {
   const claims = canonicalNumericClaims(text);
   if (claims.length === 0) return null;
-
-  // Every candidate-facing prose field except the quantitative assessment is
-  // qualitative by contract. Structured dimension scores are validated apart.
-  if (path !== "quantitativeAssessment") return "unsafe_numeric_claim";
 
   const visible = candidateVisibleNumericClaims(mapped, caseRecord);
   const protectedClaims = protectedNumericClaims(caseRecord, visible.authored);
   const answerTolerance = caseRecord.quant?.tolerance;
   for (const claim of claims) {
     if (hasMatchingNumericClaim(claim, protectedClaims.finalAnswer, answerTolerance)) {
-      return "unsafe_numeric_claim";
+      return "fatal_protected_claim";
     }
     if (hasMatchingNumericClaim(claim, protectedClaims.hiddenDerivations)) {
-      return "unsafe_numeric_claim";
+      return "fatal_protected_claim";
     }
+  }
+
+  // Qualitative fields never display numbers, but benign qualitative numeric
+  // wording can be replaced locally after protected values have been ruled
+  // out. Structured dimension scores are validated separately.
+  if (path !== "quantitativeAssessment") return "recoverable_qualitative_claim";
+
+  for (const claim of claims) {
     if (!hasMatchingNumericClaim(claim, visible.all)) {
-      return "unsafe_numeric_claim";
+      return "fatal_unsupported_claim";
     }
   }
   return null;
 }
 
-function modelTextSafetyReason(
+interface ModelTextSafetyIssue {
+  reason: Extract<
+    CasePostCallValidationReason,
+    "empty" | "unsafe_numeric_claim" | "candidate_overlap" | "protected_reference_overlap"
+  >;
+  recoverable: boolean;
+}
+
+/**
+ * Proposal failure matrix:
+ * - malformed structure, identities, scores, stages, and unknown states are
+ *   rejected by their structural validators;
+ * - protected numeric claims and unsupported quantitative claims are fatal;
+ * - prose-only issues are recoverable because the affected field can be
+ *   replaced or omitted without trusting it or changing structured scores.
+ */
+function modelTextSafetyIssue(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
-): Extract<
-  CasePostCallValidationReason,
-  "empty" | "unsafe_numeric_claim" | "candidate_overlap" | "protected_reference_overlap"
-> | null {
+): ModelTextSafetyIssue | null {
   const normalized = normalizedWords(text);
-  if (!normalized) return "empty";
-  if (numericClaimSafetyReason(text, path, mapped, caseRecord)) {
-    return "unsafe_numeric_claim";
+  if (!normalized) return { reason: "empty", recoverable: true };
+  const numericSafety = numericClaimSafety(text, path, mapped, caseRecord);
+  if (numericSafety) {
+    return {
+      reason: "unsafe_numeric_claim",
+      recoverable: numericSafety === "recoverable_qualitative_claim",
+    };
   }
 
   for (const turn of mapped.turns) {
@@ -586,9 +661,9 @@ function modelTextSafetyReason(
     if (
       textWords >= 4 &&
       (candidate.includes(normalized) || normalized.includes(candidate))
-    ) return "candidate_overlap";
+    ) return { reason: "candidate_overlap", recoverable: true };
     if (shingles(turn.text, 6).some((shingle) => normalized.includes(shingle))) {
-      return "candidate_overlap";
+      return { reason: "candidate_overlap", recoverable: true };
     }
   }
 
@@ -600,7 +675,18 @@ function modelTextSafetyReason(
     }
     return shingles(protectedText, 6).some((shingle) => normalized.includes(shingle));
   });
-  return protectedOverlap ? "protected_reference_overlap" : null;
+  return protectedOverlap
+    ? { reason: "protected_reference_overlap", recoverable: true }
+    : null;
+}
+
+function modelTextSafetyReason(
+  text: string,
+  path: CasePostCallValidationPath,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+): ModelTextSafetyIssue["reason"] | null {
+  return modelTextSafetyIssue(text, path, mapped, caseRecord)?.reason ?? null;
 }
 
 function modelTextIsUnsafe(
@@ -692,20 +778,56 @@ function validateText(
   value: unknown,
   path: CasePostCallValidationPath,
   maxLength: number,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+  fallback: string,
   allowEmpty = false,
 ): ValidatedText {
   if (typeof value !== "string") {
     return { ok: false, result: invalidProposal(path, "wrong_type", value) };
   }
   const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized && !allowEmpty) {
-    return { ok: false, result: invalidProposal(path, "empty", value) };
+  if (!normalized) {
+    return { ok: true, value: allowEmpty ? "" : fallback };
   }
+
+  // Inspect the complete source before length normalization. Truncation may
+  // preserve safe text, but it must never hide protected or unsupported
+  // numerical content. Other prose-only failures recover at this field.
+  const sourceIssue = modelTextSafetyIssue(value, path, mapped, caseRecord);
+  if (sourceIssue) {
+    return sourceIssue.recoverable
+      ? { ok: true, value: fallback }
+      : {
+          ok: false,
+          result: invalidProposal(path, sourceIssue.reason, value),
+        };
+  }
+
   const shortened = shortenTextAtBoundary(normalized, maxLength);
   if (shortened === null) {
-    return { ok: false, result: invalidProposal(path, "too_long", value) };
+    return { ok: true, value: fallback };
+  }
+  const finalIssue = modelTextSafetyIssue(shortened, path, mapped, caseRecord);
+  if (finalIssue) {
+    return finalIssue.recoverable
+      ? { ok: true, value: fallback }
+      : {
+          ok: false,
+          result: invalidProposal(path, finalIssue.reason, shortened),
+        };
   }
   return { ok: true, value: shortened };
+}
+
+function discardModelText(
+  value: unknown,
+  path: CasePostCallValidationPath,
+  replacement: string,
+): ValidatedText {
+  return typeof value === "string"
+    ? { ok: true, value: replacement }
+    : { ok: false, result: invalidProposal(path, "wrong_type", value) };
 }
 
 type ValidatedTextArray =
@@ -717,23 +839,33 @@ function validateTextArray(
   path: CasePostCallValidationPath,
   maxItems: number,
   allowEmpty: boolean,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+  fallback: readonly string[],
 ): ValidatedTextArray {
   if (!Array.isArray(value)) {
     return { ok: false, result: invalidProposal(path, "wrong_type", value) };
-  }
-  if (!allowEmpty && value.length === 0) {
-    return { ok: false, result: invalidProposal(path, "empty", value) };
   }
   if (value.length > maxItems) {
     return { ok: false, result: invalidProposal(path, "wrong_count", value) };
   }
   const output: string[] = [];
   for (const item of value) {
-    const text = validateText(item, path, FEEDBACK_ITEM_MAX_LENGTH);
+    const text = validateText(
+      item,
+      path,
+      FEEDBACK_ITEM_MAX_LENGTH,
+      mapped,
+      caseRecord,
+      "",
+    );
     if (!text.ok) return text;
-    output.push(text.value);
+    if (text.value) output.push(text.value);
   }
-  return { ok: true, value: output };
+  return {
+    ok: true,
+    value: output.length > 0 || allowEmpty ? output : [...fallback],
+  };
 }
 
 type ValidatedStageFeedback =
@@ -785,10 +917,10 @@ function validateStageFeedback(
   }
   const answered = new Set(mapped.answeredStages);
   const output: CasePostCallStageFeedback[] = [];
-  const discardedStages = new Set<CaseReportStage>();
-  const discardOverlappingFeedback = (stage: CaseReportStage) => {
-    if (discardedStages.has(stage)) return;
-    discardedStages.add(stage);
+  const recoveredStages = new Set<CaseReportStage>();
+  const recoverFeedback = (stage: CaseReportStage) => {
+    if (recoveredStages.has(stage)) return;
+    recoveredStages.add(stage);
     const fallback = deterministicStageFeedbackForStage(stage, dimensions);
     if (fallback) output.push(fallback);
   };
@@ -844,153 +976,18 @@ function validateStageFeedback(
       record.text,
       "stageFeedback",
       FEEDBACK_ITEM_MAX_LENGTH,
+      mapped,
+      caseRecord,
+      "",
     );
     if (!text.ok) return text;
-    const sourceSafetyReason = modelTextSafetyReason(
-      record.text as string,
-      "stageFeedback",
-      mapped,
-      caseRecord,
-    );
-    if (
-      sourceSafetyReason === "candidate_overlap" ||
-      sourceSafetyReason === "protected_reference_overlap"
-    ) {
-      discardOverlappingFeedback(stage);
+    if (!text.value) {
+      recoverFeedback(stage);
       continue;
-    }
-    if (sourceSafetyReason) {
-      return {
-        ok: false,
-        result: invalidProposal("stageFeedback", sourceSafetyReason, record.text),
-      };
-    }
-    const finalSafetyReason = modelTextSafetyReason(
-      text.value,
-      "stageFeedback",
-      mapped,
-      caseRecord,
-    );
-    if (
-      finalSafetyReason === "candidate_overlap" ||
-      finalSafetyReason === "protected_reference_overlap"
-    ) {
-      discardOverlappingFeedback(stage);
-      continue;
-    }
-    if (finalSafetyReason) {
-      return {
-        ok: false,
-        result: invalidProposal("stageFeedback", finalSafetyReason, text.value),
-      };
     }
     output.push({ stage, kind: record.kind, text: text.value });
   }
   return { ok: true, value: output };
-}
-
-function candidateVisibleText(
-  proposal: CasePostCallModelProposal,
-  mapped: MappedCaseTranscript,
-): Array<{ path: CasePostCallValidationPath; text: string }> {
-  if (!mapped.partial) {
-    return [
-      ...proposal.dimensionScores.map((item) => ({
-        path: "dimensionScores.item.rationale" as const,
-        text: item.rationale,
-      })),
-      { path: "overallSummary", text: proposal.overallSummary },
-      ...proposal.strengths.map((text) => ({ path: "strengths" as const, text })),
-      ...proposal.improvements.map((text) => ({ path: "improvements" as const, text })),
-      ...proposal.stageFeedback.map((item) => ({ path: "stageFeedback" as const, text: item.text })),
-      ...proposal.improvedFrameworkOutline.map((text) => ({
-        path: "frameworkOutline" as const,
-        text,
-      })),
-      ...proposal.improvedRecommendationOutline.map((text) => ({
-        path: "recommendationOutline" as const,
-        text,
-      })),
-      { path: "quantitativeAssessment", text: proposal.quantitativeAssessment },
-    ];
-  }
-
-  return [
-    ...proposal.stageFeedback.map((item) => ({ path: "stageFeedback" as const, text: item.text })),
-    ...proposal.improvedFrameworkOutline.map((text) => ({
-      path: "frameworkOutline" as const,
-      text,
-    })),
-    ...proposal.improvedRecommendationOutline.map((text) => ({
-      path: "recommendationOutline" as const,
-      text,
-    })),
-    ...(proposal.quantitativeAssessment
-      ? [{ path: "quantitativeAssessment" as const, text: proposal.quantitativeAssessment }]
-      : []),
-  ];
-}
-
-function candidateVisibleSourceText(
-  value: Record<string, unknown>,
-  mapped: MappedCaseTranscript,
-): Array<{ path: CasePostCallValidationPath; text: string }> {
-  const output: Array<{ path: CasePostCallValidationPath; text: string }> = [];
-  const answered = new Set(mapped.answeredStages);
-  const addArray = (
-    source: unknown,
-    path: CasePostCallValidationPath,
-  ) => {
-    if (!Array.isArray(source)) return;
-    for (const item of source) {
-      if (typeof item === "string") output.push({ path, text: item });
-    }
-  };
-
-  if (!mapped.partial) {
-    if (Array.isArray(value.dimensionScores)) {
-      for (const row of value.dimensionScores) {
-        if (
-          row &&
-          typeof row === "object" &&
-          !Array.isArray(row) &&
-          typeof (row as Record<string, unknown>).rationale === "string"
-        ) {
-          output.push({
-            path: "dimensionScores.item.rationale",
-            text: (row as Record<string, string>).rationale,
-          });
-        }
-      }
-    }
-    if (typeof value.overallSummary === "string") {
-      output.push({ path: "overallSummary", text: value.overallSummary });
-    }
-    addArray(value.strengths, "strengths");
-    addArray(value.improvements, "improvements");
-  }
-
-  // Stage feedback is source-safety checked item by item in
-  // validateStageFeedback so overlap-only failures can be discarded locally.
-
-  if (!mapped.partial || answered.has("framework")) {
-    addArray(value.improvedFrameworkOutline, "frameworkOutline");
-  }
-  if (!mapped.partial || answered.has("recommendation")) {
-    addArray(value.improvedRecommendationOutline, "recommendationOutline");
-  }
-  if (
-    (!mapped.partial ||
-      answered.has("data_reveal") ||
-      answered.has("pressure_test")) &&
-    typeof value.quantitativeAssessment === "string"
-  ) {
-    output.push({
-      path: "quantitativeAssessment",
-      text: value.quantitativeAssessment,
-    });
-  }
-  return output;
 }
 
 function validateCasePostCallModelProposalInternal(
@@ -1075,12 +1072,20 @@ function validateCasePostCallModelProposalInternal(
     } else {
       score = candidate.score;
     }
-    const rationale = validateText(
-      candidate.rationale,
-      "dimensionScores.item.rationale",
-      DIMENSION_RATIONALE_MAX_LENGTH,
-      mapped.partial && score === null,
-    );
+    const rationale = mapped.partial
+      ? discardModelText(
+          candidate.rationale,
+          "dimensionScores.item.rationale",
+          score === null ? "" : fallbackDimensionRationale(dimension, score),
+        )
+      : validateText(
+          candidate.rationale,
+          "dimensionScores.item.rationale",
+          DIMENSION_RATIONALE_MAX_LENGTH,
+          mapped,
+          caseRecord,
+          fallbackDimensionRationale(dimension, score),
+        );
     if (!rationale.ok) return rationale.result;
     seen.add(dimension);
     dimensions.push({ dimension, score, rationale: rationale.value });
@@ -1089,11 +1094,20 @@ function validateCasePostCallModelProposalInternal(
     return invalidProposal("dimensionScores.count", "wrong_count");
   }
 
-  const summary = validateText(
-    value.overallSummary,
-    "overallSummary",
-    SUMMARY_MAX_LENGTH,
-  );
+  const summary = mapped.partial
+    ? discardModelText(
+        value.overallSummary,
+        "overallSummary",
+        fallbackSummary(true),
+      )
+    : validateText(
+        value.overallSummary,
+        "overallSummary",
+        SUMMARY_MAX_LENGTH,
+        mapped,
+        caseRecord,
+        fallbackSummary(false),
+      );
   if (!summary.ok) return summary.result;
 
   const strengths = mapped.partial
@@ -1103,6 +1117,9 @@ function validateCasePostCallModelProposalInternal(
         "strengths",
         FEEDBACK_ARRAY_MAX_ITEMS,
         false,
+        mapped,
+        caseRecord,
+        GENERIC_STRENGTHS,
       );
   if (!strengths.ok) return strengths.result;
   const improvements = mapped.partial
@@ -1112,6 +1129,9 @@ function validateCasePostCallModelProposalInternal(
         "improvements",
         FEEDBACK_ARRAY_MAX_ITEMS,
         false,
+        mapped,
+        caseRecord,
+        GENERIC_IMPROVEMENTS,
       );
   if (!improvements.ok) return improvements.result;
 
@@ -1131,6 +1151,9 @@ function validateCasePostCallModelProposalInternal(
         "frameworkOutline",
         FEEDBACK_ARRAY_MAX_ITEMS,
         mapped.partial,
+        mapped,
+        caseRecord,
+        GENERIC_FRAMEWORK_OUTLINE,
       );
   if (!frameworkOutline.ok) return frameworkOutline.result;
   const recommendationOutline = mapped.partial && !answered.has("recommendation")
@@ -1140,16 +1163,25 @@ function validateCasePostCallModelProposalInternal(
         "recommendationOutline",
         FEEDBACK_ARRAY_MAX_ITEMS,
         mapped.partial,
+        mapped,
+        caseRecord,
+        GENERIC_RECOMMENDATION_OUTLINE,
       );
   if (!recommendationOutline.ok) return recommendationOutline.result;
 
   const quantitativeAnswered = answered.has("data_reveal") || answered.has("pressure_test");
+  const quantitativeScore = dimensions.find(
+    (item) => item.dimension === "quantitative_reasoning",
+  )?.score ?? null;
   const quantitativeAssessment = mapped.partial && !quantitativeAnswered
     ? { ok: true as const, value: "" }
     : validateText(
         value.quantitativeAssessment,
         "quantitativeAssessment",
         QUANTITATIVE_ASSESSMENT_MAX_LENGTH,
+        mapped,
+        caseRecord,
+        fallbackQuantitativeAssessment(quantitativeScore),
       );
   if (!quantitativeAssessment.ok) return quantitativeAssessment.result;
 
@@ -1164,21 +1196,6 @@ function validateCasePostCallModelProposalInternal(
     quantitativeAssessment: quantitativeAssessment.value,
   };
 
-  // Shortening is only a length normalization. Reject unsafe source wording
-  // before checking the shortened candidate-visible result so truncation can
-  // never repair candidate overlap, protected material, or numeric claims.
-  for (const field of candidateVisibleSourceText(value, mapped)) {
-    const reason = modelTextSafetyReason(field.text, field.path, mapped, caseRecord);
-    if (reason) {
-      return invalidProposal(field.path, reason, field.text);
-    }
-  }
-  for (const field of candidateVisibleText(proposal, mapped)) {
-    const reason = modelTextSafetyReason(field.text, field.path, mapped, caseRecord);
-    if (reason) {
-      return invalidProposal(field.path, reason, field.text);
-    }
-  }
   return { ok: true, proposal };
 }
 
@@ -1350,14 +1367,14 @@ function buildSafeReport(
     : proposal?.strengths ?? (
         deterministicStrengths.length > 0
           ? deterministicStrengths
-          : ["The candidate maintained engagement across the observed case stages."]
+          : GENERIC_STRENGTHS
       );
   const improvements = partial
     ? partialImprovements
     : proposal?.improvements ?? (
         deterministicImprovements.length > 0
           ? deterministicImprovements
-          : ["Keep the response concise while making the supporting logic explicit."]
+          : GENERIC_IMPROVEMENTS
       );
   const quantScore = dimension_scores.find(
     (item) => item.dimension === "quantitative_reasoning",
@@ -1427,7 +1444,7 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
     outputRules: {
       allReports: [
         "Return exactly five dimension entries, with each required dimension appearing exactly once.",
-        "Every score must be an integer from 1 to 5 or null.",
+        "Every score must be an integer from 1 to 5. Use null only in a partial report when observed evidence is insufficient.",
         "Each dimension rationale must be concise and no more than 360 characters.",
         "Dimension rationales must be entirely qualitative: do not include digits, number words, percentages, currencies, scores, stage counts, or other numerical claims.",
         "overallSummary must be no more than 480 characters.",
@@ -1436,14 +1453,16 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
         "Return no more than 12 stageFeedback entries.",
         "Each strength, improvement, outline entry, and stageFeedback text must be no more than 320 characters.",
         "overallSummary, strengths, improvements, stageFeedback, and outlines must be entirely qualitative and contain no numerical claims.",
+        "Every prose field must use original coaching language and must not quote or closely paraphrase candidate transcript wording or protected evaluation references.",
         "Phrase stage feedback as original candidate-specific coaching. Do not reproduce or closely paraphrase reference-solution wording; use general coaching language rather than model-answer language.",
         "quantitativeAssessment is the only prose field that may discuss numbers. Use only numbers stated by the candidate or visible to the candidate in the case opening or assistant discussion.",
-        "Never introduce protected expected answers, hidden calculations, or unsupported numerical claims. Structured dimension scores are separate from prose.",
+        "Never introduce protected expected answers or hidden calculations in any prose field, even if the same field will otherwise be qualitative. Never introduce unsupported numerical claims in quantitativeAssessment. Structured dimension scores are separate from prose.",
         "Do not quote or closely reproduce candidate transcript wording.",
       ],
       fullReport: [
         "Return an integer score from 1 to 5 and a non-empty rationale for every dimension.",
-        "Return non-empty candidate-safe summaries, feedback, outlines, and quantitative assessment.",
+        "Return non-empty candidate-safe overallSummary, strengths, improvements, both outlines, and quantitativeAssessment.",
+        "stageFeedback may be empty only when there is no useful stage-specific coaching beyond strengths and improvements.",
       ],
       partialReport: [
         "Use null for dimensions without enough observed evidence.",
