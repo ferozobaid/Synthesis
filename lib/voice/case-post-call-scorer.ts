@@ -212,27 +212,49 @@ export type CasePostCallProposalValidationResult =
   | { ok: true; proposal: CasePostCallModelProposal }
   | { ok: false; issue: CasePostCallValidationIssue };
 
-const OUTPUT_SCHEMA = {
+const DIMENSION_COUNT = 5;
+const DIMENSION_RATIONALE_MAX_LENGTH = 360;
+const SUMMARY_MAX_LENGTH = 480;
+const QUANTITATIVE_ASSESSMENT_MAX_LENGTH = 480;
+const FEEDBACK_ARRAY_MAX_ITEMS = 4;
+const STAGE_FEEDBACK_MAX_ITEMS = 12;
+const FEEDBACK_ITEM_MAX_LENGTH = 320;
+
+export const CASE_POST_CALL_OUTPUT_SCHEMA = {
   type: "object",
   properties: {
     dimensionScores: {
       type: "array",
+      minItems: DIMENSION_COUNT,
+      maxItems: DIMENSION_COUNT,
       items: {
         type: "object",
         properties: {
           dimension: { type: "string", enum: [...DIMENSIONS] },
           score: { type: ["number", "null"] },
-          rationale: { type: "string" },
+          rationale: {
+            type: "string",
+            maxLength: DIMENSION_RATIONALE_MAX_LENGTH,
+          },
         },
         required: ["dimension", "score", "rationale"],
         additionalProperties: false,
       },
     },
-    overallSummary: { type: "string" },
-    strengths: { type: "array", items: { type: "string" } },
-    improvements: { type: "array", items: { type: "string" } },
+    overallSummary: { type: "string", maxLength: SUMMARY_MAX_LENGTH },
+    strengths: {
+      type: "array",
+      maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
+      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+    },
+    improvements: {
+      type: "array",
+      maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
+      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+    },
     stageFeedback: {
       type: "array",
+      maxItems: STAGE_FEEDBACK_MAX_ITEMS,
       items: {
         type: "object",
         properties: {
@@ -245,15 +267,26 @@ const OUTPUT_SCHEMA = {
             "recommendation",
           ] },
           kind: { type: "string", enum: ["strength", "improvement"] },
-          text: { type: "string" },
+          text: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
         },
         required: ["stage", "kind", "text"],
         additionalProperties: false,
       },
     },
-    improvedFrameworkOutline: { type: "array", items: { type: "string" } },
-    improvedRecommendationOutline: { type: "array", items: { type: "string" } },
-    quantitativeAssessment: { type: "string" },
+    improvedFrameworkOutline: {
+      type: "array",
+      maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
+      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+    },
+    improvedRecommendationOutline: {
+      type: "array",
+      maxItems: FEEDBACK_ARRAY_MAX_ITEMS,
+      items: { type: "string", maxLength: FEEDBACK_ITEM_MAX_LENGTH },
+    },
+    quantitativeAssessment: {
+      type: "string",
+      maxLength: QUANTITATIVE_ASSESSMENT_MAX_LENGTH,
+    },
   },
   required: [
     "dimensionScores",
@@ -539,6 +572,21 @@ type ValidatedText =
   | { ok: true; value: string }
   | { ok: false; result: CasePostCallProposalValidationResult };
 
+function shortenTextAtBoundary(text: string, maxLength: number): string | null {
+  if (text.length <= maxLength) return text;
+
+  let sentenceEnd = -1;
+  for (const match of text.matchAll(/[.!?](?=\s|$)/g)) {
+    const end = (match.index ?? -1) + 1;
+    if (end > maxLength) break;
+    sentenceEnd = end;
+  }
+  if (sentenceEnd > 0) return text.slice(0, sentenceEnd).trimEnd();
+
+  const wordBoundary = text.lastIndexOf(" ", maxLength);
+  return wordBoundary > 0 ? text.slice(0, wordBoundary).trimEnd() : null;
+}
+
 function validateText(
   value: unknown,
   path: CasePostCallValidationPath,
@@ -552,10 +600,11 @@ function validateText(
   if (!normalized && !allowEmpty) {
     return { ok: false, result: invalidProposal(path, "empty", value) };
   }
-  if (normalized.length > maxLength) {
+  const shortened = shortenTextAtBoundary(normalized, maxLength);
+  if (shortened === null) {
     return { ok: false, result: invalidProposal(path, "too_long", value) };
   }
-  return { ok: true, value: normalized };
+  return { ok: true, value: shortened };
 }
 
 type ValidatedTextArray =
@@ -579,7 +628,7 @@ function validateTextArray(
   }
   const output: string[] = [];
   for (const item of value) {
-    const text = validateText(item, path, 320);
+    const text = validateText(item, path, FEEDBACK_ITEM_MAX_LENGTH);
     if (!text.ok) return text;
     output.push(text.value);
   }
@@ -600,7 +649,7 @@ function validateStageFeedback(
       result: invalidProposal("stageFeedback", "wrong_type", value),
     };
   }
-  if (value.length > 12) {
+  if (value.length > STAGE_FEEDBACK_MAX_ITEMS) {
     return {
       ok: false,
       result: invalidProposal("stageFeedback", "wrong_count", value),
@@ -677,7 +726,11 @@ function validateStageFeedback(
         result: invalidProposal("stageFeedback", "unknown_validation_error"),
       };
     }
-    const text = validateText(record.text, "stageFeedback", 320);
+    const text = validateText(
+      record.text,
+      "stageFeedback",
+      FEEDBACK_ITEM_MAX_LENGTH,
+    );
     if (!text.ok) return text;
     output.push({ stage, kind: record.kind, text: text.value });
   }
@@ -726,6 +779,79 @@ function candidateVisibleText(
   ];
 }
 
+function candidateVisibleSourceText(
+  value: Record<string, unknown>,
+  mapped: MappedCaseTranscript,
+): Array<{ path: CasePostCallValidationPath; text: string }> {
+  const output: Array<{ path: CasePostCallValidationPath; text: string }> = [];
+  const answered = new Set(mapped.answeredStages);
+  const addArray = (
+    source: unknown,
+    path: CasePostCallValidationPath,
+  ) => {
+    if (!Array.isArray(source)) return;
+    for (const item of source) {
+      if (typeof item === "string") output.push({ path, text: item });
+    }
+  };
+
+  if (!mapped.partial) {
+    if (Array.isArray(value.dimensionScores)) {
+      for (const row of value.dimensionScores) {
+        if (
+          row &&
+          typeof row === "object" &&
+          !Array.isArray(row) &&
+          typeof (row as Record<string, unknown>).rationale === "string"
+        ) {
+          output.push({
+            path: "dimensionScores.item.rationale",
+            text: (row as Record<string, string>).rationale,
+          });
+        }
+      }
+    }
+    if (typeof value.overallSummary === "string") {
+      output.push({ path: "overallSummary", text: value.overallSummary });
+    }
+    addArray(value.strengths, "strengths");
+    addArray(value.improvements, "improvements");
+  }
+
+  if (Array.isArray(value.stageFeedback)) {
+    for (const item of value.stageFeedback) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const record = item as Record<string, unknown>;
+      if (
+        typeof record.text === "string" &&
+        typeof record.stage === "string" &&
+        (!mapped.partial || answered.has(record.stage as CaseReportStage))
+      ) {
+        output.push({ path: "stageFeedback", text: record.text });
+      }
+    }
+  }
+
+  if (!mapped.partial || answered.has("framework")) {
+    addArray(value.improvedFrameworkOutline, "frameworkOutline");
+  }
+  if (!mapped.partial || answered.has("recommendation")) {
+    addArray(value.improvedRecommendationOutline, "recommendationOutline");
+  }
+  if (
+    (!mapped.partial ||
+      answered.has("data_reveal") ||
+      answered.has("pressure_test")) &&
+    typeof value.quantitativeAssessment === "string"
+  ) {
+    output.push({
+      path: "quantitativeAssessment",
+      text: value.quantitativeAssessment,
+    });
+  }
+  return output;
+}
+
 function validateCasePostCallModelProposalInternal(
   raw: unknown,
   mapped: MappedCaseTranscript,
@@ -748,7 +874,7 @@ function validateCasePostCallModelProposalInternal(
   if (!Array.isArray(value.dimensionScores)) {
     return invalidProposal("dimensionScores", "wrong_type", value.dimensionScores);
   }
-  if (value.dimensionScores.length !== DIMENSIONS.length) {
+  if (value.dimensionScores.length !== DIMENSION_COUNT) {
     return invalidProposal("dimensionScores.count", "wrong_count", value.dimensionScores);
   }
   const dimensions: CasePostCallModelDimension[] = [];
@@ -811,7 +937,7 @@ function validateCasePostCallModelProposalInternal(
     const rationale = validateText(
       candidate.rationale,
       "dimensionScores.item.rationale",
-      360,
+      DIMENSION_RATIONALE_MAX_LENGTH,
       mapped.partial && score === null,
     );
     if (!rationale.ok) return rationale.result;
@@ -822,16 +948,30 @@ function validateCasePostCallModelProposalInternal(
     return invalidProposal("dimensionScores.count", "wrong_count");
   }
 
-  const summary = validateText(value.overallSummary, "overallSummary", 480);
+  const summary = validateText(
+    value.overallSummary,
+    "overallSummary",
+    SUMMARY_MAX_LENGTH,
+  );
   if (!summary.ok) return summary.result;
 
   const strengths = mapped.partial
     ? { ok: true as const, value: [] as string[] }
-    : validateTextArray(value.strengths, "strengths", 4, false);
+    : validateTextArray(
+        value.strengths,
+        "strengths",
+        FEEDBACK_ARRAY_MAX_ITEMS,
+        false,
+      );
   if (!strengths.ok) return strengths.result;
   const improvements = mapped.partial
     ? { ok: true as const, value: [] as string[] }
-    : validateTextArray(value.improvements, "improvements", 4, false);
+    : validateTextArray(
+        value.improvements,
+        "improvements",
+        FEEDBACK_ARRAY_MAX_ITEMS,
+        false,
+      );
   if (!improvements.ok) return improvements.result;
 
   const stageFeedback = validateStageFeedback(value.stageFeedback, mapped);
@@ -843,7 +983,7 @@ function validateCasePostCallModelProposalInternal(
     : validateTextArray(
         value.improvedFrameworkOutline,
         "frameworkOutline",
-        4,
+        FEEDBACK_ARRAY_MAX_ITEMS,
         mapped.partial,
       );
   if (!frameworkOutline.ok) return frameworkOutline.result;
@@ -852,7 +992,7 @@ function validateCasePostCallModelProposalInternal(
     : validateTextArray(
         value.improvedRecommendationOutline,
         "recommendationOutline",
-        4,
+        FEEDBACK_ARRAY_MAX_ITEMS,
         mapped.partial,
       );
   if (!recommendationOutline.ok) return recommendationOutline.result;
@@ -860,7 +1000,11 @@ function validateCasePostCallModelProposalInternal(
   const quantitativeAnswered = answered.has("data_reveal") || answered.has("pressure_test");
   const quantitativeAssessment = mapped.partial && !quantitativeAnswered
     ? { ok: true as const, value: "" }
-    : validateText(value.quantitativeAssessment, "quantitativeAssessment", 480);
+    : validateText(
+        value.quantitativeAssessment,
+        "quantitativeAssessment",
+        QUANTITATIVE_ASSESSMENT_MAX_LENGTH,
+      );
   if (!quantitativeAssessment.ok) return quantitativeAssessment.result;
 
   const proposal: CasePostCallModelProposal = {
@@ -874,6 +1018,15 @@ function validateCasePostCallModelProposalInternal(
     quantitativeAssessment: quantitativeAssessment.value,
   };
 
+  // Shortening is only a length normalization. Reject unsafe source wording
+  // before checking the shortened candidate-visible result so truncation can
+  // never repair candidate overlap, protected material, or numeric claims.
+  for (const field of candidateVisibleSourceText(value, mapped)) {
+    const reason = modelTextSafetyReason(field.text, mapped, caseRecord);
+    if (reason) {
+      return invalidProposal(field.path, reason, field.text);
+    }
+  }
   for (const field of candidateVisibleText(proposal, mapped)) {
     const reason = modelTextSafetyReason(field.text, mapped, caseRecord);
     if (reason) {
@@ -1129,6 +1282,12 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
       allReports: [
         "Return exactly five dimension entries, with each required dimension appearing exactly once.",
         "Every score must be an integer from 1 to 5 or null.",
+        "Each dimension rationale must be concise and no more than 360 characters.",
+        "overallSummary must be no more than 480 characters.",
+        "quantitativeAssessment must be no more than 480 characters.",
+        "Return no more than 4 strengths, 4 improvements, 4 framework-outline entries, and 4 recommendation-outline entries.",
+        "Return no more than 12 stageFeedback entries.",
+        "Each strength, improvement, outline entry, and stageFeedback text must be no more than 320 characters.",
         "Do not include unsupported numerical claims.",
         "Do not quote or closely reproduce candidate transcript wording.",
       ],
@@ -1212,7 +1371,7 @@ export async function scoreCasePostCall(
       model: CASE_POST_CALL_MODEL,
       temperature: 0,
       maxTokens: 1_800,
-      outputSchema: OUTPUT_SCHEMA,
+      outputSchema: CASE_POST_CALL_OUTPUT_SCHEMA,
       maxRetries: 0,
       timeoutMs: 20_000,
     });
@@ -1453,5 +1612,5 @@ export function candidateSafeCasePostCallScore(
 }
 
 export function casePostCallOutputSchema(): Record<string, unknown> {
-  return OUTPUT_SCHEMA as unknown as Record<string, unknown>;
+  return CASE_POST_CALL_OUTPUT_SCHEMA as unknown as Record<string, unknown>;
 }

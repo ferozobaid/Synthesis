@@ -4,11 +4,15 @@ const { messagesCreateMock } = vi.hoisted(() => ({
   messagesCreateMock: vi.fn(),
 }));
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class {
-    messages = { create: messagesCreateMock };
-  },
-}));
+vi.mock("@anthropic-ai/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@anthropic-ai/sdk")>();
+  return {
+    ...actual,
+    default: class {
+      messages = { create: messagesCreateMock };
+    },
+  };
+});
 
 vi.mock("@/lib/config", () => ({
   activeModel: () => "claude-haiku-4-5-20251001",
@@ -23,6 +27,7 @@ import {
   CASE_INTERVIEWER_SCHEMA,
   CASE_INTERVIEWER_TIMEOUT_MS,
 } from "@/lib/voice/case-interviewer";
+import { CASE_POST_CALL_OUTPUT_SCHEMA } from "@/lib/voice/case-post-call-scorer";
 
 const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "minLength",
@@ -106,5 +111,46 @@ describe("Anthropic GA structured-output request", () => {
         expect(schema.additionalProperties).toBe(false);
       }
     });
+  });
+
+  it("transmits post-call length and array limits through schema descriptions", async () => {
+    await complete("safe post-call prompt", {
+      outputSchema: CASE_POST_CALL_OUTPUT_SCHEMA,
+    });
+
+    expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+    const request = messagesCreateMock.mock.calls[0][0] as {
+      output_config: {
+        format: {
+          schema: {
+            properties: Record<string, any>;
+          };
+        };
+      };
+    };
+    const properties = request.output_config.format.schema.properties;
+    const dimensionScores = properties.dimensionScores;
+    expect(dimensionScores.description).toContain("minItems: 5");
+    expect(dimensionScores.description).toContain("maxItems: 5");
+    expect(
+      dimensionScores.items.properties.rationale.description,
+    ).toContain("maxLength: 360");
+    expect(properties.overallSummary.description).toContain("maxLength: 480");
+    expect(properties.quantitativeAssessment.description)
+      .toContain("maxLength: 480");
+    expect(properties.strengths.description).toContain("maxItems: 4");
+    expect(properties.strengths.items.description).toContain("maxLength: 320");
+    expect(properties.improvements.description).toContain("maxItems: 4");
+    expect(properties.improvements.items.description).toContain("maxLength: 320");
+    expect(properties.stageFeedback.description).toContain("maxItems: 12");
+    expect(properties.stageFeedback.items.properties.text.description)
+      .toContain("maxLength: 320");
+    expect(properties.improvedFrameworkOutline.description).toContain("maxItems: 4");
+    expect(properties.improvedFrameworkOutline.items.description)
+      .toContain("maxLength: 320");
+    expect(properties.improvedRecommendationOutline.description)
+      .toContain("maxItems: 4");
+    expect(properties.improvedRecommendationOutline.items.description)
+      .toContain("maxLength: 320");
   });
 });

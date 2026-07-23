@@ -15,6 +15,7 @@ vi.mock("@/lib/claude", async (importOriginal) => {
 });
 
 import {
+  CASE_POST_CALL_OUTPUT_SCHEMA,
   CASE_POST_CALL_VALIDATION_PATHS,
   CASE_POST_CALL_VALIDATION_REASONS,
   CASE_POST_CALL_VALIDATION_RECEIVED_TYPES,
@@ -274,12 +275,51 @@ describe("Case post-call exact model dimension contract", () => {
       model: "claude-haiku-4-5",
       temperature: 0,
       maxRetries: 0,
-      outputSchema: expect.objectContaining({ type: "object" }),
+      outputSchema: CASE_POST_CALL_OUTPUT_SCHEMA,
+    });
+    const schema = completeMock.mock.calls[0][1].outputSchema as any;
+    expect(schema.properties.dimensionScores).toMatchObject({
+      minItems: 5,
+      maxItems: 5,
+    });
+    expect(schema.properties.dimensionScores.items.properties.rationale.maxLength)
+      .toBe(360);
+    expect(schema.properties.overallSummary.maxLength).toBe(480);
+    expect(schema.properties.quantitativeAssessment.maxLength).toBe(480);
+    expect(schema.properties.strengths).toMatchObject({
+      maxItems: 4,
+      items: { maxLength: 320 },
+    });
+    expect(schema.properties.improvements).toMatchObject({
+      maxItems: 4,
+      items: { maxLength: 320 },
+    });
+    expect(schema.properties.stageFeedback).toMatchObject({
+      maxItems: 12,
+      items: {
+        properties: {
+          text: { maxLength: 320 },
+        },
+      },
+    });
+    expect(schema.properties.improvedFrameworkOutline).toMatchObject({
+      maxItems: 4,
+      items: { maxLength: 320 },
+    });
+    expect(schema.properties.improvedRecommendationOutline).toMatchObject({
+      maxItems: 4,
+      items: { maxLength: 320 },
     });
     const prompt = JSON.parse(completeMock.mock.calls[0][0]);
     expect(prompt.outputRules.allReports).toEqual(expect.arrayContaining([
       expect.stringContaining("exactly five dimension entries"),
       expect.stringContaining("integer from 1 to 5 or null"),
+      expect.stringContaining("rationale must be concise and no more than 360 characters"),
+      expect.stringContaining("overallSummary must be no more than 480 characters"),
+      expect.stringContaining("quantitativeAssessment must be no more than 480 characters"),
+      expect.stringContaining("no more than 4 strengths"),
+      expect.stringContaining("no more than 12 stageFeedback entries"),
+      expect.stringContaining("no more than 320 characters"),
     ]));
     expect(prompt.outputRules.partialReport).toEqual(expect.arrayContaining([
       expect.stringContaining("rationale may be an empty string"),
@@ -954,6 +994,78 @@ describe("Case post-call proposal validation diagnostics", () => {
       mappedFullTranscript(),
       "quantitativeAssessment",
       "empty",
+      "string",
+    );
+  });
+
+  it("shortens otherwise-safe model text without changing dimensions or scores", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const rationaleSentence =
+      "Observed reasoning stayed focused and linked each conclusion to its supporting logic.";
+    const overlongRationale = Array(8).fill(rationaleSentence).join(" ");
+    const summaryPhrase =
+      "Observed business reasoning maintained coherent direction across the discussion";
+    const overlongSummary = Array(12).fill(summaryPhrase).join(" ");
+    const quantitativePhrase =
+      "Observed calculation reasoning connected the stated approach with its business implication";
+    const overlongQuantitativeAssessment = Array(12)
+      .fill(quantitativePhrase)
+      .join(" ");
+    const proposal = proposalObject(validRows(), {
+      overallSummary: overlongSummary,
+      quantitativeAssessment: overlongQuantitativeAssessment,
+    });
+    proposal.dimensionScores[0].rationale = overlongRationale;
+    completeMock.mockResolvedValueOnce(completion(JSON.stringify(proposal)));
+
+    const result = await scoreCasePostCall(
+      getVoiceLlmCaseRecord(AIRPORT)!,
+      mappedFullTranscript(),
+    );
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.failureCategory).toBeNull();
+
+    const structure = result.report.score.dimension_scores[0];
+    expect(structure.dimension).toBe("structure");
+    expect(structure.score).toBe(4);
+    expect(structure.justification.length).toBeLessThanOrEqual(360);
+    expect(structure.justification.endsWith(".")).toBe(true);
+    expect(overlongRationale.startsWith(structure.justification)).toBe(true);
+
+    expect(result.report.score.summary.length).toBeLessThanOrEqual(480);
+    expect(overlongSummary.startsWith(result.report.score.summary)).toBe(true);
+    expect(overlongSummary[result.report.score.summary.length]).toBe(" ");
+
+    const quantitative = result.report.score.quantitative_assessment!;
+    expect(quantitative.length).toBeLessThanOrEqual(480);
+    expect(overlongQuantitativeAssessment.startsWith(quantitative)).toBe(true);
+    expect(overlongQuantitativeAssessment[quantitative.length]).toBe(" ");
+    expect(result.report.score.dimension_scores.map(({ dimension, score }) => ({
+      dimension,
+      score,
+    }))).toEqual(validRows());
+  });
+
+  it("does not use length normalization to repair unsafe model text", () => {
+    const mapped = mappedFullTranscript();
+    const copiedCandidateText = mapped.turns.find(
+      (turn) => turn.role === "candidate",
+    )!.text;
+    const safeTail = Array(10)
+      .fill("Additional coaching language remains beyond the configured boundary")
+      .join(" ");
+    const proposal = proposalObject();
+    proposal.dimensionScores[0].rationale = `${copiedCandidateText} ${safeTail}`;
+
+    expectValidationIssue(
+      proposal,
+      mapped,
+      "dimensionScores.item.rationale",
+      "candidate_overlap",
       "string",
     );
   });
