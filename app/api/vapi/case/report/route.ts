@@ -13,9 +13,15 @@ import { normalizeVoiceTranscript } from "@/lib/voice/transcript";
 import { mapCaseTranscript } from "@/lib/voice/case-transcript";
 import {
   CASE_POST_CALL_ANTHROPIC_ERROR_TYPES,
+  CASE_POST_CALL_VALIDATION_PATHS,
+  CASE_POST_CALL_VALIDATION_REASONS,
+  CASE_POST_CALL_VALIDATION_RECEIVED_TYPES,
   scoreCasePostCall,
   type CasePostCallAnthropicErrorType,
   type CasePostCallStopReason,
+  type CasePostCallValidationPath,
+  type CasePostCallValidationReason,
+  type CasePostCallValidationReceivedType,
 } from "@/lib/voice/case-post-call-scorer";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 import type { CaseVoiceSession } from "@/lib/voice/types";
@@ -109,6 +115,29 @@ function safeTokenCount(value: unknown): number | null {
     : null;
 }
 
+function safeValidationPath(value: unknown): CasePostCallValidationPath | null {
+  return typeof value === "string" &&
+    (CASE_POST_CALL_VALIDATION_PATHS as readonly string[]).includes(value)
+    ? value as CasePostCallValidationPath
+    : null;
+}
+
+function safeValidationReason(value: unknown): CasePostCallValidationReason | null {
+  return typeof value === "string" &&
+    (CASE_POST_CALL_VALIDATION_REASONS as readonly string[]).includes(value)
+    ? value as CasePostCallValidationReason
+    : null;
+}
+
+function safeValidationReceivedType(
+  value: unknown,
+): CasePostCallValidationReceivedType | null {
+  return typeof value === "string" &&
+    (CASE_POST_CALL_VALIDATION_RECEIVED_TYPES as readonly string[]).includes(value)
+    ? value as CasePostCallValidationReceivedType
+    : null;
+}
+
 function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
   if (value === null || value === undefined) return null;
   return typeof value === "string" && SAFE_FAILURE_CATEGORIES.has(
@@ -132,6 +161,9 @@ function recordCasePostCallScoringDiagnostic(input: {
   stopReason: CasePostCallStopReason;
   inputTokens: number | null;
   outputTokens: number | null;
+  validationPath: CasePostCallValidationPath | null;
+  validationReason: CasePostCallValidationReason | null;
+  validationReceivedType: CasePostCallValidationReceivedType | null;
 }): void {
   console.info("[case-native-report] scoring", input);
 }
@@ -265,6 +297,9 @@ export async function POST(req: NextRequest) {
       stopReason?: unknown;
       inputTokens?: unknown;
       outputTokens?: unknown;
+      validationPath?: unknown;
+      validationReason?: unknown;
+      validationReceivedType?: unknown;
     } | null = null;
     const scorerStartedAt = Date.now();
     if (!mapped) {
@@ -332,6 +367,11 @@ export async function POST(req: NextRequest) {
       stopReason: safeStopReason(modelDiagnostic?.stopReason),
       inputTokens: safeTokenCount(modelDiagnostic?.inputTokens),
       outputTokens: safeTokenCount(modelDiagnostic?.outputTokens),
+      validationPath: safeValidationPath(modelDiagnostic?.validationPath),
+      validationReason: safeValidationReason(modelDiagnostic?.validationReason),
+      validationReceivedType: safeValidationReceivedType(
+        modelDiagnostic?.validationReceivedType,
+      ),
     });
 
     try {

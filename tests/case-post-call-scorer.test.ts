@@ -15,8 +15,12 @@ vi.mock("@/lib/claude", async (importOriginal) => {
 });
 
 import {
+  CASE_POST_CALL_VALIDATION_PATHS,
+  CASE_POST_CALL_VALIDATION_REASONS,
+  CASE_POST_CALL_VALIDATION_RECEIVED_TYPES,
   parseCasePostCallModelScores,
   scoreCasePostCall,
+  validateCasePostCallModelProposal,
 } from "@/lib/voice/case-post-call-scorer";
 import {
   CASE_REPORT_STAGES,
@@ -132,6 +136,47 @@ function validRows(score = 4) {
   return EXPECTED_DIMENSIONS.map((dimension) => ({ dimension, score }));
 }
 
+function proposalObject(
+  rows: Array<{ dimension: string; score: number | null }> = validRows(),
+  overrides: Record<string, unknown> = {},
+): Record<string, any> {
+  return JSON.parse(qualitativeProposal(rows, overrides));
+}
+
+function expectValidationIssue(
+  raw: unknown,
+  mapped: ReturnType<typeof mappedFullTranscript>,
+  expectedPath: (typeof CASE_POST_CALL_VALIDATION_PATHS)[number],
+  expectedReason: (typeof CASE_POST_CALL_VALIDATION_REASONS)[number],
+  expectedType?: (typeof CASE_POST_CALL_VALIDATION_RECEIVED_TYPES)[number],
+) {
+  const result = validateCasePostCallModelProposal(
+    raw,
+    mapped,
+    getVoiceLlmCaseRecord(AIRPORT)!,
+  );
+  expect(result.ok).toBe(false);
+  if (result.ok) throw new Error("Expected proposal validation to fail.");
+  expect(CASE_POST_CALL_VALIDATION_PATHS).toContain(result.issue.path);
+  expect(CASE_POST_CALL_VALIDATION_REASONS).toContain(result.issue.reason);
+  expect(result.issue).toMatchObject({
+    path: expectedPath,
+    reason: expectedReason,
+    ...(expectedType ? { receivedType: expectedType } : {}),
+  });
+  if (result.issue.receivedType !== undefined) {
+    expect(CASE_POST_CALL_VALIDATION_RECEIVED_TYPES).toContain(
+      result.issue.receivedType,
+    );
+  }
+  expect(Object.keys(result.issue).sort()).toEqual(
+    expectedType
+      ? ["path", "reason", "receivedType"]
+      : ["path", "reason"],
+  );
+  return result.issue;
+}
+
 function anthropicApiError(
   ErrorClass: typeof AuthenticationError | typeof NotFoundError | typeof BadRequestError,
   status: 400 | 401 | 404,
@@ -231,6 +276,18 @@ describe("Case post-call exact model dimension contract", () => {
       maxRetries: 0,
       outputSchema: expect.objectContaining({ type: "object" }),
     });
+    const prompt = JSON.parse(completeMock.mock.calls[0][0]);
+    expect(prompt.outputRules.allReports).toEqual(expect.arrayContaining([
+      expect.stringContaining("exactly five dimension entries"),
+      expect.stringContaining("integer from 1 to 5 or null"),
+    ]));
+    expect(prompt.outputRules.partialReport).toEqual(expect.arrayContaining([
+      expect.stringContaining("rationale may be an empty string"),
+      expect.stringContaining("empty strengths and improvements arrays"),
+      expect.stringContaining("empty framework outline array"),
+      expect.stringContaining("empty recommendation outline array"),
+      expect.stringContaining("neither Data reveal nor Pressure test"),
+    ]));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.scorerOutcome).toBe("model");
@@ -240,6 +297,9 @@ describe("Case post-call exact model dimension contract", () => {
       stopReason: "end_turn",
       inputTokens: 321,
       outputTokens: 654,
+      validationPath: null,
+      validationReason: null,
+      validationReceivedType: null,
     });
     expect(result.report.partial).toBe(false);
     expect(result.report.score.dimension_scores).toHaveLength(5);
@@ -482,6 +542,449 @@ describe("Case post-call exact model dimension contract", () => {
   });
 });
 
+describe("Case post-call proposal validation diagnostics", () => {
+  it("classifies representative structural failures with allowlisted metadata", () => {
+    expectValidationIssue(
+      null,
+      mappedFullTranscript(),
+      "root",
+      "wrong_type",
+      "null",
+    );
+
+    const missing = proposalObject();
+    delete missing.overallSummary;
+    expectValidationIssue(
+      missing,
+      mappedFullTranscript(),
+      "overallSummary",
+      "missing_required_field",
+    );
+
+    const unexpected = proposalObject();
+    unexpected.privateModelField = "must not be retained";
+    expectValidationIssue(
+      unexpected,
+      mappedFullTranscript(),
+      "root",
+      "unexpected_field",
+    );
+
+    expectValidationIssue(
+      proposalObject(validRows(), { dimensionScores: "not-an-array" }),
+      mappedFullTranscript(),
+      "dimensionScores",
+      "wrong_type",
+      "string",
+    );
+
+    const tooLong = proposalObject();
+    tooLong.dimensionScores[0].rationale = "x".repeat(361);
+    expectValidationIssue(
+      tooLong,
+      mappedFullTranscript(),
+      "dimensionScores.item.rationale",
+      "too_long",
+      "string",
+    );
+
+    expectValidationIssue(
+      new Proxy(proposalObject(), {
+        ownKeys() {
+          throw new Error("PRIVATE unexpected validation failure");
+        },
+      }),
+      mappedFullTranscript(),
+      "root",
+      "unknown_validation_error",
+    );
+  });
+
+  it("returns only allowlisted path, reason, and received-type metadata", () => {
+    const privateModelValue = "PRIVATE-MODEL-TEXT-MUST-NOT-BE-RETAINED";
+    const proposal = proposalObject();
+    proposal.overallSummary = { privateModelValue };
+
+    const issue = expectValidationIssue(
+      proposal,
+      mappedFullTranscript(),
+      "overallSummary",
+      "wrong_type",
+      "object",
+    );
+
+    expect(JSON.stringify(issue)).not.toContain(privateModelValue);
+    expect(JSON.stringify(issue)).not.toContain("privateModelValue");
+  });
+
+  it("accepts an empty partial rationale only when its score is null", () => {
+    const proposal = proposalObject();
+    proposal.dimensionScores = EXPECTED_DIMENSIONS.map((dimension) => ({
+      dimension,
+      score: dimension === "structure" || dimension === "communication" ? 3 : null,
+      rationale: dimension === "structure" || dimension === "communication"
+        ? "The observed response was organized and concise."
+        : "",
+    }));
+
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.dimensionScores.filter((item) => item.score === null)
+      .every((item) => item.rationale === "")).toBe(true);
+  });
+
+  it("rejects an empty rationale in a full report", () => {
+    const proposal = proposalObject();
+    proposal.dimensionScores[0].rationale = "";
+    expectValidationIssue(
+      proposal,
+      mappedFullTranscript(),
+      "dimensionScores.item.rationale",
+      "empty",
+      "string",
+    );
+  });
+
+  it("permits an empty quantitative assessment when no quantitative stage was answered", () => {
+    const proposal = proposalObject(validRows(), { quantitativeAssessment: "" });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework", "analysis"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.quantitativeAssessment).toBe("");
+  });
+
+  it("requires a quantitative assessment when a quantitative stage was answered", () => {
+    const proposal = proposalObject(validRows(), { quantitativeAssessment: "" });
+    expectValidationIssue(
+      proposal,
+      mappedStages(["data_reveal"]),
+      "quantitativeAssessment",
+      "empty",
+      "string",
+    );
+  });
+
+  it("discards missing-stage feedback before wording-safety validation", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [
+        {
+          stage: "framework",
+          kind: "strength",
+          text: "The observed framework was logically organized.",
+        },
+        {
+          stage: "recommendation",
+          kind: "improvement",
+          text: "The protected result is 128 and this text must be discarded.",
+        },
+      ],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([
+      {
+        stage: "framework",
+        kind: "strength",
+        text: "The observed framework was logically organized.",
+      },
+    ]);
+  });
+
+  it("discards malformed feedback for a valid unanswered stage", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{ stage: "recommendation" }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([]);
+  });
+
+  it("ignores unexpected fields on feedback for a valid unanswered stage", () => {
+    const privateDiscardedField = "PRIVATE-UNANSWERED-STAGE-FIELD";
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "recommendation",
+        unexpected: privateDiscardedField,
+      }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([]);
+    expect(JSON.stringify(result.proposal)).not.toContain(privateDiscardedField);
+  });
+
+  it("ignores an invalid kind on feedback for a valid unanswered stage", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "recommendation",
+        kind: "private_invalid_kind",
+        text: "This discarded text cannot reach the candidate.",
+      }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.stageFeedback).toEqual([]);
+  });
+
+  it("still rejects unsafe feedback for an answered stage", () => {
+    const mapped = mappedStages(["framework"]);
+    const copiedCandidateText = mapped.turns.find(
+      (turn) => turn.role === "candidate",
+    )!.text;
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [
+        {
+          stage: "framework",
+          kind: "strength",
+          text: copiedCandidateText,
+        },
+      ],
+    });
+    expectValidationIssue(
+      proposal,
+      mapped,
+      "stageFeedback",
+      "candidate_overlap",
+      "string",
+    );
+  });
+
+  it("still rejects malformed feedback for an answered stage", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "framework",
+        kind: "strength",
+      }],
+    });
+    expectValidationIssue(
+      proposal,
+      mappedStages(["framework"]),
+      "stageFeedback",
+      "missing_required_field",
+    );
+  });
+
+  it("does not let an invalid stage identifier bypass validation", () => {
+    const proposal = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "private_unknown_stage",
+        kind: "private_invalid_kind",
+      }],
+    });
+    expectValidationIssue(
+      proposal,
+      mappedStages(["framework"]),
+      "stageFeedback",
+      "invalid_enum",
+      "string",
+    );
+  });
+
+  it("preserves full-report feedback validation", () => {
+    const invalidKind = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "recommendation",
+        kind: "private_invalid_kind",
+        text: "This field remains invalid in a full report.",
+      }],
+    });
+    expectValidationIssue(
+      invalidKind,
+      mappedFullTranscript(),
+      "stageFeedback",
+      "invalid_enum",
+      "string",
+    );
+
+    const unexpectedField = proposalObject(validRows(), {
+      stageFeedback: [{
+        stage: "recommendation",
+        kind: "strength",
+        text: "This field remains structurally validated in a full report.",
+        unexpected: true,
+      }],
+    });
+    expectValidationIssue(
+      unexpectedField,
+      mappedFullTranscript(),
+      "stageFeedback",
+      "unexpected_field",
+    );
+  });
+
+  it("does not retain discarded feedback in model diagnostics", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const privateDiscardedContent = "PRIVATE-DISCARDED-FEEDBACK-CONTENT-128";
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+      stageFeedback: [{
+        stage: "recommendation",
+        kind: "private_invalid_kind",
+        text: privateDiscardedContent,
+        unexpected: { privateDiscardedContent },
+      }],
+    })));
+
+    const result = await scoreCasePostCall(
+      getVoiceLlmCaseRecord(AIRPORT)!,
+      mappedStages(["framework"]),
+    );
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.modelDiagnostic).toMatchObject({
+      validationPath: null,
+      validationReason: null,
+      validationReceivedType: null,
+    });
+    expect(JSON.stringify(result.modelDiagnostic)).not.toContain(privateDiscardedContent);
+    expect(JSON.stringify(result.report)).not.toContain(privateDiscardedContent);
+  });
+
+  it("discards missing-stage outlines before validating their content", () => {
+    const privateModelValue = "PRIVATE-MISSING-STAGE-OUTLINE";
+    const proposal = proposalObject(validRows(), {
+      improvedRecommendationOutline: [{ privateModelValue }],
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedStages(["framework"]),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.improvedRecommendationOutline).toEqual([]);
+    expect(JSON.stringify(result.proposal)).not.toContain(privateModelValue);
+  });
+
+  it("keeps exact dimension count, enum, uniqueness, and score checks", () => {
+    expectValidationIssue(
+      proposalObject(validRows().slice(0, 4)),
+      mappedFullTranscript(),
+      "dimensionScores.count",
+      "wrong_count",
+      "array",
+    );
+
+    const duplicate = validRows();
+    duplicate[2] = { dimension: "hypothesis_driven_thinking", score: 4 } as any;
+    expectValidationIssue(
+      proposalObject(duplicate),
+      mappedFullTranscript(),
+      "dimensionScores.item.dimension",
+      "duplicate_dimension",
+      "string",
+    );
+
+    const unknown = validRows();
+    unknown[2] = { dimension: "private_unknown_dimension", score: 4 } as any;
+    expectValidationIssue(
+      proposalObject(unknown),
+      mappedFullTranscript(),
+      "dimensionScores.item.dimension",
+      "invalid_enum",
+      "string",
+    );
+
+    const invalidScore = validRows();
+    invalidScore[0] = { dimension: "structure", score: 6 };
+    expectValidationIssue(
+      proposalObject(invalidScore),
+      mappedFullTranscript(),
+      "dimensionScores.item.score",
+      "invalid_score",
+      "number",
+    );
+  });
+
+  it("preserves the full-report proposal contract", () => {
+    const valid = validateCasePostCallModelProposal(
+      proposalObject(),
+      mappedFullTranscript(),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(valid.ok).toBe(true);
+
+    expectValidationIssue(
+      proposalObject(validRows(), { improvedFrameworkOutline: [] }),
+      mappedFullTranscript(),
+      "frameworkOutline",
+      "empty",
+      "array",
+    );
+    expectValidationIssue(
+      proposalObject(validRows(), { quantitativeAssessment: "" }),
+      mappedFullTranscript(),
+      "quantitativeAssessment",
+      "empty",
+      "string",
+    );
+  });
+
+  it("attaches safe validation metadata without retaining rejected model content", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const privateModelValue = "PRIVATE-REJECTED-MODEL-CONTENT";
+    completeMock.mockResolvedValueOnce(completion(JSON.stringify(proposalObject(
+      validRows(),
+      { overallSummary: { privateModelValue } },
+    ))));
+
+    const result = await scoreCasePostCall(
+      getVoiceLlmCaseRecord(AIRPORT)!,
+      mappedFullTranscript(),
+    );
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.failureCategory).toBe("schema_validation_error");
+    expect(result.modelDiagnostic).toMatchObject({
+      validationPath: "overallSummary",
+      validationReason: "wrong_type",
+      validationReceivedType: "object",
+    });
+    expect(JSON.stringify(result.modelDiagnostic)).not.toContain(privateModelValue);
+    expect(JSON.stringify(result.report)).not.toContain(privateModelValue);
+  });
+});
+
 describe("Case post-call safe model failure classification", () => {
   async function expectFailure(
     expected: string,
@@ -529,6 +1032,9 @@ describe("Case post-call safe model failure classification", () => {
       stopReason: null,
       inputTokens: null,
       outputTokens: null,
+      validationPath: null,
+      validationReason: null,
+      validationReceivedType: null,
     });
   });
 

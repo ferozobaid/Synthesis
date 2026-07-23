@@ -296,13 +296,17 @@ describe("authenticated report binding, idempotency and fencing", () => {
       ok: true,
       report: completeReport(),
       scorerOutcome: "deterministic_fallback",
-      failureCategory: "provider_error",
+      failureCategory: "schema_validation_error",
       modelDiagnostic: {
         httpStatus: 503,
         anthropicErrorType: "private_provider_type_that_must_not_pass_through",
         stopReason: "private_provider_stop_reason_that_must_not_pass_through",
         inputTokens: 432,
         outputTokens: 876,
+        validationPath: "dimensionScores.item.rationale",
+        validationReason: "empty",
+        validationReceivedType: "string",
+        rejectedValue: transcriptSecret,
         providerMessage: transcriptSecret,
       },
     });
@@ -318,12 +322,15 @@ describe("authenticated report binding, idempotency and fencing", () => {
       scorerOutcome: "deterministic_fallback",
       scorerDurationMs: expect.any(Number),
       reportStatus: "done",
-      failureCategory: "provider_error",
+      failureCategory: "schema_validation_error",
       httpStatus: 503,
       anthropicErrorType: "unknown",
       stopReason: "unknown",
       inputTokens: 432,
       outputTokens: 876,
+      validationPath: "dimensionScores.item.rationale",
+      validationReason: "empty",
+      validationReceivedType: "string",
     });
     expect(Object.keys(diagnostic?.[1] ?? {}).sort()).toEqual([
       "anthropicErrorType",
@@ -339,9 +346,45 @@ describe("authenticated report binding, idempotency and fencing", () => {
       "scorerOutcome",
       "selectedCaseId",
       "stopReason",
+      "validationPath",
+      "validationReason",
+      "validationReceivedType",
     ]);
     expect(JSON.stringify(info.mock.calls)).not.toContain(transcriptSecret);
     expect(JSON.stringify(info.mock.calls)).not.toContain(json.reportToken);
+    info.mockRestore();
+  });
+
+  it("maps arbitrary validation diagnostics to null without logging their values", async () => {
+    const { json } = await bootstrap();
+    const privateValidationValue = "PRIVATE-VALIDATION-PATH-AND-MODEL-TEXT";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    scorePostCallMock.mockResolvedValueOnce({
+      ok: true,
+      report: completeReport(),
+      scorerOutcome: "deterministic_fallback",
+      failureCategory: "schema_validation_error",
+      modelDiagnostic: {
+        validationPath: privateValidationValue,
+        validationReason: privateValidationValue,
+        validationReceivedType: privateValidationValue,
+      },
+    });
+
+    await reportPOST(request(
+      "http://localhost/api/vapi/case/report",
+      reportPayload(json.sessionId),
+    ) as any);
+
+    const diagnostic = info.mock.calls.find(
+      (call) => call[0] === "[case-native-report] scoring",
+    );
+    expect(diagnostic?.[1]).toMatchObject({
+      validationPath: null,
+      validationReason: null,
+      validationReceivedType: null,
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(privateValidationValue);
     info.mockRestore();
   });
 
@@ -366,7 +409,9 @@ describe("protected Case report polling", () => {
     expect(Object.keys(projection).sort()).toEqual([
       "caseId", "caseTitle", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
     ]);
-    expect(JSON.stringify(projection)).not.toMatch(/transcript|assistantId|callId|fencing|solution|rubric|exhibit/i);
+    expect(JSON.stringify(projection)).not.toMatch(
+      /transcript|assistantId|callId|fencing|solution|rubric|exhibit|validationPath|validationReason|validationReceivedType/i,
+    );
     expect(projection.score).toMatchObject({
       overall: 4,
       summary: expect.any(String),

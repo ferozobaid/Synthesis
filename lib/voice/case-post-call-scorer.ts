@@ -116,6 +116,9 @@ export interface CasePostCallModelDiagnostic {
   stopReason: CasePostCallStopReason;
   inputTokens: number | null;
   outputTokens: number | null;
+  validationPath: CasePostCallValidationPath | null;
+  validationReason: CasePostCallValidationReason | null;
+  validationReceivedType: CasePostCallValidationReceivedType | null;
 }
 
 export type CasePostCallScoringResult =
@@ -144,6 +147,70 @@ interface CasePostCallModelProposal {
   improvedRecommendationOutline: string[];
   quantitativeAssessment: string;
 }
+
+export const CASE_POST_CALL_VALIDATION_PATHS = [
+  "root",
+  "dimensionScores",
+  "dimensionScores.count",
+  "dimensionScores.item",
+  "dimensionScores.item.dimension",
+  "dimensionScores.item.score",
+  "dimensionScores.item.rationale",
+  "overallSummary",
+  "quantitativeAssessment",
+  "strengths",
+  "improvements",
+  "frameworkOutline",
+  "recommendationOutline",
+  "stageFeedback",
+  "candidateFacingText",
+] as const;
+
+export type CasePostCallValidationPath =
+  (typeof CASE_POST_CALL_VALIDATION_PATHS)[number];
+
+export const CASE_POST_CALL_VALIDATION_REASONS = [
+  "wrong_type",
+  "missing_required_field",
+  "unexpected_field",
+  "wrong_count",
+  "duplicate_dimension",
+  "invalid_enum",
+  "invalid_score",
+  "empty",
+  "too_long",
+  "unsafe_numeric_claim",
+  "candidate_overlap",
+  "protected_reference_overlap",
+  "unknown_validation_error",
+] as const;
+
+export type CasePostCallValidationReason =
+  (typeof CASE_POST_CALL_VALIDATION_REASONS)[number];
+
+export const CASE_POST_CALL_VALIDATION_RECEIVED_TYPES = [
+  "object",
+  "array",
+  "string",
+  "number",
+  "boolean",
+  "null",
+  "undefined",
+  "other",
+] as const;
+
+export type CasePostCallValidationReceivedType =
+  (typeof CASE_POST_CALL_VALIDATION_RECEIVED_TYPES)[number];
+
+export interface CasePostCallValidationIssue {
+  path: CasePostCallValidationPath;
+  reason: CasePostCallValidationReason;
+  receivedType?: CasePostCallValidationReceivedType;
+}
+
+export type CasePostCallProposalValidationResult =
+  | { ok: true; proposal: CasePostCallModelProposal }
+  | { ok: false; issue: CasePostCallValidationIssue };
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -218,6 +285,9 @@ const EMPTY_MODEL_DIAGNOSTIC: CasePostCallModelDiagnostic = {
   stopReason: null,
   inputTokens: null,
   outputTokens: null,
+  validationPath: null,
+  validationReason: null,
+  validationReceivedType: null,
 };
 
 function safeHttpStatus(error: unknown): number | null {
@@ -246,6 +316,9 @@ function responseDiagnostic(
     stopReason: result.stopReason,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
+    validationPath: null,
+    validationReason: null,
+    validationReceivedType: null,
   };
 }
 
@@ -254,6 +327,18 @@ function errorDiagnostic(error: unknown): CasePostCallModelDiagnostic {
     ...EMPTY_MODEL_DIAGNOSTIC,
     httpStatus: safeHttpStatus(error),
     anthropicErrorType: safeAnthropicErrorType(error),
+  };
+}
+
+function validationDiagnostic(
+  diagnostic: CasePostCallModelDiagnostic,
+  issue: CasePostCallValidationIssue,
+): CasePostCallModelDiagnostic {
+  return {
+    ...diagnostic,
+    validationPath: issue.path,
+    validationReason: issue.reason,
+    validationReceivedType: issue.receivedType ?? null,
   };
 }
 
@@ -346,16 +431,19 @@ function protectedReferenceText(caseRecord: CaseRecord): string[] {
   ].filter(Boolean);
 }
 
-function modelTextIsUnsafe(
+function modelTextSafetyReason(
   text: string,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
-): boolean {
+): Extract<
+  CasePostCallValidationReason,
+  "empty" | "unsafe_numeric_claim" | "candidate_overlap" | "protected_reference_overlap"
+> | null {
   const normalized = normalizedWords(text);
-  if (!normalized) return true;
+  if (!normalized) return "empty";
   // Qualitative feedback never needs to repeat figures. Rejecting all numeric
   // claims prevents answer-key calculations from being reproduced in prose.
-  if (canonicalNumericClaims(text).length > 0) return true;
+  if (canonicalNumericClaims(text).length > 0) return "unsafe_numeric_claim";
 
   for (const turn of mapped.turns) {
     if (turn.role !== "candidate") continue;
@@ -365,11 +453,13 @@ function modelTextIsUnsafe(
     if (
       textWords >= 4 &&
       (candidate.includes(normalized) || normalized.includes(candidate))
-    ) return true;
-    if (shingles(turn.text, 6).some((shingle) => normalized.includes(shingle))) return true;
+    ) return "candidate_overlap";
+    if (shingles(turn.text, 6).some((shingle) => normalized.includes(shingle))) {
+      return "candidate_overlap";
+    }
   }
 
-  return protectedReferenceText(caseRecord).some((protectedText) => {
+  const protectedOverlap = protectedReferenceText(caseRecord).some((protectedText) => {
     const protectedNormalized = normalizedWords(protectedText);
     const words = protectedNormalized.split(" ").filter(Boolean);
     if (words.length >= 3 && words.length < 6 && normalized.includes(protectedNormalized)) {
@@ -377,6 +467,15 @@ function modelTextIsUnsafe(
     }
     return shingles(protectedText, 6).some((shingle) => normalized.includes(shingle));
   });
+  return protectedOverlap ? "protected_reference_overlap" : null;
+}
+
+function modelTextIsUnsafe(
+  text: string,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+): boolean {
+  return modelTextSafetyReason(text, mapped, caseRecord) !== null;
 }
 
 function boundedText(value: unknown, maxLength = 480): string | null {
@@ -395,91 +494,405 @@ function boundedTextArray(value: unknown, maxItems = 4, allowEmpty = false): str
   return values.every((item): item is string => item !== null) ? values : null;
 }
 
-function boundedStageFeedback(value: unknown): CasePostCallStageFeedback[] | null {
-  if (!Array.isArray(value) || value.length > 12) return null;
-  const output: CasePostCallStageFeedback[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-    if (Object.keys(item).sort().join("|") !== "kind|stage|text") return null;
-    const row = item as Record<string, unknown>;
-    const stage = row.stage as CaseReportStage;
-    const kind = row.kind;
-    const text = boundedText(row.text, 320);
-    if (
-      !REPORT_STAGES.includes(stage) ||
-      (kind !== "strength" && kind !== "improvement") ||
-      !text
-    ) return null;
-    output.push({ stage, kind, text });
-  }
-  return output;
+function validationReceivedType(value: unknown): CasePostCallValidationReceivedType {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "object") return "object";
+  if (typeof value === "string") return "string";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "undefined") return "undefined";
+  return "other";
 }
 
-function proposalText(proposal: CasePostCallModelProposal): string[] {
+function invalidProposal(
+  path: CasePostCallValidationPath,
+  reason: CasePostCallValidationReason,
+  received?: unknown,
+): CasePostCallProposalValidationResult {
+  return {
+    ok: false,
+    issue: {
+      path,
+      reason,
+      ...(arguments.length >= 3
+        ? { receivedType: validationReceivedType(received) }
+        : {}),
+    },
+  };
+}
+
+function rootFieldPath(key: (typeof PROPOSAL_KEYS)[number]): CasePostCallValidationPath {
+  switch (key) {
+    case "dimensionScores": return "dimensionScores";
+    case "overallSummary": return "overallSummary";
+    case "strengths": return "strengths";
+    case "improvements": return "improvements";
+    case "stageFeedback": return "stageFeedback";
+    case "improvedFrameworkOutline": return "frameworkOutline";
+    case "improvedRecommendationOutline": return "recommendationOutline";
+    case "quantitativeAssessment": return "quantitativeAssessment";
+  }
+}
+
+type ValidatedText =
+  | { ok: true; value: string }
+  | { ok: false; result: CasePostCallProposalValidationResult };
+
+function validateText(
+  value: unknown,
+  path: CasePostCallValidationPath,
+  maxLength: number,
+  allowEmpty = false,
+): ValidatedText {
+  if (typeof value !== "string") {
+    return { ok: false, result: invalidProposal(path, "wrong_type", value) };
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized && !allowEmpty) {
+    return { ok: false, result: invalidProposal(path, "empty", value) };
+  }
+  if (normalized.length > maxLength) {
+    return { ok: false, result: invalidProposal(path, "too_long", value) };
+  }
+  return { ok: true, value: normalized };
+}
+
+type ValidatedTextArray =
+  | { ok: true; value: string[] }
+  | { ok: false; result: CasePostCallProposalValidationResult };
+
+function validateTextArray(
+  value: unknown,
+  path: CasePostCallValidationPath,
+  maxItems: number,
+  allowEmpty: boolean,
+): ValidatedTextArray {
+  if (!Array.isArray(value)) {
+    return { ok: false, result: invalidProposal(path, "wrong_type", value) };
+  }
+  if (!allowEmpty && value.length === 0) {
+    return { ok: false, result: invalidProposal(path, "empty", value) };
+  }
+  if (value.length > maxItems) {
+    return { ok: false, result: invalidProposal(path, "wrong_count", value) };
+  }
+  const output: string[] = [];
+  for (const item of value) {
+    const text = validateText(item, path, 320);
+    if (!text.ok) return text;
+    output.push(text.value);
+  }
+  return { ok: true, value: output };
+}
+
+type ValidatedStageFeedback =
+  | { ok: true; value: CasePostCallStageFeedback[] }
+  | { ok: false; result: CasePostCallProposalValidationResult };
+
+function validateStageFeedback(
+  value: unknown,
+  mapped: MappedCaseTranscript,
+): ValidatedStageFeedback {
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      result: invalidProposal("stageFeedback", "wrong_type", value),
+    };
+  }
+  if (value.length > 12) {
+    return {
+      ok: false,
+      result: invalidProposal("stageFeedback", "wrong_count", value),
+    };
+  }
+  const answered = new Set(mapped.answeredStages);
+  const output: CasePostCallStageFeedback[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "wrong_type", item),
+      };
+    }
+    const record = item as Record<string, unknown>;
+    let stage: CaseReportStage | null = null;
+    if (mapped.partial) {
+      if (!Object.prototype.hasOwnProperty.call(record, "stage")) {
+        return {
+          ok: false,
+          result: invalidProposal("stageFeedback", "missing_required_field"),
+        };
+      }
+      if (
+        typeof record.stage !== "string" ||
+        !REPORT_STAGES.includes(record.stage as CaseReportStage)
+      ) {
+        return {
+          ok: false,
+          result: invalidProposal("stageFeedback", "invalid_enum", record.stage),
+        };
+      }
+      stage = record.stage as CaseReportStage;
+      // A valid unanswered stage cannot contribute candidate-visible partial
+      // feedback. Discard it before inspecting any other provider-authored
+      // field, including kind, text, or additional properties.
+      if (!answered.has(stage)) continue;
+    }
+    for (const key of ["stage", "kind", "text"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) {
+        return {
+          ok: false,
+          result: invalidProposal("stageFeedback", "missing_required_field"),
+        };
+      }
+    }
+    if (Object.keys(record).some((key) => !["stage", "kind", "text"].includes(key))) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "unexpected_field"),
+      };
+    }
+    if (!mapped.partial) {
+      if (
+        typeof record.stage !== "string" ||
+        !REPORT_STAGES.includes(record.stage as CaseReportStage)
+      ) {
+        return {
+          ok: false,
+          result: invalidProposal("stageFeedback", "invalid_enum", record.stage),
+        };
+      }
+      stage = record.stage as CaseReportStage;
+    }
+    if (record.kind !== "strength" && record.kind !== "improvement") {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "invalid_enum", record.kind),
+      };
+    }
+    if (stage === null) {
+      return {
+        ok: false,
+        result: invalidProposal("stageFeedback", "unknown_validation_error"),
+      };
+    }
+    const text = validateText(record.text, "stageFeedback", 320);
+    if (!text.ok) return text;
+    output.push({ stage, kind: record.kind, text: text.value });
+  }
+  return { ok: true, value: output };
+}
+
+function candidateVisibleText(
+  proposal: CasePostCallModelProposal,
+  mapped: MappedCaseTranscript,
+): Array<{ path: CasePostCallValidationPath; text: string }> {
+  if (!mapped.partial) {
+    return [
+      ...proposal.dimensionScores.map((item) => ({
+        path: "dimensionScores.item.rationale" as const,
+        text: item.rationale,
+      })),
+      { path: "overallSummary", text: proposal.overallSummary },
+      ...proposal.strengths.map((text) => ({ path: "strengths" as const, text })),
+      ...proposal.improvements.map((text) => ({ path: "improvements" as const, text })),
+      ...proposal.stageFeedback.map((item) => ({ path: "stageFeedback" as const, text: item.text })),
+      ...proposal.improvedFrameworkOutline.map((text) => ({
+        path: "frameworkOutline" as const,
+        text,
+      })),
+      ...proposal.improvedRecommendationOutline.map((text) => ({
+        path: "recommendationOutline" as const,
+        text,
+      })),
+      { path: "quantitativeAssessment", text: proposal.quantitativeAssessment },
+    ];
+  }
+
   return [
-    ...proposal.dimensionScores.map((item) => item.rationale),
-    proposal.overallSummary,
-    ...proposal.strengths,
-    ...proposal.improvements,
-    ...proposal.stageFeedback.map((item) => item.text),
-    ...proposal.improvedFrameworkOutline,
-    ...proposal.improvedRecommendationOutline,
-    proposal.quantitativeAssessment,
+    ...proposal.stageFeedback.map((item) => ({ path: "stageFeedback" as const, text: item.text })),
+    ...proposal.improvedFrameworkOutline.map((text) => ({
+      path: "frameworkOutline" as const,
+      text,
+    })),
+    ...proposal.improvedRecommendationOutline.map((text) => ({
+      path: "recommendationOutline" as const,
+      text,
+    })),
+    ...(proposal.quantitativeAssessment
+      ? [{ path: "quantitativeAssessment" as const, text: proposal.quantitativeAssessment }]
+      : []),
   ];
 }
 
-export function parseCasePostCallModelProposal(
+function validateCasePostCallModelProposalInternal(
   raw: unknown,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
-): CasePostCallModelProposal | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  if (Object.keys(raw).sort().join("|") !== [...PROPOSAL_KEYS].sort().join("|")) return null;
+): CasePostCallProposalValidationResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return invalidProposal("root", "wrong_type", raw);
+  }
   const value = raw as Record<string, unknown>;
-  if (!Array.isArray(value.dimensionScores) || value.dimensionScores.length !== DIMENSIONS.length) {
-    return null;
+  for (const key of PROPOSAL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      return invalidProposal(rootFieldPath(key), "missing_required_field");
+    }
+  }
+  if (Object.keys(value).some(
+    (key) => !(PROPOSAL_KEYS as readonly string[]).includes(key),
+  )) {
+    return invalidProposal("root", "unexpected_field");
+  }
+  if (!Array.isArray(value.dimensionScores)) {
+    return invalidProposal("dimensionScores", "wrong_type", value.dimensionScores);
+  }
+  if (value.dimensionScores.length !== DIMENSIONS.length) {
+    return invalidProposal("dimensionScores.count", "wrong_count", value.dimensionScores);
   }
   const dimensions: CasePostCallModelDimension[] = [];
   const seen = new Set<CaseReportDimension>();
   for (const row of value.dimensionScores) {
-    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
-    if (Object.keys(row).sort().join("|") !== "dimension|rationale|score") return null;
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return invalidProposal("dimensionScores.item", "wrong_type", row);
+    }
     const candidate = row as Record<string, unknown>;
+    for (const key of ["dimension", "score", "rationale"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(candidate, key)) {
+        const path = key === "dimension"
+          ? "dimensionScores.item.dimension"
+          : key === "score"
+            ? "dimensionScores.item.score"
+            : "dimensionScores.item.rationale";
+        return invalidProposal(path, "missing_required_field");
+      }
+    }
+    if (Object.keys(candidate).some(
+      (key) => !["dimension", "score", "rationale"].includes(key),
+    )) {
+      return invalidProposal("dimensionScores.item", "unexpected_field");
+    }
+    if (
+      typeof candidate.dimension !== "string" ||
+      !DIMENSIONS.includes(candidate.dimension as CaseReportDimension)
+    ) {
+      return invalidProposal(
+        "dimensionScores.item.dimension",
+        "invalid_enum",
+        candidate.dimension,
+      );
+    }
     const dimension = candidate.dimension as CaseReportDimension;
-    if (!DIMENSIONS.includes(dimension) || seen.has(dimension)) return null;
-    const rationale = boundedText(candidate.rationale, 360);
-    const score = candidate.score === null ? null : clampScore(candidate.score);
-    if (!rationale || (candidate.score !== null && score === null)) return null;
-    if (!mapped.partial && score === null) return null;
+    if (seen.has(dimension)) {
+      return invalidProposal(
+        "dimensionScores.item.dimension",
+        "duplicate_dimension",
+        candidate.dimension,
+      );
+    }
+    let score: number | null;
+    if (candidate.score === null) {
+      if (!mapped.partial) {
+        return invalidProposal("dimensionScores.item.score", "invalid_score", candidate.score);
+      }
+      score = null;
+    } else if (
+      typeof candidate.score !== "number" ||
+      !Number.isInteger(candidate.score) ||
+      candidate.score < 1 ||
+      candidate.score > 5
+    ) {
+      const reason = typeof candidate.score === "number" ? "invalid_score" : "wrong_type";
+      return invalidProposal("dimensionScores.item.score", reason, candidate.score);
+    } else {
+      score = candidate.score;
+    }
+    const rationale = validateText(
+      candidate.rationale,
+      "dimensionScores.item.rationale",
+      360,
+      mapped.partial && score === null,
+    );
+    if (!rationale.ok) return rationale.result;
     seen.add(dimension);
-    dimensions.push({ dimension, score, rationale });
+    dimensions.push({ dimension, score, rationale: rationale.value });
   }
-  if (!DIMENSIONS.every((dimension) => seen.has(dimension))) return null;
+  if (!DIMENSIONS.every((dimension) => seen.has(dimension))) {
+    return invalidProposal("dimensionScores.count", "wrong_count");
+  }
+
+  const summary = validateText(value.overallSummary, "overallSummary", 480);
+  if (!summary.ok) return summary.result;
+
+  const strengths = mapped.partial
+    ? { ok: true as const, value: [] as string[] }
+    : validateTextArray(value.strengths, "strengths", 4, false);
+  if (!strengths.ok) return strengths.result;
+  const improvements = mapped.partial
+    ? { ok: true as const, value: [] as string[] }
+    : validateTextArray(value.improvements, "improvements", 4, false);
+  if (!improvements.ok) return improvements.result;
+
+  const stageFeedback = validateStageFeedback(value.stageFeedback, mapped);
+  if (!stageFeedback.ok) return stageFeedback.result;
+
+  const answered = new Set(mapped.answeredStages);
+  const frameworkOutline = mapped.partial && !answered.has("framework")
+    ? { ok: true as const, value: [] as string[] }
+    : validateTextArray(
+        value.improvedFrameworkOutline,
+        "frameworkOutline",
+        4,
+        mapped.partial,
+      );
+  if (!frameworkOutline.ok) return frameworkOutline.result;
+  const recommendationOutline = mapped.partial && !answered.has("recommendation")
+    ? { ok: true as const, value: [] as string[] }
+    : validateTextArray(
+        value.improvedRecommendationOutline,
+        "recommendationOutline",
+        4,
+        mapped.partial,
+      );
+  if (!recommendationOutline.ok) return recommendationOutline.result;
+
+  const quantitativeAnswered = answered.has("data_reveal") || answered.has("pressure_test");
+  const quantitativeAssessment = mapped.partial && !quantitativeAnswered
+    ? { ok: true as const, value: "" }
+    : validateText(value.quantitativeAssessment, "quantitativeAssessment", 480);
+  if (!quantitativeAssessment.ok) return quantitativeAssessment.result;
 
   const proposal: CasePostCallModelProposal = {
     dimensionScores: dimensions,
-    overallSummary: boundedText(value.overallSummary, 480) ?? "",
-    strengths: boundedTextArray(value.strengths, 4, mapped.partial) ?? [],
-    improvements: boundedTextArray(value.improvements, 4, mapped.partial) ?? [],
-    stageFeedback: boundedStageFeedback(value.stageFeedback) ?? [],
-    improvedFrameworkOutline:
-      boundedTextArray(value.improvedFrameworkOutline, 4, mapped.partial) ?? [],
-    improvedRecommendationOutline:
-      boundedTextArray(value.improvedRecommendationOutline, 4, mapped.partial) ?? [],
-    quantitativeAssessment: boundedText(value.quantitativeAssessment, 480) ?? "",
+    overallSummary: summary.value,
+    strengths: strengths.value,
+    improvements: improvements.value,
+    stageFeedback: stageFeedback.value,
+    improvedFrameworkOutline: frameworkOutline.value,
+    improvedRecommendationOutline: recommendationOutline.value,
+    quantitativeAssessment: quantitativeAssessment.value,
   };
-  if (
-    !proposal.overallSummary ||
-    (!mapped.partial && proposal.strengths.length === 0) ||
-    (!mapped.partial && proposal.improvements.length === 0) ||
-    (!mapped.partial && proposal.improvedFrameworkOutline.length === 0) ||
-    (!mapped.partial && proposal.improvedRecommendationOutline.length === 0) ||
-    !proposal.quantitativeAssessment
-  ) return null;
-  if (proposalText(proposal).some((text) => modelTextIsUnsafe(text, mapped, caseRecord))) {
-    return null;
+
+  for (const field of candidateVisibleText(proposal, mapped)) {
+    const reason = modelTextSafetyReason(field.text, mapped, caseRecord);
+    if (reason) {
+      return invalidProposal(field.path, reason, field.text);
+    }
   }
-  return proposal;
+  return { ok: true, proposal };
+}
+
+export function validateCasePostCallModelProposal(
+  raw: unknown,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+): CasePostCallProposalValidationResult {
+  try {
+    return validateCasePostCallModelProposalInternal(raw, mapped, caseRecord);
+  } catch {
+    return invalidProposal("root", "unknown_validation_error");
+  }
 }
 
 function fallbackDimensionRationale(
@@ -713,17 +1126,31 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
   return JSON.stringify({
     task: "Produce candidate-safe post-interview coaching using only observed evidence.",
     outputRules: {
-      fullReport: "Return a score for every dimension.",
+      allReports: [
+        "Return exactly five dimension entries, with each required dimension appearing exactly once.",
+        "Every score must be an integer from 1 to 5 or null.",
+        "Do not include unsupported numerical claims.",
+        "Do not quote or closely reproduce candidate transcript wording.",
+      ],
+      fullReport: [
+        "Return an integer score from 1 to 5 and a non-empty rationale for every dimension.",
+        "Return non-empty candidate-safe summaries, feedback, outlines, and quantitative assessment.",
+      ],
       partialReport: [
         "Use null for dimensions without enough observed evidence.",
+        "When a dimension score is null, its rationale may be an empty string.",
         "Put partial strengths and improvements in stageFeedback with an answered stage.",
         "Do not create stageFeedback for missing or unanswered stages.",
+        "Use empty strengths and improvements arrays; stage-scoped feedback belongs in stageFeedback.",
+        "Use an empty framework outline array when Framework was not answered.",
+        "Use an empty recommendation outline array when Recommendation was not answered.",
+        "quantitativeAssessment may be an empty string only when neither Data reveal nor Pressure test was answered.",
       ],
       prohibited: [
         "quote or closely reproduce candidate transcript text",
         "reveal the rubric, answer key, solution notes, or hidden calculations",
         "invent performance from an unobserved stage",
-        "include numeric answers in qualitative prose",
+        "include unsupported numerical claims in qualitative prose",
       ],
     },
     requiredDimensions: DIMENSIONS,
@@ -812,19 +1239,19 @@ export async function scoreCasePostCall(
         modelDiagnostic: diagnostic,
       };
     }
-    const proposal = parseCasePostCallModelProposal(raw, mapped, caseRecord);
-    if (!proposal) {
+    const validation = validateCasePostCallModelProposal(raw, mapped, caseRecord);
+    if (!validation.ok) {
       return {
         ok: true,
         report: buildSafeReport(caseRecord, mapped, fallback),
         scorerOutcome: "deterministic_fallback",
         failureCategory: "schema_validation_error",
-        modelDiagnostic: diagnostic,
+        modelDiagnostic: validationDiagnostic(diagnostic, validation.issue),
       };
     }
     return {
       ok: true,
-      report: buildSafeReport(caseRecord, mapped, fallback, proposal),
+      report: buildSafeReport(caseRecord, mapped, fallback, validation.proposal),
       scorerOutcome: "model",
       failureCategory: null,
       modelDiagnostic: diagnostic,
