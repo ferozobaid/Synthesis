@@ -526,10 +526,10 @@ export default function VoiceInterview({
         gap: 14,
         background: "var(--surface)",
         border: "1px solid var(--line)",
-        borderRadius: 14,
-        padding: "14px 18px",
+        borderRadius: 18,
+        padding: "16px 18px",
         boxShadow: "var(--shadow-sm)",
-        marginBottom: 18,
+        marginBottom: 24,
       }}
       role="status"
       aria-live="polite"
@@ -550,9 +550,9 @@ export default function VoiceInterview({
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
           <span
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              letterSpacing: ".08em",
+              fontFamily: "var(--font-sans)",
+              fontSize: 10.5,
+              letterSpacing: ".07em",
               color: "var(--secondary)",
               fontWeight: 600,
             }}
@@ -562,7 +562,7 @@ export default function VoiceInterview({
               ? ` · Q${displayIndex + 1} OF ${questions.length}`
               : ""}
           </span>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", lineHeight: 1.3 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 620, color: "var(--ink)", lineHeight: 1.3 }}>
             {label}
           </span>
         </div>
@@ -606,8 +606,8 @@ export default function VoiceInterview({
           style={{
             background: "var(--surface-2)",
             border: "1px solid var(--line)",
-            borderRadius: 11,
-            padding: "12px 14px",
+            borderRadius: 13,
+            padding: "14px 15px",
           }}
         >
           <div
@@ -702,13 +702,13 @@ export default function VoiceInterview({
 
 function btn(kind: "solid" | "ghost"): React.CSSProperties {
   return {
-    border: kind === "ghost" ? "1px solid var(--line)" : "none",
-    background: kind === "ghost" ? "var(--surface-2)" : "var(--secondary)",
-    color: kind === "ghost" ? "var(--ink-2)" : "#fff",
+    border: kind === "ghost" ? "1px solid var(--line)" : "1px solid var(--accent)",
+    background: kind === "ghost" ? "var(--surface-2)" : "var(--accent)",
+    color: kind === "ghost" ? "var(--ink-2)" : "var(--accent-contrast)",
     fontSize: 13,
-    fontWeight: 600,
-    padding: "9px 16px",
-    borderRadius: 10,
+    fontWeight: 620,
+    padding: "10px 16px",
+    borderRadius: 11,
     cursor: "pointer",
   };
 }

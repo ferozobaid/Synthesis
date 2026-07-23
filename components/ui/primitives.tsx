@@ -1,6 +1,6 @@
 /**
- * Small shared presentational primitives for the Synthesis v3 UI.
- * Inline styles + CSS vars keep them theme-aware without extra Tailwind config.
+ * Small shared presentational primitives for the Synthesis UI.
+ * Inline styles + semantic CSS variables keep them theme-aware.
  */
 import type { CSSProperties, ReactNode } from "react";
 
@@ -9,7 +9,7 @@ export function GlassCard({
   className,
   style,
   shadow = "sm",
-  radius = 16,
+  radius = 18,
   padding = 20,
 }: {
   children: ReactNode;
@@ -51,7 +51,8 @@ export function SectionLabel({
       style={{
         fontFamily: "var(--font-mono)",
         fontSize: 10,
-        letterSpacing: ".11em",
+        fontWeight: 600,
+        letterSpacing: ".13em",
         textTransform: "uppercase",
         color,
         ...style,
@@ -77,9 +78,10 @@ export function StatusBadge({
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        padding: "3px 9px",
+        padding: "4px 9px",
         borderRadius: 999,
         background: tint,
+        border: "1px solid color-mix(in srgb, currentColor 16%, transparent)",
         color,
         fontSize: 11,
         fontWeight: 600,
@@ -110,7 +112,7 @@ export function MeterBar({
       style={{
         flex: 1,
         height,
-        background: "var(--line)",
+        background: "var(--line-2)",
         borderRadius: height,
         overflow: "hidden",
       }}
@@ -122,7 +124,7 @@ export function MeterBar({
           background: color,
           borderRadius: height,
           opacity: muted ? 0.35 : 1,
-          transition: "width .8s cubic-bezier(.4,0,.2,1)",
+          transition: "width .7s cubic-bezier(.22,1,.36,1)",
         }}
       />
     </div>
@@ -135,7 +137,7 @@ export function Spinner({ size = 44, thickness = 3 }: { size?: number; thickness
       style={{
         width: size,
         height: size,
-        border: `${thickness}px solid var(--line)`,
+        border: `${thickness}px solid var(--line-2)`,
         borderTopColor: "var(--accent)",
         borderRadius: "50%",
         animation: "spin .8s linear infinite",
@@ -151,15 +153,14 @@ export function GroundingNote({ children }: { children: ReactNode }) {
         display: "flex",
         alignItems: "center",
         gap: 9,
-        padding: "12px 16px",
-        background: "var(--surface)",
+        padding: "13px 16px",
+        background: "var(--surface-2)",
         border: "1px solid var(--line)",
-        borderRadius: 12,
-        boxShadow: "var(--shadow-sm)",
+        borderRadius: 14,
       }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--secondary)", flex: "none" }} />
-      <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{children}</span>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", flex: "none" }} />
+      <span style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{children}</span>
     </div>
   );
 }

@@ -33,36 +33,50 @@ export function ModuleCard({
   className?: string;
 }) {
   const [hover, setHover] = useState(false);
+  const inverse = className?.includes("module-card--inverse") ?? false;
+  const signal = className?.includes("module-card--signal") ?? false;
+  const foreground = inverse ? "var(--inverse-ink)" : signal ? "var(--codex-gray-contrast)" : "var(--ink)";
+  const muted = inverse
+    ? "color-mix(in srgb, var(--inverse-ink) 64%, transparent)"
+    : signal
+      ? "color-mix(in srgb, var(--codex-gray-contrast) 68%, transparent)"
+      : "var(--ink-3)";
+  const cardBackground = inverse ? "var(--inverse)" : signal ? "var(--codex-gray)" : "var(--surface)";
+  const cardBorder = inverse ? "var(--inverse)" : signal ? "var(--codex-gray)" : "var(--line)";
+  const sequence = href === "/fit" ? "01" : href === "/behavioural" ? "02" : "03";
+
   return (
     <Link
       href={href}
-      className={className}
+      className={`module-card ${className ?? ""}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: "var(--surface)",
-        border: `1px solid ${hover ? hoverBorder : "var(--line)"}`,
-        borderRadius: 18,
-        padding: 20,
-        boxShadow: hover ? "var(--shadow-md)" : "var(--shadow-sm)",
+        background: cardBackground,
+        border: `1px solid ${hover ? `color-mix(in srgb, ${hoverBorder} 70%, ${cardBorder})` : cardBorder}`,
+        borderRadius: 2,
+        padding: 24,
+        boxShadow: hover ? "7px 7px 0 var(--line-strong)" : "var(--shadow-sm)",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
-        minHeight: 176,
+        minHeight: 236,
         textDecoration: "none",
-        color: "var(--ink)",
-        transform: hover ? "translateY(-3px)" : "none",
-        transition: "transform .12s, box-shadow .12s, border-color .12s",
+        color: foreground,
+        transform: hover ? "translate(-2px, -2px)" : "none",
+        transition: "transform .16s ease, box-shadow .16s ease, border-color .16s ease",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
         <div
+          className="module-card__icon"
           style={{
             width: 44,
             height: 44,
-            borderRadius: 12,
-            background: iconTint,
-            color: iconColor,
+            borderRadius: 0,
+            border: `1px solid ${muted}`,
+            background: inverse || signal ? "transparent" : iconTint,
+            color: inverse || signal ? foreground : iconColor,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -71,24 +85,31 @@ export function ModuleCard({
         >
           {glyph}
         </div>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            fontSize: 11,
-            fontWeight: 600,
-            color: badge.color,
-            background: badge.tint,
-            padding: "3px 9px",
-            borderRadius: 999,
-          }}
-        >
-          {badge.text}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 10,
+              fontWeight: 650,
+              fontFamily: "var(--font-mono)",
+              letterSpacing: ".08em",
+              textTransform: "uppercase",
+              color: inverse || signal ? foreground : badge.color,
+              background: inverse || signal ? "transparent" : badge.tint,
+              border: inverse || signal ? `1px solid ${muted}` : "1px solid transparent",
+              padding: "4px 8px",
+              borderRadius: 0,
+            }}
+          >
+            {badge.text}
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: ".16em", color: muted }}>{sequence}</span>
+        </div>
       </div>
-      <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-.02em" }}>{title}</div>
-      <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 3 }}>{statusLine}</div>
+      <div style={{ fontSize: 25, fontWeight: 670, letterSpacing: "-.045em", lineHeight: 1.05 }}>{title}</div>
+      <div style={{ fontSize: 13, color: muted, lineHeight: 1.5, marginTop: 8, maxWidth: 250 }}>{statusLine}</div>
       <div style={{ flex: 1 }} />
       {score != null ? (
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginTop: 14 }}>
@@ -96,17 +117,18 @@ export function ModuleCard({
             <span style={{ fontSize: 26, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
               {score}
             </span>
-            <span style={{ fontSize: 11, color: "var(--ink-4)" }}>/100</span>
+            <span style={{ fontSize: 11, color: muted }}>/100</span>
           </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent-ink)" }}>Review →</span>
+          <span className="module-card__cta" style={{ fontSize: 13, fontWeight: 650, color: foreground }}>Review <span aria-hidden="true">→</span></span>
         </div>
       ) : (
         <div
+          className="module-card__cta"
           style={{
             marginTop: 14,
             fontSize: 13.5,
-            fontWeight: 600,
-            color: "var(--accent-ink)",
+            fontWeight: 650,
+            color: foreground,
             display: "flex",
             alignItems: "center",
             gap: 6,

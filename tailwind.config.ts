@@ -8,8 +8,8 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Synthesis v3 palette — CSS-variable backed so light/dark themes
-        // swap by re-defining vars on <html data-theme>.
+        // CSS-variable backed palette: components keep the same semantic
+        // contracts while light and dark themes swap presentation tokens.
         ink: {
           DEFAULT: "var(--ink)",
           2: "var(--ink-2)",
@@ -44,6 +44,11 @@ const config: Config = {
         sm: "var(--shadow-sm)",
         md: "var(--shadow-md)",
         lg: "var(--shadow-lg)",
+      },
+      borderRadius: {
+        control: "var(--radius-md)",
+        card: "var(--radius-lg)",
+        panel: "var(--radius-xl)",
       },
       backgroundImage: {
         glow: "var(--glow)",

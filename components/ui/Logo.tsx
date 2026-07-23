@@ -1,19 +1,20 @@
 /**
- * Synthesis wordmark — a lens ring with a single focal point: scattered signals
- * brought into one clear picture of readiness.
+ * Synthesis wordmark — a restrained lens mark with one clear focal point.
  */
 export function Logo({ size = 26, showWord = true }: { size?: number; showWord?: boolean }) {
   const dot = Math.round(size * 0.35);
   const focal = Math.round(size * 0.15);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+    <div className="brand-lockup" style={{ display: "flex", alignItems: "center", gap: 9 }}>
       <div
+        className="brand-mark"
         style={{
           width: size,
           height: size,
-          borderRadius: size * 0.27,
-          background: "var(--glow)",
-          boxShadow: "0 0 16px rgba(124,120,255,.5)",
+          borderRadius: Math.max(4, size * 0.18),
+          background: "var(--brand-block)",
+          border: "1px solid var(--brand-block)",
+          boxShadow: `${Math.max(3, size * 0.14)}px ${Math.max(3, size * 0.14)}px 0 var(--accent)`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -22,14 +23,16 @@ export function Logo({ size = 26, showWord = true }: { size?: number; showWord?:
         }}
       >
         <div
+          className="brand-mark__ring"
           style={{
             width: dot,
             height: dot,
             borderRadius: "50%",
-            border: "2px solid var(--paper)",
+            border: "1.75px solid var(--brand-block-ink)",
           }}
         />
         <div
+          className="brand-mark__focal"
           style={{
             position: "absolute",
             right: size * 0.19,
@@ -37,12 +40,12 @@ export function Logo({ size = 26, showWord = true }: { size?: number; showWord?:
             width: focal,
             height: focal,
             borderRadius: "50%",
-            background: "#fff",
+            background: "var(--accent)",
           }}
         />
       </div>
       {showWord && (
-        <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-.02em", color: "var(--ink)" }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, letterSpacing: ".16em", color: "var(--ink)", textTransform: "uppercase" }}>
           Synthesis
         </span>
       )}

@@ -23,9 +23,8 @@ export function RequirementCard({
         background: "var(--surface)",
         border: "1px solid var(--line)",
         borderLeft: `3px solid ${sc.color}`,
-        borderRadius: 12,
-        padding: "14px 16px",
-        boxShadow: "var(--shadow-sm)",
+        borderRadius: 14,
+        padding: "16px 17px",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: evidence ? 9 : 0 }}>
@@ -45,7 +44,7 @@ export function RequirementCard({
         >
           {sc.glyph}
         </div>
-        <span style={{ fontSize: 15, fontWeight: 600, flex: 1, letterSpacing: "-.01em", color: "var(--ink)" }}>
+        <span style={{ fontSize: 14.5, fontWeight: 620, flex: 1, letterSpacing: "-.01em", color: "var(--ink)" }}>
           {requirement}
         </span>
         <span

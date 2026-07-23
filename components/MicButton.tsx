@@ -27,13 +27,13 @@ export default function MicButton({ supported, listening, onStart, onStop }: Mic
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
-        borderRadius: 10,
+        borderRadius: 12,
         border: `1px solid ${listening ? "var(--gap)" : "var(--line)"}`,
-        background: listening ? "var(--gap-tint)" : "var(--surface-2)",
+        background: listening ? "var(--gap-tint)" : "var(--surface)",
         color: listening ? "var(--gap)" : "var(--ink-2)",
-        padding: "10px 16px",
+        padding: "10px 15px",
         fontSize: 13,
-        fontWeight: 600,
+        fontWeight: 620,
         cursor: "pointer",
       }}
     >
