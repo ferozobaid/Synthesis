@@ -102,11 +102,20 @@ export default function BehaviouralPage() {
   const {
     supported: voiceSupported,
     listening,
+    status: voiceStatus,
     interimTranscript,
-    error: voiceError,
+    message: voiceMessage,
     start: startVoice,
     stop: stopVoice,
   } = useSpeechRecognition({ onFinalResult: appendSpeech });
+  const voiceStatusMessage = listening
+    ? interimTranscript || "Listening…"
+    : voiceMessage ?? "Manual typing is available; voice input appends dictated text.";
+  const voiceStatusIsAlert =
+    voiceStatus === "permission_denied" ||
+    voiceStatus === "unsupported" ||
+    voiceStatus === "no_speech" ||
+    voiceStatus === "recognition_error";
 
   const start = useCallback(async () => {
     setStarting(true);
@@ -230,23 +239,27 @@ export default function BehaviouralPage() {
 
             {/* Voice input: appends into the same answer box; typing always works. */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-              <MicButton supported={voiceSupported} listening={listening} onStart={startVoice} onStop={stopVoice} />
-              {listening && (
-                <span aria-live="polite" style={{ fontSize: 12, fontStyle: "italic", color: "var(--ink-3)" }}>
-                  {interimTranscript ? interimTranscript : "Listening…"}
-                </span>
-              )}
-              {!voiceSupported && (
-                <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
-                  Voice input isn&apos;t supported in this browser — please type your answer.
-                </span>
-              )}
+              <MicButton
+                supported={voiceSupported}
+                listening={listening}
+                status={voiceStatus}
+                onStart={startVoice}
+                onStop={stopVoice}
+              />
+              <span
+                role={voiceStatusIsAlert ? "alert" : undefined}
+                aria-live={voiceStatusIsAlert ? "assertive" : "polite"}
+                style={{
+                  fontSize: 12,
+                  fontStyle: listening && interimTranscript ? "italic" : "normal",
+                  color: voiceStatusIsAlert ? "var(--partial)" : "var(--ink-3)",
+                  maxWidth: 520,
+                  lineHeight: 1.45,
+                }}
+              >
+                {voiceStatusMessage}
+              </span>
             </div>
-            {voiceError && (
-              <p role="alert" style={{ fontSize: 12, color: "var(--partial)", marginTop: 8, marginBottom: 0 }}>
-                {voiceError}
-              </p>
-            )}
 
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 16, flexWrap: "wrap" }}>
               <button
