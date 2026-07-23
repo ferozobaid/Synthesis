@@ -5,6 +5,8 @@ import { MeterBar, SectionLabel } from "@/components/ui/primitives";
 import { readinessBand, to100 } from "@/components/ui/verdict";
 import type { CaseScore } from "@/lib/types";
 import type { PublicCaseReportFailureCode } from "@/lib/voice/case-report-public";
+// Type-only import: erased at build, so no worked-solution content is bundled.
+import type { CaseWorkedSolutionView } from "@/lib/voice/case-worked-solution-types";
 import type {
   CasePostCallDimensionScore,
   CasePostCallScore,
@@ -194,6 +196,96 @@ export function nativeCaseReportSupportingMessage(
     : null;
 }
 
+// --- Worked solution (secure, click-to-reveal) --------------------------------
+
+export const WORKED_SOLUTION_BUTTON_ID = "case-worked-solution-toggle";
+export const WORKED_SOLUTION_PANEL_ID = "case-worked-solution-panel";
+
+export type WorkedSolutionPhase = "idle" | "loading" | "error" | "ready";
+
+export interface WorkedSolutionState {
+  open: boolean;
+  phase: WorkedSolutionPhase;
+  solution: CaseWorkedSolutionView | null;
+}
+
+export const INITIAL_WORKED_SOLUTION_STATE: WorkedSolutionState = {
+  open: false,
+  phase: "idle",
+  solution: null,
+};
+
+/**
+ * The control is offered only once a completed report is presentable (full or
+ * partial). It never renders while a report is pending, processing, or failed,
+ * so no request can be made before there is a done report to authorize against.
+ */
+export function caseWorkedSolutionControlVisible(
+  report: NativeCaseReportProjection | null,
+): boolean {
+  return report ? nativeCaseReportPresentation(report) !== null : false;
+}
+
+/**
+ * Fetch only once. After the solution is cached in state, reopening the panel
+ * re-renders it without another network request; while a fetch is in flight we
+ * do not start a second one. Guarantees exactly one request across open/close.
+ */
+export function shouldFetchWorkedSolution(state: WorkedSolutionState): boolean {
+  return state.solution === null && state.phase !== "loading";
+}
+
+/**
+ * Pure transition for a toggle click. Opening the first time requests a fetch;
+ * closing never fetches; reopening a cached solution never refetches. This is the
+ * single source of truth for both the component and its tests.
+ */
+export function toggleWorkedSolution(
+  state: WorkedSolutionState,
+): { next: WorkedSolutionState; fetch: boolean } {
+  if (state.open) return { next: { ...state, open: false }, fetch: false };
+  const fetch = shouldFetchWorkedSolution(state);
+  return {
+    next: { ...state, open: true, phase: fetch ? "loading" : state.phase },
+    fetch,
+  };
+}
+
+/** Accessible relationship between the toggle button and the disclosure panel. */
+export function caseWorkedSolutionA11y(open: boolean) {
+  return {
+    button: {
+      id: WORKED_SOLUTION_BUTTON_ID,
+      "aria-expanded": open,
+      "aria-controls": WORKED_SOLUTION_PANEL_ID,
+    },
+    panel: {
+      id: WORKED_SOLUTION_PANEL_ID,
+      role: "region" as const,
+      "aria-labelledby": WORKED_SOLUTION_BUTTON_ID,
+      hidden: !open,
+    },
+  };
+}
+
+/**
+ * Fetch the protected worked solution with the retained report capability. This
+ * hits the dedicated solution endpoint — never the report or catalog routes — so
+ * it can never re-run scoring or report generation.
+ */
+export async function fetchCaseWorkedSolution(
+  pending: Pick<PendingNativeCaseReport, "sessionId" | "reportToken">,
+  fetcher: typeof fetch = fetch,
+): Promise<CaseWorkedSolutionView> {
+  const response = await fetcher(
+    `/api/case/report/${encodeURIComponent(pending.sessionId)}/solution`,
+    { headers: { "x-report-token": pending.reportToken } },
+  );
+  if (!response.ok) throw new Error("The worked solution could not be loaded.");
+  const body = (await response.json()) as { solution: CaseWorkedSolutionView };
+  return body.solution;
+}
+
 /** Polls the protected report capability after a native call ends or refreshes. */
 export default function CaseNativeVoiceInterview({
   pending,
@@ -277,6 +369,9 @@ export default function CaseNativeVoiceInterview({
       {error && <p role="status" style={{ color: "var(--gap)", fontSize: 12 }}>{error}</p>}
       {presentation && (
         <NativeCaseReportView presentation={presentation} />
+      )}
+      {caseWorkedSolutionControlVisible(report) && (
+        <WorkedSolutionDisclosure pending={pending} />
       )}
       <button type="button" onClick={onReset} style={backButtonStyle}>Back to cases</button>
     </div>
@@ -419,6 +514,147 @@ function FeedbackList({ title, values, color }: { title: string; values: string[
     </section>
   );
 }
+
+/**
+ * Collapsed, click-to-reveal worked solution. It holds only local disclosure
+ * state: opening or closing it never touches the report projection, the score
+ * passed to onComplete, or readiness, and it never re-polls the report. The
+ * solution is fetched lazily on the first open and cached, so no request is made
+ * on render and reopening never refetches.
+ */
+function WorkedSolutionDisclosure({
+  pending,
+}: {
+  pending: Pick<PendingNativeCaseReport, "sessionId" | "reportToken">;
+}) {
+  const [state, setState] = useState<WorkedSolutionState>(INITIAL_WORKED_SOLUTION_STATE);
+  const a11y = caseWorkedSolutionA11y(state.open);
+
+  const onToggle = () => {
+    setState((current) => {
+      const { next, fetch } = toggleWorkedSolution(current);
+      if (fetch) {
+        void fetchCaseWorkedSolution(pending)
+          .then((solution) =>
+            setState((s) => ({ ...s, phase: "ready", solution })),
+          )
+          .catch(() =>
+            setState((s) => ({ ...s, phase: s.solution ? "ready" : "error" })),
+          );
+      }
+      return next;
+    });
+  };
+
+  return (
+    <section style={{ ...cardStyle, marginTop: 4 }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={workedSolutionToggleStyle}
+        {...a11y.button}
+      >
+        <span>{state.open ? "Hide worked solution" : "View worked solution"}</span>
+        <span aria-hidden style={{ color: "var(--ink-3)", fontSize: 12 }}>
+          {state.open ? "▲" : "▼"}
+        </span>
+      </button>
+      <p style={{ margin: "8px 0 0", color: "var(--ink-3)", fontSize: 12 }}>
+        This is one strong approach, not the only valid answer.
+      </p>
+      <div {...a11y.panel} style={{ marginTop: state.open ? 14 : 0 }}>
+        {state.open && state.phase === "loading" && (
+          <p role="status" aria-live="polite" style={{ ...bodyStyle, margin: 0 }}>
+            Loading the worked solution…
+          </p>
+        )}
+        {state.open && state.phase === "error" && (
+          <p role="status" aria-live="polite" style={{ margin: 0, color: "var(--gap)", fontSize: 12 }}>
+            The worked solution could not be loaded. Your report is unaffected — try again.
+          </p>
+        )}
+        {state.open && state.phase === "ready" && state.solution && (
+          <WorkedSolutionContent solution={state.solution} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WorkedSolutionContent({ solution }: { solution: CaseWorkedSolutionView }) {
+  return (
+    <div style={{ animation: "fadeUp .35s ease both", display: "flex", flexDirection: "column", gap: 16 }}>
+      <WorkedSolutionProse section={solution.framework} />
+      <WorkedSolutionProse section={solution.analysisApproach} />
+      <WorkedSolutionCalc section={solution.calculations} />
+      <WorkedSolutionCalc section={solution.pressureTest} />
+      <WorkedSolutionProse section={solution.exampleRecommendation} />
+    </div>
+  );
+}
+
+function WorkedSolutionProse({
+  section,
+}: {
+  section: CaseWorkedSolutionView["framework"];
+}) {
+  return (
+    <div>
+      <SectionLabel style={{ marginBottom: 9 }}>{section.heading}</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {section.points.map((point, index) => (
+          <div key={`${section.heading}-${index}`} style={{ ...bodyStyle, display: "flex", gap: 8 }}>
+            <span style={{ color: "var(--accent)" }}>→</span>
+            <span>{point}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkedSolutionCalc({
+  section,
+}: {
+  section: CaseWorkedSolutionView["calculations"];
+}) {
+  return (
+    <div>
+      <SectionLabel style={{ marginBottom: 9 }}>{section.heading}</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {section.steps.map((step, index) => (
+          <div
+            key={`${section.heading}-${index}`}
+            style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", minWidth: 200 }}>
+              {step.label}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-2)" }}>
+              {step.expression} = {step.result}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const workedSolutionToggleStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  width: "100%",
+  gap: 12,
+  border: "1px solid var(--line)",
+  background: "var(--surface-2)",
+  color: "var(--ink)",
+  fontSize: 14,
+  fontWeight: 600,
+  padding: "11px 14px",
+  borderRadius: 10,
+  cursor: "pointer",
+} as const;
 
 const cardStyle = {
   background: "var(--surface)",
