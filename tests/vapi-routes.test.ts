@@ -72,12 +72,13 @@ describe("POST /api/vapi/session (bootstrap)", () => {
     expect((stored?.value as BehaviouralVoiceSession).questionIndex).toBe(0);
   });
 
-  it("bootstraps a case session and returns opening prompt + title", async () => {
-    const res = await sessionPOST(makeReq({ module: "case", caseId: "beautify" }) as never);
+  it("bootstraps a selected case session and returns opening prompt + title", async () => {
+    const res = await sessionPOST(makeReq({ module: "case", caseId: "airport_profitability" }) as never);
     expect(res.status).toBe(200);
     const data = await res.json();
 
     expect(typeof data.sessionId).toBe("string");
+    expect(data.caseId).toBe("airport_profitability");
     expect(typeof data.openingPrompt).toBe("string");
     expect(data.openingPrompt.length).toBeGreaterThan(0);
     expect(data.caseTitle).toBeTruthy();
@@ -89,9 +90,13 @@ describe("POST /api/vapi/session (bootstrap)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("404s on an unknown case id", async () => {
-    const res = await sessionPOST(makeReq({ module: "case", caseId: "ghost" }) as never);
-    expect(res.status).toBe(404);
+  it("400s on a missing or unsupported case id", async () => {
+    const missing = await sessionPOST(makeReq({ module: "case" }) as never);
+    expect(missing.status).toBe(400);
+    const unknown = await sessionPOST(makeReq({ module: "case", caseId: "ghost" }) as never);
+    expect(unknown.status).toBe(400);
+    const beautify = await sessionPOST(makeReq({ module: "case", caseId: "beautify" }) as never);
+    expect(beautify.status).toBe(400);
   });
 
   it("enforces jdText length limits", async () => {

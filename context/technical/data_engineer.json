@@ -1,0 +1,680 @@
+{
+  "version": 2,
+  "track": "technical",
+  "role": "data_engineer",
+  "title": "Data Engineer Technical Round",
+  "description": "Five scenario questions. Each question focuses on one practical data engineering decision.",
+  "question_count": 5,
+  "default_order": [
+    "de_sales_dimensional_model",
+    "de_multisource_pipeline",
+    "de_revenue_drop_incident",
+    "de_pipeline_runtime_regression",
+    "de_schema_drift"
+  ],
+  "scoring": {
+    "question_weighting": "equal",
+    "per_question_weight": 0.2,
+    "scale": "1-5",
+    "pass_threshold": 3,
+    "final_score_normalization": "round((weighted_average / 5) * 100)"
+  },
+  "questions": [
+    {
+      "id": "de_sales_dimensional_model",
+      "order": 1,
+      "role": "data_engineer",
+      "title": "Simple Sales Data Model",
+      "domain": "data_modeling",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "A retailer wants a daily report of sales amount and quantity by product and region. Product categories can change over time.",
+        "constraints": [
+          "Historical reports should keep the category that applied when the sale occurred.",
+          "The model should be simple for analysts to query."
+        ],
+        "prompt": "State the grain of the sales data, the main fact and dimension tables, and how you would preserve product-category history."
+      },
+      "objective": "Assess whether the candidate understands grain, basic dimensional modeling, and historical attributes.",
+      "target_elements": [
+        {
+          "id": "grain",
+          "description": "States what one fact row represents.",
+          "required": true
+        },
+        {
+          "id": "core_model",
+          "description": "Identifies a sales fact and the main dimensions and measures.",
+          "required": true
+        },
+        {
+          "id": "history",
+          "description": "Explains a simple way to preserve past product categories.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_grain",
+            "trigger": "The candidate names tables but does not define a grain.",
+            "prompt": "What exactly does one row in the sales fact represent?",
+            "target_element_ids": [
+              "grain"
+            ]
+          },
+          {
+            "id": "probe_history",
+            "trigger": "The candidate does not address category changes.",
+            "prompt": "How would last month's sales keep last month's product category?",
+            "target_element_ids": [
+              "history"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Start by defining one row in the fact table.",
+          "Then name the measures, dimensions, and one method for keeping old category values."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.1,
+            "description": "Focuses on the requested report and historical requirement.",
+            "anchors": {
+              "1": "Misses the reporting need.",
+              "3": "Understands the main reporting need.",
+              "5": "Clearly connects the model to both reporting and history."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.3,
+            "description": "Defines a sensible grain, fact, dimensions, and history approach.",
+            "anchors": {
+              "1": "Names vague or mismatched tables.",
+              "3": "Provides a workable star-style model.",
+              "5": "Provides a precise, compact model with a sound history method."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Keeps measures and historical categories correct.",
+            "anchors": {
+              "1": "Would produce ambiguous or changing historical totals.",
+              "3": "Keeps the main totals and history correct.",
+              "5": "Also mentions a simple key or reconciliation check."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Briefly justifies the chosen grain or history method.",
+            "anchors": {
+              "1": "Gives no reason for the design.",
+              "3": "Gives a reasonable justification.",
+              "5": "Explains the main benefit and cost concisely."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains the model clearly and briefly.",
+            "anchors": {
+              "1": "The answer is difficult to follow.",
+              "3": "The answer is understandable.",
+              "5": "The answer is structured, precise, and concise."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Use one row per order line or sale line so quantity and sales amount have a clear grain.",
+          "Create a sales fact with date, product, and region keys plus quantity and amount; use separate date, product, and region dimensions.",
+          "Keep category history with versioned product rows, such as a Type 2 slowly changing dimension, so each sale points to the category valid at that time."
+        ],
+        "acceptable_alternatives": [
+          "A daily product-region aggregate is acceptable if the candidate states that transaction-level drill-down is not needed.",
+          "A dated category-history table is acceptable if the as-of join is explained correctly."
+        ],
+        "red_flags": [
+          "No grain is stated.",
+          "Measures with different grains are mixed together.",
+          "The current category overwrites required history."
+        ]
+      }
+    },
+    {
+      "id": "de_multisource_pipeline",
+      "order": 2,
+      "role": "data_engineer",
+      "title": "Daily Multi-Source Pipeline",
+      "domain": "pipeline_architecture",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "A daily dashboard combines customer data from an operational database with a partner CSV file. The CSV sometimes arrives late, and jobs may be retried.",
+        "constraints": [
+          "The dashboard only needs a daily refresh.",
+          "A retry must not duplicate data."
+        ],
+        "prompt": "Outline a simple batch pipeline from the two sources to the dashboard, and explain how you would handle a late file and a job retry."
+      },
+      "objective": "Assess whether the candidate can describe a basic reliable batch pipeline without over-designing it.",
+      "target_elements": [
+        {
+          "id": "ingestion",
+          "description": "Lands both inputs with basic source and run metadata.",
+          "required": true
+        },
+        {
+          "id": "transform_publish",
+          "description": "Validates, combines, and publishes a complete daily output.",
+          "required": true
+        },
+        {
+          "id": "retry_late_file",
+          "description": "Handles retries without duplicates and defines behavior for a late file.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_retry",
+            "trigger": "The candidate says to rerun the job but does not address duplicates.",
+            "prompt": "What makes the rerun safe if part of the output was already written?",
+            "target_element_ids": [
+              "retry_late_file"
+            ]
+          },
+          {
+            "id": "probe_late_file",
+            "trigger": "The candidate does not explain late-file behavior.",
+            "prompt": "Would you wait, publish partial data, or keep the last good version, and why?",
+            "target_element_ids": [
+              "retry_late_file"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Think in three steps: land, transform, publish.",
+          "Include one rule for safe retries and one rule for late files."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.1,
+            "description": "Recognizes the daily SLA and the two main failure cases.",
+            "anchors": {
+              "1": "Ignores the SLA or failure cases.",
+              "3": "Understands the daily batch need.",
+              "5": "Clearly frames the daily cutoff, late file, and retry behavior."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.3,
+            "description": "Provides a coherent, simple source-to-dashboard flow.",
+            "anchors": {
+              "1": "Lists tools without a data flow.",
+              "3": "Explains a workable landing, transform, and publish flow.",
+              "5": "Adds clear run state and publication behavior without unnecessary complexity."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Prevents duplicate or incomplete daily output.",
+            "anchors": {
+              "1": "Retries can duplicate data or expose partial output.",
+              "3": "Uses an idempotent retry and sensible late-file rule.",
+              "5": "Also includes a simple validation and alert."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Explains the freshness-versus-completeness choice.",
+            "anchors": {
+              "1": "Makes the choice without explanation.",
+              "3": "Explains the main tradeoff.",
+              "5": "Ties the choice directly to dashboard expectations."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains the pipeline clearly and briefly.",
+            "anchors": {
+              "1": "The answer is difficult to follow.",
+              "3": "The main flow is understandable.",
+              "5": "The normal flow and both failure cases are concise and clear."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Extract the database changes and land the CSV unchanged with date, source, and run metadata.",
+          "Validate both inputs, standardize and join them, then publish the daily dataset only after required checks pass.",
+          "Use a stable business key and merge or replace the affected date so retries are idempotent; if the file is late, alert and either wait or keep the last good output according to the agreed cutoff."
+        ],
+        "acceptable_alternatives": [
+          "A managed connector or a custom extractor is acceptable; the answer only needs a clear, safe batch flow.",
+          "Publishing a clearly marked partial dataset is acceptable if the business explicitly prefers freshness over completeness."
+        ],
+        "red_flags": [
+          "No retained source copy or run metadata.",
+          "A retry blindly appends the same data.",
+          "Partial output is published without warning."
+        ]
+      }
+    },
+    {
+      "id": "de_revenue_drop_incident",
+      "order": 3,
+      "role": "data_engineer",
+      "title": "Revenue Drop Check",
+      "domain": "data_quality_debugging",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "A dashboard shows revenue down 30 percent, but the refresh job says it succeeded and the business knows of no reason for the drop.",
+        "constraints": [
+          "Executives are viewing the dashboard.",
+          "Do not change or rerun data blindly."
+        ],
+        "prompt": "What are the first three checks you would make, and how would you safely restore the dashboard if the data is wrong?"
+      },
+      "objective": "Assess whether the candidate can debug a data issue in a logical order and validate a repair.",
+      "target_elements": [
+        {
+          "id": "verify",
+          "description": "Verifies the metric, filters, dates, and source-level total.",
+          "required": true
+        },
+        {
+          "id": "localize",
+          "description": "Compares data across pipeline layers to find the first mismatch.",
+          "required": true
+        },
+        {
+          "id": "recover",
+          "description": "Contains, repairs, validates, and communicates the issue.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_source_ok",
+            "trigger": "The candidate assumes the source is missing data.",
+            "prompt": "The source total is correct. What do you compare next?",
+            "target_element_ids": [
+              "localize"
+            ]
+          },
+          {
+            "id": "probe_validation",
+            "trigger": "The candidate proposes a rerun without a validation step.",
+            "prompt": "How would you prove the repaired dashboard is correct?",
+            "target_element_ids": [
+              "recover"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Check the dashboard definition, then compare totals backward through the pipeline.",
+          "Find the first mismatched layer before repairing only the affected data."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Confirms the reported symptom and its scope.",
+            "anchors": {
+              "1": "Assumes a cause without checking.",
+              "3": "Verifies the main discrepancy.",
+              "5": "Also checks filters, dates, and affected slices."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.25,
+            "description": "Uses layer-by-layer comparisons to find the fault.",
+            "anchors": {
+              "1": "Suggests a blind rerun.",
+              "3": "Compares key pipeline layers.",
+              "5": "Efficiently identifies the first layer where totals diverge."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Repairs and validates data safely.",
+            "anchors": {
+              "1": "Republishes without validation.",
+              "3": "Repairs the affected data and checks totals.",
+              "5": "Also contains bad output and adds a targeted check."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Balances fast restoration with confidence in the result.",
+            "anchors": {
+              "1": "Ignores either urgency or correctness.",
+              "3": "Acknowledges both needs.",
+              "5": "Uses a simple containment step while investigating."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains actions and stakeholder updates clearly.",
+            "anchors": {
+              "1": "Provides no communication plan.",
+              "3": "Communicates impact and recovery.",
+              "5": "Also states confidence and the next update."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Check the dashboard metric, filters, date range, and cache, then compare the displayed total with the serving table and source total.",
+          "Compare row counts and revenue totals from serving data back through transformed and raw data to find the first mismatched layer; check recent code, schema, and job logs there.",
+          "Hide or flag the bad output, repair or rerun only the affected period, reconcile the result to the source, notify stakeholders, and add a check for the discovered failure."
+        ],
+        "acceptable_alternatives": [
+          "Keeping the last known good dashboard is acceptable if it is clearly marked stale.",
+          "A genuine business decline is a valid conclusion when every layer reconciles."
+        ],
+        "red_flags": [
+          "Reruns everything without first locating the problem.",
+          "States a root cause without evidence.",
+          "Declares recovery without reconciling the result."
+        ]
+      }
+    },
+    {
+      "id": "de_pipeline_runtime_regression",
+      "order": 4,
+      "role": "data_engineer",
+      "title": "Pipeline Slowdown",
+      "domain": "performance_optimization",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "A daily pipeline used to take 20 minutes and now takes 2 hours after data volume increased. The output is still correct, and an execution profile is available.",
+        "constraints": [
+          "Runtime and compute cost both matter.",
+          "The fix must preserve output correctness."
+        ],
+        "prompt": "What would you inspect first, and give one or two likely fixes based on what the execution profile shows?"
+      },
+      "objective": "Assess whether the candidate can connect basic performance evidence to a targeted fix.",
+      "target_elements": [
+        {
+          "id": "compare",
+          "description": "Compares a fast and slow run, including volume and recent changes.",
+          "required": true
+        },
+        {
+          "id": "diagnose",
+          "description": "Uses the execution profile to identify the slow stage and likely cause.",
+          "required": true
+        },
+        {
+          "id": "fix_validate",
+          "description": "Chooses a matching fix and checks runtime, cost, and correctness.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_straggler",
+            "trigger": "The candidate does not examine task-level behavior.",
+            "prompt": "If one task takes much longer than all others, what might that indicate?",
+            "target_element_ids": [
+              "diagnose"
+            ]
+          },
+          {
+            "id": "probe_validate",
+            "trigger": "The candidate proposes a fix but no measurement.",
+            "prompt": "What would you compare before and after the change?",
+            "target_element_ids": [
+              "fix_validate"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Find which stage accounts for the extra time.",
+          "Match the fix to evidence such as extra scanning, skew, shuffle, or a full refresh."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.1,
+            "description": "Establishes a useful before-and-after comparison.",
+            "anchors": {
+              "1": "Has no baseline.",
+              "3": "Compares runtime and data volume.",
+              "5": "Also checks recent code or configuration changes."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.35,
+            "description": "Reads the profile and proposes a cause-specific fix.",
+            "anchors": {
+              "1": "Adds compute without diagnosis.",
+              "3": "Finds a plausible slow stage and fix.",
+              "5": "Clearly connects profile evidence, root cause, and fix."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.2,
+            "description": "Checks that optimized output remains correct.",
+            "anchors": {
+              "1": "Does not validate output.",
+              "3": "Compares key totals before and after.",
+              "5": "Also keeps a rollback or regression check."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.2,
+            "description": "Considers runtime, cost, and complexity.",
+            "anchors": {
+              "1": "Optimizes only for speed.",
+              "3": "Considers speed and cost.",
+              "5": "Chooses the simplest effective fix and states its tradeoff."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains the diagnosis and fix concisely.",
+            "anchors": {
+              "1": "Lists unrelated tuning ideas.",
+              "3": "Gives a clear diagnosis and fix.",
+              "5": "Connects evidence, action, and expected result directly."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Compare a recent fast run with the slow run: input size, code or configuration changes, and which stage now dominates runtime.",
+          "Use the profile to look for excess scanning, a large shuffle, skewed tasks, join growth, spills, or full recomputation.",
+          "Apply a matching fix, such as earlier filtering, better partition pruning, handling a skewed key, or incremental processing, then compare runtime, cost, and output totals."
+        ],
+        "acceptable_alternatives": [
+          "Adding compute is acceptable when the profile shows a real capacity limit and the cost is justified.",
+          "Compaction or a join change is acceptable when file or join evidence supports it."
+        ],
+        "red_flags": [
+          "Adds resources before checking the profile.",
+          "Suggests many unrelated optimizations at once.",
+          "Does not verify cost or data correctness."
+        ]
+      }
+    },
+    {
+      "id": "de_schema_drift",
+      "order": 5,
+      "role": "data_engineer",
+      "title": "Unexpected Schema Change",
+      "domain": "schema_evolution",
+      "difficulty": "medium",
+      "estimated_minutes": 4,
+      "scenario": {
+        "context": "A partner API adds a nullable field and changes customer_id from an integer to a string. Two downstream models still expect an integer.",
+        "constraints": [
+          "Incoming source records must not be lost.",
+          "Some new customer IDs may contain letters."
+        ],
+        "prompt": "Which change is safe, which is breaking, and what short migration plan would you use to keep the pipeline running without losing data?"
+      },
+      "objective": "Assess whether the candidate can classify schema changes and describe a safe, simple migration.",
+      "target_elements": [
+        {
+          "id": "classify",
+          "description": "Distinguishes the additive nullable field from the breaking identifier change.",
+          "required": true
+        },
+        {
+          "id": "contain",
+          "description": "Preserves raw inputs and avoids silent loss or unsafe coercion.",
+          "required": true
+        },
+        {
+          "id": "migrate",
+          "description": "Moves downstream consumers to a compatible string identifier and reprocesses affected records.",
+          "required": true
+        }
+      ],
+      "adaptive": {
+        "max_probes": 1,
+        "probes": [
+          {
+            "id": "probe_letters",
+            "trigger": "The candidate suggests casting every new ID back to an integer.",
+            "prompt": "What happens when a new customer ID contains letters?",
+            "target_element_ids": [
+              "contain",
+              "migrate"
+            ]
+          },
+          {
+            "id": "probe_existing",
+            "trigger": "The candidate only discusses future records.",
+            "prompt": "What would you do with changed records that already landed?",
+            "target_element_ids": [
+              "migrate"
+            ]
+          }
+        ],
+        "hint_ladder": [
+          "Classify the two changes separately.",
+          "Preserve raw data, introduce a compatible identifier, update consumers, and replay affected records."
+        ]
+      },
+      "rubric": {
+        "scale": "1-5",
+        "dimensions": [
+          {
+            "name": "problem_framing",
+            "weight": 0.15,
+            "description": "Identifies the affected values and consumers.",
+            "anchors": {
+              "1": "Treats both changes the same.",
+              "3": "Identifies the breaking type change.",
+              "5": "Also checks actual values and affected consumers."
+            }
+          },
+          {
+            "name": "technical_depth",
+            "weight": 0.25,
+            "description": "Provides a workable compatibility and migration approach.",
+            "anchors": {
+              "1": "Relies on silent automatic conversion.",
+              "3": "Uses a string identifier and updates consumers.",
+              "5": "Also explains a simple transition path."
+            }
+          },
+          {
+            "name": "data_correctness_reliability",
+            "weight": 0.3,
+            "description": "Preserves inputs and safely handles affected records.",
+            "anchors": {
+              "1": "Drops or corrupts incompatible IDs.",
+              "3": "Preserves raw data and reprocesses affected records.",
+              "5": "Also validates counts, keys, and downstream joins."
+            }
+          },
+          {
+            "name": "tradeoff_reasoning",
+            "weight": 0.15,
+            "description": "Balances continuity with downstream compatibility.",
+            "anchors": {
+              "1": "Either blocks everything or accepts everything silently.",
+              "3": "Explains the main continuity tradeoff.",
+              "5": "Uses a short compatibility window with a clear end state."
+            }
+          },
+          {
+            "name": "communication",
+            "weight": 0.15,
+            "description": "Explains the migration clearly and briefly.",
+            "anchors": {
+              "1": "The migration order is unclear.",
+              "3": "The plan is understandable.",
+              "5": "The classification, containment, and migration are concise and ordered."
+            }
+          }
+        ]
+      },
+      "answer_key": {
+        "strong_answer_outline": [
+          "Treat the new nullable field as generally backward compatible, but treat customer_id changing to string as breaking because new values may not convert to integers.",
+          "Keep the original payload, reject or quarantine unsafe transformed records rather than dropping them, and alert the data owner.",
+          "Adopt string as the canonical customer ID, provide a temporary compatibility field or view while the two models are updated, then replay and validate the affected records."
+        ],
+        "acceptable_alternatives": [
+          "A versioned output model or dual columns are both acceptable transition methods.",
+          "Pausing trusted publication is acceptable if raw ingestion continues and consumers are notified."
+        ],
+        "red_flags": [
+          "Casts every ID to integer and loses alphanumeric values.",
+          "Drops changed records.",
+          "Updates the schema without migrating or notifying consumers."
+        ]
+      }
+    }
+  ]
+}

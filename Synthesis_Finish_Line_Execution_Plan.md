@@ -58,8 +58,8 @@ Work should proceed in this order:
 
 Unless explicitly reauthorized:
 
-- Do not implement O*NET pgvector RAG.
-- Do not introduce Supabase persistence.
+- Do not implement O*NET vector-database RAG.
+- Do not introduce centralized database persistence or choose a provider.
 - Do not add authentication or user accounts.
 - Do not replace the local O*NET dictionary.
 - Do not change API contracts or case FSM behaviour.
@@ -152,9 +152,10 @@ evidence. Anything else is scope creep.
 
 **Important architectural truth**
 
-- O*NET RAG and Supabase pgvector are no longer part of the MVP architecture.
+- O*NET RAG and remote vector-database retrieval are not part of the MVP architecture.
 - O*NET is a committed local occupational dictionary, not a retrieval service.
-- Supabase authentication and database persistence are not required to finish the product.
+- Authentication and centralized persistence are not required to finish the
+  product; the future database provider is undecided.
 - The public Fit Analyzer currently uses `hybrid_0_25` when `EMBEDDINGS_ENABLED=true`,
   but the backend identity still needs to be made observable and truthful.
 - The strongest remaining academic gap is human validation, not another feature.
@@ -188,8 +189,8 @@ evidence. Anything else is scope creep.
 
 **Explicitly out of scope**
 
-- Supabase authentication, user accounts, and database-backed persistence.
-- O*NET pgvector RAG, ingestion pipelines, or n8n workflows.
+- Authentication, user accounts, and centralized database persistence.
+- O*NET vector-database RAG, ingestion pipelines, or n8n workflows.
 - Payments, subscriptions, dashboards, job-board integrations, and saved cloud histories.
 - Model fine-tuning or new model-provider integrations.
 - A fully conversational speech-to-speech interviewer.
@@ -249,7 +250,7 @@ not accidentally include them in the UX commit.
 >
 > Non-negotiable constraints:
 > - Preserve all APIs, scoring logic, response contracts, FSM transitions, voice hooks, and module behaviour.
-> - Do not modify `lib/matching*`, `lib/embeddings.ts`, validation scripts, API route logic, or Supabase migrations.
+> - Do not modify `lib/matching*`, `lib/embeddings.ts`, validation scripts, API route logic, or add provider-specific database files.
 > - Reuse existing content and real application states. Do not add fake metrics or placeholder functionality.
 > - Keep the app responsive and accessible.
 > - Prefer reusable components and design tokens over page-specific duplication.
@@ -331,7 +332,7 @@ git switch -c feroz/embedding-runtime-truth
 > 5. One concise server log confirms BGE load success; one concise warning records a categorized failure.
 > 6. Mock vectors remain available only for deterministic tests or explicit mock mode and can never be mislabeled as real semantic output.
 > 7. Add focused tests for embeddings disabled, BGE success through a mocked real embedder, forced load failure, forced inference failure, and API response compatibility.
-> 8. Do not add Supabase, auth, persistence, or unrelated refactors.
+> 8. Do not add auth, persistence, provider-specific database work, or unrelated refactors.
 >
 > Also assess the Vercel runtime packaging of `@xenova/transformers` and propose the
 > least risky deployment approach. Run typecheck, all tests, and build. Stop before
@@ -493,7 +494,7 @@ not accept "it builds on my machine" without the full gate set.
 - Check Vercel logs for timeouts, memory errors, module-not-found errors, and repeated model initialization.
 - Confirm no secrets or API keys appear in logs or client bundles.
 - Verify the model package is server-only and is not included in client JavaScript.
-- Confirm the deployment still works with no Anthropic or Supabase credentials where mock mode is intended.
+- Confirm the deployment still works without an Anthropic credential where mock mode is intended.
 - Check that the public demo does not expose internal validation files or local paths.
 
 **Code review checklist before merging any remaining branch**
@@ -529,7 +530,7 @@ oral claim should follow the current source of truth.
 | 6. UX and accessibility | Design system, responsive behaviour, error states, voice fallback. |
 | 7. Results | Automated tests, live journey results, validation outcomes, screenshots. |
 | 8. Limitations | Scoped families, voice accent sensitivity, Vercel/runtime constraints, no user accounts. |
-| 9. Pivot and learning | Why O*NET RAG/Supabase pgvector was explored and descoped. |
+| 9. Pivot and learning | Why the earlier O*NET RAG/Supabase pgvector approach was explored and abandoned. |
 | 10. Future work | Persistence, broader validation, file upload, richer voice, cloud accounts. |
 | 11. Team/process reflection | Role allocation, validation-driven decisions, source control, deployment lessons. |
 
@@ -553,7 +554,7 @@ oral claim should follow the current source of truth.
 - UX integration branch in progress or merged.
 - Embedding backend truth/fallback fix in progress or merged.
 - Human-validation sample prepared and rating underway.
-- O*NET RAG and Supabase persistence formally descoped from the MVP.
+- The earlier O*NET RAG and Supabase persistence approach was formally abandoned.
 - Risks: BGE serverless reliability, limited human-validation sample, accent sensitivity.
 
 **Progress report — 26 July**
@@ -618,7 +619,7 @@ rehearsal.
 | Human validation is too small | Medium | Medium | Fewer than 24 pairs by 23 Jul. | Complete 18 minimum with honest limitation; do not tune weights. |
 | Voice fails for accent or browser | High | Medium | Poor transcription or unsupported browser. | Keep manual input prominent; use rehearsed demo sentence; document limitation. |
 | Scope creep | High | High | New auth, persistence, upload, or data pipeline work starts before gates are green. | Move to Future Work; enforce code freeze. |
-| Report claims conflict with code | Medium | High | Old O*NET RAG/Supabase language remains. | Use single source of truth and final claim audit. |
+| Report claims conflict with code | Medium | High | Stale O*NET RAG or provider-specific database language remains. | Use single source of truth and final claim audit. |
 | Vercel redeploy introduces regression | Low-Medium | High | Production test fails after merge. | Use Preview first; preserve last known-good deployment; roll back. |
 | Last-minute demo network failure | Medium | High | Production unavailable or slow. | Prepare screenshots and a short screen recording; keep local app ready if permitted. |
 
@@ -715,7 +716,7 @@ rehearsal.
 > Verify: final main commit and clean working tree; PRs merged and Preview/Production
 > deployments; typecheck, all tests, and build; complete live journeys for Fit,
 > Behavioural, and Case; truthful `embedding_backend`/`method`/fallback behaviour;
-> voice manual fallback; responsive/accessibility basics; no Supabase/auth/O*NET-RAG
+> voice manual fallback; responsive/accessibility basics; no auth/database/O*NET-RAG
 > claims that contradict the code; no secrets, stale docs, dangling imports, or
 > accidental artifacts; report/slides claims match the repository and validation
 > evidence. Return a release table with PASS / FAIL / NOT VERIFIED, evidence,
@@ -728,7 +729,7 @@ rehearsal.
 > deployment evidence, validation outputs, and source-of-truth document.
 > Specifically flag: merged versus deployed versus production-hardened wording;
 > structured, embedding, and hybrid metric datasets being mixed; claims that
-> overstate role-fit or hiring suitability; O*NET RAG/Supabase language that no
+> overstate role-fit or hiring suitability; O*NET RAG/database-provider language that no
 > longer matches the architecture; voice capability being described as full
 > conversation rather than speech-to-text input; incomplete human validation being
 > described as complete; mock or fallback paths being presented as real model output.

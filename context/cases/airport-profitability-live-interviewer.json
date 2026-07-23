@@ -1,0 +1,117 @@
+{
+  "caseId": "airport_profitability",
+  "opening": {
+    "readinessPrompt": "Hello, I'll be your case interviewer today. We'll be working through the Airport Profitability case. Are you ready to begin?",
+    "casePrompt": "Our client is the CEO of a large regional airport. The airport currently earns significant revenue from aeronautical fees such as landing fees and passenger charges. The CEO wants to increase profitability by growing non-aeronautical revenue from retail, food and beverage, lounges, parking, and advertising. Non-aeronautical revenue currently represents 25% of total airport revenue, and the target is 35% within three years. The CEO would like to understand how data and AI can help achieve this target."
+  },
+  "stageSequence": [
+    "clarification",
+    "framework",
+    "analysis",
+    "data_reveal",
+    "pressure_test",
+    "recommendation",
+    "scoring"
+  ],
+  "stages": {
+    "clarification": {
+      "objective": "Let the candidate ask focused questions about scope, data, and constraints before structuring.",
+      "prompt": "What would you like to clarify before structuring your approach?",
+      "fallback": "Let's stay with clarification. What would you like to clarify before structuring your approach?"
+    },
+    "framework": {
+      "objective": "Elicit a pain-point-led structure that diagnoses commercial and passenger problems before proposing AI tools.",
+      "prompt": "How would you structure your approach to growing non-aeronautical revenue?",
+      "fallback": "Let's stay with your framework. How would you organise the main areas you would assess?"
+    },
+    "analysis": {
+      "objective": "Draw out data and AI ideas that raise retail revenue per passenger; accept any commercially valid idea.",
+      "prompt": "The CEO is particularly interested in improving airport retail. Brainstorm ways data and AI could increase retail revenue per passenger.",
+      "fallback": "Let's stay with the retail brainstorm. What other ways could data and AI lift retail revenue per passenger?"
+    },
+    "data_reveal": {
+      "objective": "Let the candidate develop passenger and revenue assumptions and interpret the revealed baseline.",
+      "prompt": "This is a major regional airport. Estimate how many passengers pass through on an average day, and use that to estimate potential daily retail revenue.",
+      "fallback": "Let's stay with the estimate. State your assumptions and walk me through the potential daily retail revenue."
+    },
+    "pressure_test": {
+      "objective": "Have the candidate quantify the uplift from a conversion improvement and interpret it.",
+      "prompt": "What is the revenue uplift if AI improves the international retail conversion rate by five percentage points?",
+      "fallback": "Let's stay with the uplift. Walk me through the additional buyers and revenue from that conversion gain."
+    },
+    "recommendation": {
+      "objective": "Elicit a concise CEO-level recommendation supported by the analysis.",
+      "prompt": "The CEO is ready for your recommendation. What should the airport do, and why?",
+      "fallback": "Please give the CEO a concise recommendation with priority initiatives, expected impact, risks, and a next step."
+    },
+    "scoring": {
+      "objective": "The live interview has concluded and remains unscored until post-call processing.",
+      "prompt": "The live case interview has concluded.",
+      "fallback": "The live case interview has concluded. A score is not available yet."
+    }
+  },
+  "frameworkExpectations": [
+    "Revenue growth across retail, food and beverage, lounges, parking, and advertising, including conversion, basket size, pricing, tenant mix, and demand",
+    "Cost and operational efficiency across staffing, inventory, maintenance, energy, and terminal operations",
+    "Passenger experience, including dwell time, queues, wayfinding, personalisation, loyalty, and satisfaction",
+    "Enablers and risks, including data availability and quality, privacy, tenant data sharing, implementation, change management, build versus buy, and ROI"
+  ],
+  "analysisPrompts": [
+    "Encourage personalised offers, targeted notifications, dynamic signage, basket-size and footfall optimisation, tenant-mix, segmentation, loyalty, pricing, and demand forecasting",
+    "Accept other commercially valid ideas and ask for implications rather than revealing a list"
+  ],
+  "clarificationFacts": [
+    {
+      "id": "clarification.objective",
+      "text": "The objective is to increase the non-aeronautical revenue share from 25% to 35% within three years."
+    },
+    {
+      "id": "clarification.passenger_volume",
+      "text": "Current annual passenger volume is not specified initially; you may estimate it or ask for data, stating your assumption."
+    },
+    {
+      "id": "clarification.passenger_mix",
+      "text": "The international-versus-domestic passenger mix is not specified before market sizing; state a reasonable assumption if you need one."
+    },
+    {
+      "id": "clarification.dwell_time",
+      "text": "Average dwell time is not specified; state an assumption or request data and explain how you would validate it."
+    },
+    {
+      "id": "clarification.spending_data",
+      "text": "Assume the airport holds transaction, flight, passenger-flow, parking, lounge, and tenant-sales data, but quality and integration vary."
+    },
+    {
+      "id": "clarification.underperforming_categories",
+      "text": "No single category is preselected; assess retail, food and beverage, lounges, parking, and advertising on their merits."
+    },
+    {
+      "id": "clarification.privacy",
+      "text": "Passenger data must comply with applicable privacy and consent requirements."
+    },
+    {
+      "id": "clarification.tenant_model",
+      "text": "Retail and food and beverage operators are third-party tenants, so data sharing may require commercial agreements."
+    },
+    {
+      "id": "clarification.unspecified_information",
+      "text": "That information is not specified. Please state a reasonable assumption and explain how you would validate it."
+    }
+  ],
+  "pressureTestPrompt": "Have the candidate reason through the incremental buyers and revenue from a conversion improvement without supplying the answer.",
+  "recommendationRequirements": [
+    "Whether data and AI can materially support the target",
+    "Two or three priority initiatives",
+    "Expected revenue impact",
+    "Implementation sequence and pilot",
+    "Data, tenant, privacy, and change-management requirements"
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_retail_baseline",
+      "title": "Airport Retail Baseline",
+      "stage": "data_reveal",
+      "order": 0
+    }
+  ]
+}

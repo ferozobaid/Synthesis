@@ -200,7 +200,7 @@ describe("POST /api/vapi/behavioural/report (end-of-call-report webhook)", () =>
       new Request("http://localhost/api/vapi/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ module: "case", caseId: "beautify" }),
+        body: JSON.stringify({ module: "case", caseId: "airport_profitability" }),
       }) as never,
     );
     const { sessionId } = await caseRes.json();

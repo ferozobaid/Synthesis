@@ -1,21 +1,90 @@
 /**
  * Voice (Vapi) session records.
  *
- * Vapi drives a live voice call and reaches the server through small tool-call
- * webhooks — it cannot ferry the full session object the way the browser does
- * (see app/behavioural/page.tsx / app/case/page.tsx). So the server owns the
- * session, keyed by id in Redis, and these records wrap the *existing* live-plane
- * session types unchanged. Server (live) plane only; never imported by client code.
+ * Vapi drives a live voice call while the server owns the durable interview
+ * session, keyed by id in Redis. Behavioural uses post-call reporting; Case uses
+ * a custom-LLM turn loop. These records wrap the existing live-plane session
+ * types unchanged. Server (live) plane only; never imported by client code.
  */
 import type {
+  CaseAction,
+  CaseExhibit,
+  CaseScore,
   BehaviouralQuestion,
   BehaviouralSession,
   CaseSessionState,
+  CaseState,
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
+import type { FrameworkProbeObjective } from "@/lib/fsm/case-framework";
+import type {
+  CaseInterviewerCandidateAction,
+} from "@/lib/voice/case-interviewer";
+import type { CaseVoiceInterviewerMode } from "@/lib/voice/case-interviewer-mode";
+import type { CaseVoiceArchitecture } from "@/lib/voice/case-native-config";
+import type { NormalizedVoiceTranscriptTurn } from "@/lib/voice/transcript";
 
 /** Lifecycle of the post-call scoring report for a behavioural voice session. */
 export type ReportStatus = "pending" | "processing" | "done" | "failed";
+
+export type CaseReportStage =
+  | "clarification"
+  | "framework"
+  | "analysis"
+  | "data_reveal"
+  | "pressure_test"
+  | "recommendation";
+
+export type CaseReportDimension =
+  | "structure"
+  | "hypothesis_driven_thinking"
+  | "quantitative_reasoning"
+  | "synthesis"
+  | "communication";
+
+export interface CasePostCallDimensionScore {
+  dimension: CaseReportDimension;
+  score: number | null;
+  justification: string;
+  evidence: string | null;
+}
+
+export interface CasePostCallStageFeedback {
+  stage: CaseReportStage;
+  kind: "strength" | "improvement";
+  text: string;
+}
+
+export interface CasePostCallScore {
+  dimension_scores: CasePostCallDimensionScore[];
+  /** Null for partial reports: no synthetic overall score is inferred from missing stages. */
+  overall: number | null;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  next_focus: string[];
+  /** Backend stage association used to scope partial-report projection. */
+  stage_feedback: CasePostCallStageFeedback[];
+  improved_framework_outline: string[] | null;
+  improved_recommendation_outline: string[] | null;
+  quantitative_assessment: string | null;
+}
+
+export interface CasePostCallReport {
+  partial: boolean;
+  observedStages: CaseReportStage[];
+  /** Backend-only completed-stage set used for partial feedback scoping. */
+  answeredStages: CaseReportStage[];
+  missingStages: CaseReportStage[];
+  /** Backend-only safe classification; omitted from the public polling projection. */
+  partialReasons: Array<
+    | "missing_anchor"
+    | "missing_candidate_response"
+    | "transcript_truncated"
+    | "unusable_transcript"
+  >;
+  score: CasePostCallScore;
+}
 
 /** A behavioural voice session: the existing session plus the server-owned cursor. */
 export interface BehaviouralVoiceSession {
@@ -51,11 +120,144 @@ export interface BehaviouralVoiceSession {
 }
 
 /** A case voice session: the existing FSM session state plus the case id. */
+export interface CaseVoiceToolResponse {
+  spokenText: string;
+  stage: CaseState | null;
+  stageIndex: number;
+  action: CaseAction | "retry" | null;
+  exhibit: CaseExhibit | null;
+  complete: boolean;
+  score: CaseScore | null;
+  turnSeq: number;
+  duplicate?: boolean;
+  error?: string;
+  retryable?: boolean;
+  retryCount?: number;
+  maxRetries?: number;
+}
+
+/** One durable Case exchange. Candidate and interviewer text are committed together. */
+export interface CaseVoiceProjectedTurn {
+  turnSeq: number;
+  candidateText: string;
+  interviewerText: string;
+  stage: CaseState;
+  stageBefore?: CaseState;
+  stageAfter?: CaseState;
+  candidateAction?: CaseInterviewerCandidateAction;
+  action: CaseAction | "conversation" | "fallback";
+  scorable?: boolean;
+  exhibit: CaseExhibit | null;
+  timestamp: string;
+}
+
+export type CaseVoiceModelAction = CaseAction | "readiness" | "conversation" | "fallback" | "suppressed";
+
+/** Cached backend result for one OpenAI-compatible custom-LLM request. */
+export interface CaseVoiceModelResponse {
+  spokenText: string;
+  stage: CaseState;
+  action: CaseVoiceModelAction;
+  exhibit: CaseExhibit | null;
+  complete: boolean;
+  score: CaseScore | null;
+  turnSeq: number;
+  suppressed?: boolean;
+}
+
+/** One not-yet-evaluated Vapi candidate revision awaiting a short stability window. */
+export interface CaseVoicePendingCandidate {
+  requestKey: string;
+  /** Candidate slot identity derived from prior conversation context, never message id alone. */
+  logicalTurnKey?: string;
+  requestId: string | null;
+  messageId: string | null;
+  callId: string;
+  stage: CaseState;
+  candidateText: string;
+  normalizedText: string;
+  messageCount: number;
+  receivedAt: number;
+  updatedAt: number;
+  /** LLM revisions alias superseded requests to the final non-empty response. */
+  supersededRequestKeys?: string[];
+}
+
+export interface CaseVoiceProcessedLogicalTurn {
+  requestKey: string;
+  messageId: string | null;
+  stage: CaseState;
+  candidateText: string;
+  normalizedText: string;
+  processedAt: number;
+  result: CaseVoiceModelResponse;
+}
+
 export interface CaseVoiceSession {
   module: "case";
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Snapshotted candidate-facing selection metadata (backend-derived). */
+  selectedCaseTitle?: string;
+  selectedCaseDescription?: string;
+  /** Snapshotted live architecture. Missing on old sessions resolves to custom_llm. */
+  architecture?: CaseVoiceArchitecture;
+  orchestrationVersion?: string;
+  /** Server-selected native assistant contract. Never accepted from the browser. */
+  expectedAssistantId?: string | null;
+  assistantConfigVersion?: string | null;
+  stageAnchorVersion?: string | null;
+  /** Native post-call report capability and lifecycle. */
+  reportTokenHash?: string;
+  reportStatus?: ReportStatus;
+  reportAttempt?: number;
+  reportFencingToken?: string | null;
+  reportProcessingStartedAt?: string | null;
+  authoritativeCallId?: string | null;
+  normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
+  finalReport?: CasePostCallReport | null;
+  reportErrorCode?: string | null;
+  /** Architecture is frozen at bootstrap; absent means legacy. */
+  interviewerMode?: CaseVoiceInterviewerMode;
+  interviewerVersion?: string;
+  /** Checkpoint A terminal state: concluded but intentionally unscored. */
+  liveStatus?: "active" | "concluded_unscored";
+  concludedAt?: string | null;
+  /** Spoken pre-case opening; authored prompt is appended only after readiness. */
+  openingText?: string;
+  /** Readiness is outside the scored FSM and never creates a projected Case turn. */
+  readinessStatus?: "awaiting" | "confirmed";
+  readinessConfirmedAt?: string | null;
+  /** Voice-only conversational state; never changes the Case FSM or score. */
+  conversationStatus?: "active" | "paused";
+  /** Bound to the first valid Vapi call id that successfully advances the session. */
+  callId?: string | null;
+  /** Monotonic sequence for backend-authored interviewer turns returned to Vapi. */
+  turnSeq?: number;
+  /** Monotonic processed speech sequence, including non-scored conversational replies. */
+  responseSeq?: number;
+  /** Final score once the wrapped CaseSessionState reaches scoring. */
+  score?: CaseScore | null;
+  /** Cached Vapi tool-call results keyed by `${callId}:${toolCallId}`. */
+  processedToolCalls?: Record<string, CaseVoiceToolResponse>;
+  /** Cached custom-LLM results keyed by a stable call/message-history digest. */
+  processedModelRequests?: Record<string, CaseVoiceModelResponse>;
+  /** Logical candidate slots prevent late revisions from advancing the FSM twice. */
+  processedLogicalTurns?: Record<string, CaseVoiceProcessedLogicalTurn>;
+  /** Candidate text held briefly so progressive Vapi revisions replace rather than advance. */
+  pendingCandidate?: CaseVoicePendingCandidate | null;
+  /** Last bounded Framework objective, used to prevent equivalent repeated probes. */
+  lastProbeObjective?: FrameworkProbeObjective | null;
+  /** LLM-only probe controls. */
+  probedAnswerHashes?: Partial<Record<CaseState, string[]>>;
+  stageProbeCounts?: Partial<Record<CaseState, number>>;
+  /** Permanent browser transcript source, ordered by turnSeq. */
+  projectedTurns?: CaseVoiceProjectedTurn[];
+  /** SHA-256 (hex) of the bootstrap projection token; raw token is client-only. */
+  projectionTokenHash?: string;
+  /** Invalid answer retries returned to Vapi without mutating the Case FSM session. */
+  invalidRetries?: number;
   createdAt: string;
   updatedAt: string;
 }

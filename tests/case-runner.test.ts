@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { respondToCase, startCase } from "@/lib/fsm/case-runner";
+import { initSession } from "@/lib/fsm/case-fsm";
 import beautify from "@/context/cases/beautify.json";
+import diconsa from "@/context/cases/diconsa.json";
 import type { CaseRecord, CaseSessionState, CaseState } from "@/lib/types";
 
 const c = beautify as unknown as CaseRecord;
+const dc = diconsa as unknown as CaseRecord;
 
 const ANSWERS: Record<CaseState, string> = {
   intro:
@@ -81,6 +84,66 @@ describe("case runner (full mock session)", () => {
     const strong = await respondToCase(c, weak.session, ANSWERS.framework);
     expect(strong.decision.action).toBe("advance");
     expect(strong.stage).toBe("analysis");
+  });
+
+  it("evaluates one compound-turn remainder at the validated next stage", async () => {
+    const clarification = {
+      ...initSession("user-1", c.id),
+      fsm_state: "clarification" as const,
+    };
+    const framework =
+      "I would structure external demand and channel dynamics, internal brand and technology capability, and economics through costs, margins and payback.";
+
+    const result = await respondToCase(c, clarification, framework, {
+      transitionBeforeEvaluation: "framework",
+    });
+
+    expect(result.stage).toBe("analysis");
+    expect(result.decision.action).toBe("advance");
+    expect(result.session.history.filter((turn) => turn.role === "candidate")).toEqual([
+      { role: "candidate", stage: "framework", text: framework },
+    ]);
+  });
+
+  it("rejects compound transitions that skip the immediate next FSM stage", async () => {
+    const clarification = {
+      ...initSession("user-1", c.id),
+      fsm_state: "clarification" as const,
+    };
+
+    await expect(respondToCase(c, clarification, ANSWERS.framework, {
+      transitionBeforeEvaluation: "analysis",
+    })).rejects.toThrow("Invalid Case stage transition: clarification -> analysis");
+  });
+
+  it("advances a semantically complete Diconsa Framework through the same runner", async () => {
+    const frameworkSession = {
+      ...initSession("user-1", dc.id),
+      fsm_state: "framework" as const,
+    };
+    const answer =
+      "I would structure three branches: rural-recipient access, travel time and security; value to government, the bank and Diconsa through lower administration cost and store traffic; and operational feasibility including capacity, fraud and decentralized control.";
+
+    const result = await respondToCase(dc, frameworkSession, answer);
+
+    expect(result.decision.action).toBe("advance");
+    expect(result.stage).toBe("analysis");
+  });
+
+  it("keeps an incomplete Diconsa Framework in-stage", async () => {
+    const frameworkSession = {
+      ...initSession("user-1", dc.id),
+      fsm_state: "framework" as const,
+    };
+
+    const result = await respondToCase(
+      dc,
+      frameworkSession,
+      "I would structure two branches: rural-recipient access and travel time; operational feasibility, capacity and fraud risk.",
+    );
+
+    expect(result.decision.action).toBe("probe");
+    expect(result.stage).toBe("framework");
   });
 
   it("never skips scoring — completion only happens in the scoring state", async () => {

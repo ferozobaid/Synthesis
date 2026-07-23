@@ -1,0 +1,116 @@
+{
+  "id": "gcc_premium_gym_market_entry",
+  "title": "GCC Premium Gym Market Entry",
+  "firm": "Data & AI Consulting",
+  "type": "market entry / strategy",
+  "prompt": "Our client is a leading European premium gym chain with more than 400 locations across Western Europe. It operates a mid- to high-end model, with monthly memberships ranging from EUR 60 to EUR 120, premium equipment, personal training and digital wellness services. The CEO is considering entering the Gulf Cooperation Council market, initially focusing on Saudi Arabia and the UAE, and has asked us to assess whether the company should enter the GCC gym market and, if so, where, when and through which entry model.",
+  "content": "A European premium gym chain is weighing entry into the GCC, starting with Saudi Arabia and the UAE, and the appropriate entry strategy. Backend-only record: hidden market-sizing and locations answers live in quant; the preferred sequencing and entry-mode recommendation live in target_solution_notes; the Dubai inputs exhibit exposes only candidate-facing inputs.",
+  "stages": [
+    {
+      "id": "intro",
+      "objective": "Candidate restates the objective and decision in their own words.",
+      "interviewer_prompt": "Walk me through how you understand the client's situation and what we are being asked to decide.",
+      "advance_criteria": "Frames the decision: whether, where, when, and how to enter the GCC gym market.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "clarification",
+      "objective": "Let the candidate ask focused questions about success, scope, entry modes, and constraints.",
+      "interviewer_prompt": "What would you like to clarify before structuring your approach?",
+      "advance_criteria": "Asks targeted questions about success definition, geographic scope, entry modes, and payback expectation.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "framework",
+      "objective": "Elicit a structure covering market attractiveness before entry mode.",
+      "interviewer_prompt": "How would you structure your approach to this market-entry decision?",
+      "advance_criteria": "Covers market attractiveness, competition, entry strategy, financial viability, and risks.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "analysis",
+      "objective": "Explore market attractiveness and how to handle low-cost competition.",
+      "interviewer_prompt": "The CEO is concerned about low-cost gyms charging roughly a quarter of the client's premium price. How should the client evaluate this competitive threat, and what would you recommend?",
+      "advance_criteria": "Reasons about segmentation, differentiation, and defensible premium positioning; accepts other valid ideas.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "data_reveal",
+      "objective": "Estimate the total addressable premium gym market in Dubai using the revealed inputs.",
+      "interviewer_prompt": "Estimate the total addressable premium gym market in Dubai for this client.",
+      "advance_criteria": "Develops assumptions, interprets the revealed inputs, and works to a defensible TAM.",
+      "data_drops": ["exhibit_dubai_premium_inputs"],
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "pressure_test",
+      "objective": "Assess how many locations are needed for a market-share target and whether it is achievable.",
+      "interviewer_prompt": "If the client targets a defined share of the Dubai premium-gym market by year three, how many locations would it need, and is that achievable?",
+      "advance_criteria": "Reasons through required revenue, per-location economics, and operational feasibility.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "recommendation",
+      "objective": "Deliver a clear CEO-level market-entry recommendation.",
+      "interviewer_prompt": "The CEO is ready for your recommendation. Should the client enter, and if so, where, when, and how?",
+      "advance_criteria": "Clear enter/not-enter, country sequencing, entry mode, target customer, economics, risks, and a pilot.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "scoring",
+      "objective": "Terminal stage. The live interview concludes unscored.",
+      "interviewer_prompt": "Thank you. That concludes the live case interview.",
+      "advance_criteria": "n/a",
+      "probe_bank": [],
+      "hint_ladder": []
+    }
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_dubai_premium_inputs",
+      "title": "Dubai Premium Gym Market Inputs",
+      "stage": "data_reveal",
+      "synthesized": true,
+      "data": {
+        "dubai_population": 3500000,
+        "target_demographic_share_pct": 30,
+        "gym_penetration_pct": 15,
+        "premium_segment_share_pct": 25,
+        "avg_monthly_membership_usd": 120
+      }
+    }
+  ],
+  "quant": {
+    "stage": "data_reveal",
+    "question": "Estimate the total addressable premium gym market in Dubai, and the locations needed for the share target by year three.",
+    "solution_steps": [
+      "Target demographic pool = 3,500,000 x 30% = 1,050,000.",
+      "Gym members = 1,050,000 x 15% = 157,500.",
+      "Premium members = 157,500 x 25% = 39,375.",
+      "Annual revenue per member = $120 x 12 = $1,440.",
+      "TAM = 39,375 x $1,440 = approximately $56,700,000 (call it $50-60 million).",
+      "A 10% share = approximately $5,700,000; at approximately $720,000 of annual revenue per location, that is approximately 8 locations."
+    ],
+    "answer": "The total addressable premium gym market in Dubai is approximately $56.7 million a year. The share target implies approximately $5.7 million of revenue, approximately $720,000 of annual revenue per location, and approximately 8 locations.",
+    "answer_value": 8,
+    "tolerance": 0.5
+  },
+  "scoring_rubric": {
+    "scale": "1-5 per dimension",
+    "dimensions": [
+      { "name": "structure", "weight": 0.2, "description": "Assesses market attractiveness before entry mode; MECE structure tailored to the market-entry decision.", "anchors": { "1": "Jumps straight to entry mode.", "3": "Reasonable but partly generic buckets.", "5": "Tailored structure covering attractiveness, competition, entry, economics, and risk." } },
+      { "name": "hypothesis", "weight": 0.2, "description": "Forms and tests a clear point of view on whether and how to enter.", "anchors": { "1": "No hypothesis.", "3": "Implicit, weakly tested.", "5": "Explicit, evidence-driven, refined as data arrives." } },
+      { "name": "quant", "weight": 0.2, "description": "Correct TAM and locations math with clear narration.", "anchors": { "1": "Math wrong or not attempted.", "3": "Right approach, arithmetic slips.", "5": "Correct TAM and required locations with talked-through steps." } },
+      { "name": "synthesis", "weight": 0.2, "description": "Turns analysis into a clear entry recommendation with sequencing and mode.", "anchors": { "1": "No synthesis.", "3": "Under-supported recommendation.", "5": "Crisp recommendation with sequencing, mode, economics, risks, and next steps." } },
+      { "name": "communication", "weight": 0.2, "description": "Structured, concise, top-down delivery; drives to a clear position.", "anchors": { "1": "Rambling or hedged.", "3": "Clear but buries the answer.", "5": "Answer-first and executive-ready." } }
+    ]
+  },
+  "target_solution_notes": "Yes, the client should enter the GCC market, sequenced carefully. Enter the UAE first through a wholly owned model in Dubai, targeting the expatriate and premium local consumer as a proof of concept, then enter Saudi Arabia in year two, potentially through a joint venture with a local operator such as Leejam Sports to leverage market knowledge and real-estate relationships. Differentiate on the integrated wellness experience rather than price. Flag execution risk on digital-platform localisation, premium real-estate cost, and cultural adaptation, and validate with a phased pilot before scaling."
+}

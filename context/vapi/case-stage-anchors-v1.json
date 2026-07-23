@@ -1,0 +1,31 @@
+{
+  "version": "case-stage-anchors-v1",
+  "requiredStages": [
+    "clarification",
+    "framework",
+    "analysis",
+    "data_reveal",
+    "pressure_test",
+    "recommendation"
+  ],
+  "cases": {
+    "airport_profitability": {
+      "openingAnchor": "Our client is the CEO of a large regional airport.",
+      "clarification": "Before you structure your approach, what would you like to clarify?",
+      "framework": "How would you structure your approach to this problem?",
+      "analysis": "The CEO is particularly interested in improving airport retail. Brainstorm ways data and AI could increase retail revenue per passenger.",
+      "data_reveal": "I am now sharing the Airport Retail Baseline. Using these inputs, estimate the potential daily retail revenue.",
+      "pressure_test": "What is the revenue uplift if AI improves the international retail conversion rate by five percentage points?",
+      "recommendation": "The CEO is ready for your recommendation. What should the airport do?"
+    },
+    "gcc_premium_gym_market_entry": {
+      "openingAnchor": "Our client is a leading European premium gym chain.",
+      "clarification": "Before you structure your approach, what would you like to clarify?",
+      "framework": "How would you structure your approach to this market-entry decision?",
+      "analysis": "The CEO is concerned about low-cost gyms charging roughly a quarter of the client's premium price. How should the client evaluate this competitive threat?",
+      "data_reveal": "I am now sharing the Dubai Premium Gym Market Inputs. Use these inputs to estimate the annual premium gym market in Dubai.",
+      "pressure_test": "If the client targets ten percent of the Dubai premium gym market by year three, how many locations would it need, and is that achievable?",
+      "recommendation": "The CEO is ready for your recommendation. Should the client enter, and if so, where, when, and how?"
+    }
+  }
+}

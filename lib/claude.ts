@@ -10,14 +10,37 @@
  *    for Next.js route handlers.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
 import { activeModel, useMocks } from "@/lib/config";
 import { mockComplete, mockStream } from "@/lib/__mocks__/claude";
+
+export type CompleteOutputSchema = Record<string, unknown> & { type: "object" };
 
 export interface CompleteOpts {
   system?: string;
   maxTokens?: number;
   temperature?: number;
   model?: string;
+  /** Optional native Claude JSON-schema output constraint. */
+  outputSchema?: CompleteOutputSchema;
+  /** Optional per-request controls. Existing callers retain SDK defaults. */
+  timeoutMs?: number;
+  maxRetries?: number;
+}
+
+export type ClaudeCompletionStopReason =
+  | "end_turn"
+  | "max_tokens"
+  | "stop_sequence"
+  | "tool_use"
+  | "pause_turn"
+  | "refusal";
+
+export interface ClaudeCompletionResult {
+  text: string;
+  stopReason: ClaudeCompletionStopReason | null;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 let _client: Anthropic | null = null;
@@ -26,17 +49,51 @@ function client(): Anthropic {
   return _client;
 }
 
-/** Non-streaming completion → concatenated text. Used for scoring / structured parse. */
-export async function complete(prompt: string, opts: CompleteOpts = {}): Promise<string> {
-  if (useMocks()) return mockComplete(prompt, opts);
+/**
+ * Non-streaming completion with safe response metadata. Callers that do not
+ * need stop/usage details should continue using complete().
+ */
+export async function completeWithMetadata(
+  prompt: string,
+  opts: CompleteOpts = {},
+): Promise<ClaudeCompletionResult> {
+  if (useMocks()) {
+    return {
+      text: await mockComplete(prompt, opts),
+      stopReason: null,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
   const model = opts.model ?? activeModel();
-  const res = await client().messages.create({
-    model,
-    max_tokens: opts.maxTokens ?? 1500,
-    temperature: opts.temperature ?? 0,
-    system: opts.system,
-    messages: [{ role: "user", content: prompt }],
-  });
+  // The GA helper rewrites unsupported JSON Schema constraints into the subset
+  // accepted by Anthropic before the request is serialized.
+  const outputFormat = opts.outputSchema
+    ? jsonSchemaOutputFormat(opts.outputSchema)
+    : null;
+  const res = await client().messages.create(
+    {
+      model,
+      max_tokens: opts.maxTokens ?? 1500,
+      temperature: opts.temperature ?? 0,
+      system: opts.system,
+      messages: [{ role: "user", content: prompt }],
+      ...(outputFormat
+        ? {
+            output_config: {
+              format: {
+                type: outputFormat.type,
+                schema: outputFormat.schema,
+              },
+            },
+          }
+        : {}),
+    },
+    {
+      ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+      ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+    },
+  );
   // Opt-in real-mode usage logging for cost/verification. Off by default; never reached
   // in mock mode (returns above). No effect on the response shape. See SYNTHESIS_LOG_USAGE.
   if (process.env.SYNTHESIS_LOG_USAGE === "true") {
@@ -44,7 +101,17 @@ export async function complete(prompt: string, opts: CompleteOpts = {}): Promise
       `[synthesis usage] model=${model} input_tokens=${res.usage.input_tokens} output_tokens=${res.usage.output_tokens}`,
     );
   }
-  return res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  return {
+    text: res.content.map((b) => (b.type === "text" ? b.text : "")).join(""),
+    stopReason: res.stop_reason,
+    inputTokens: res.usage.input_tokens,
+    outputTokens: res.usage.output_tokens,
+  };
+}
+
+/** Non-streaming completion → concatenated text. Used for scoring / structured parse. */
+export async function complete(prompt: string, opts: CompleteOpts = {}): Promise<string> {
+  return (await completeWithMetadata(prompt, opts)).text;
 }
 
 /** Streaming completion → web ReadableStream of UTF-8 text (for route handlers). */
