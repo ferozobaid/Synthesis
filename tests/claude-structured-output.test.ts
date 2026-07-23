@@ -94,6 +94,7 @@ describe("Anthropic GA structured-output request", () => {
     });
     expect(request).not.toHaveProperty("output_format");
     expect(request).not.toHaveProperty("betas");
+    expect(CASE_INTERVIEWER_TIMEOUT_MS).toBe(2_500);
     expect(requestOptions).toEqual({
       timeout: CASE_INTERVIEWER_TIMEOUT_MS,
       maxRetries: CASE_INTERVIEWER_MAX_RETRIES,

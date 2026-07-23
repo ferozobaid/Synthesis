@@ -1542,7 +1542,7 @@ export async function scoreCasePostCall(
       maxTokens: 1_800,
       outputSchema: CASE_POST_CALL_OUTPUT_SCHEMA,
       maxRetries: 0,
-      timeoutMs: 20_000,
+      timeoutMs: 60_000,
     });
     const diagnostic = responseDiagnostic(completion);
     if (completion.stopReason === "max_tokens" || completion.stopReason === "refusal") {

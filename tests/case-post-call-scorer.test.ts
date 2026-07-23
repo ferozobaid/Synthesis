@@ -356,6 +356,7 @@ describe("Case post-call exact model dimension contract", () => {
     expect(completeMock.mock.calls[0][1]).toMatchObject({
       model: "claude-haiku-4-5",
       temperature: 0,
+      timeoutMs: 60_000,
       maxRetries: 0,
       outputSchema: CASE_POST_CALL_OUTPUT_SCHEMA,
     });
@@ -1838,10 +1839,17 @@ describe("Case post-call safe model failure classification", () => {
     expect(result?.modelDiagnostic.anthropicErrorType).toBe("not_found_error");
   });
 
-  it("classifies an SDK timeout", async () => {
-    await expectFailure("timeout", () => {
+  it("uses the extended one-call contract and still falls back safely on timeout", async () => {
+    const result = await expectFailure("timeout", () => {
       completeMock.mockRejectedValueOnce(new APIConnectionTimeoutError());
     });
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      model: "claude-haiku-4-5",
+      timeoutMs: 60_000,
+      maxRetries: 0,
+    });
+    expect(result?.report.score.summary).toContain("complete case sequence");
   });
 
   it("classifies an SDK network error", async () => {
