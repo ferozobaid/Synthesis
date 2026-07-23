@@ -27,6 +27,7 @@ import {
   CASE_REPORT_STAGES,
   caseStageAnchorManifest,
   mapCaseTranscript,
+  type MappedCaseTranscript,
 } from "@/lib/voice/case-transcript";
 import { CASE_VOICE_STAGE_ANCHOR_VERSION } from "@/lib/voice/case-native-config";
 import { normalizeVoiceTranscript } from "@/lib/voice/transcript";
@@ -104,6 +105,18 @@ function mappedStages(stages: Array<(typeof CASE_REPORT_STAGES)[number]>) {
   )!;
 }
 
+function addAssistantNumericInput(
+  mapped: MappedCaseTranscript,
+  stage: (typeof CASE_REPORT_STAGES)[number],
+  text: string,
+) {
+  const turn = mapped.turns.find((candidate) =>
+    candidate.role === "assistant" && candidate.stage === stage,
+  );
+  if (!turn) throw new Error(`Missing ${stage} assistant turn.`);
+  turn.text = `${turn.text} ${text}`;
+}
+
 function qualitativeProposal(
   rows: Array<{ dimension: string; score: number | null }> = validRows(),
   overrides: Record<string, unknown> = {},
@@ -146,7 +159,7 @@ function proposalObject(
 
 function expectValidationIssue(
   raw: unknown,
-  mapped: ReturnType<typeof mappedFullTranscript>,
+  mapped: MappedCaseTranscript,
   expectedPath: (typeof CASE_POST_CALL_VALIDATION_PATHS)[number],
   expectedReason: (typeof CASE_POST_CALL_VALIDATION_REASONS)[number],
   expectedType?: (typeof CASE_POST_CALL_VALIDATION_RECEIVED_TYPES)[number],
@@ -320,6 +333,9 @@ describe("Case post-call exact model dimension contract", () => {
       expect.stringContaining("no more than 4 strengths"),
       expect.stringContaining("no more than 12 stageFeedback entries"),
       expect.stringContaining("no more than 320 characters"),
+      expect.stringContaining("Dimension rationales must be entirely qualitative"),
+      expect.stringContaining("only prose field that may discuss numbers"),
+      expect.stringContaining("protected expected answers, hidden calculations"),
     ]));
     expect(prompt.outputRules.partialReport).toEqual(expect.arrayContaining([
       expect.stringContaining("rationale may be an empty string"),
@@ -996,6 +1012,148 @@ describe("Case post-call proposal validation diagnostics", () => {
       "empty",
       "string",
     );
+  });
+
+  it.each([
+    ["digits", "The response referenced 5 commercial levers."],
+    ["number words", "The response referenced five commercial levers."],
+    ["percentages", "The response referenced 5 percent growth."],
+    ["currencies", "The response referenced $50 of value."],
+    ["dimension-score wording", "The response merits four out of five."],
+    ["stage-count wording", "The response covered six stages."],
+  ])("rejects %s in qualitative dimension rationales", (_label, rationale) => {
+    const proposal = proposalObject();
+    proposal.dimensionScores[0].rationale = rationale;
+    expectValidationIssue(
+      proposal,
+      mappedFullTranscript(),
+      "dimensionScores.item.rationale",
+      "unsafe_numeric_claim",
+      "string",
+    );
+  });
+
+  it.each([
+    ["overallSummary", (proposal: Record<string, any>) => { proposal.overallSummary = "The response covered 6 stages."; }],
+    ["strengths", (proposal: Record<string, any>) => { proposal.strengths = ["The response used 5 clear ideas."]; }],
+    ["improvements", (proposal: Record<string, any>) => { proposal.improvements = ["Add 2 clearer hypotheses."]; }],
+    ["stageFeedback", (proposal: Record<string, any>) => { proposal.stageFeedback = [{ stage: "framework", kind: "strength", text: "The framework had 3 clear areas." }]; }],
+    ["frameworkOutline", (proposal: Record<string, any>) => { proposal.improvedFrameworkOutline = ["Start with 3 workstreams."]; }],
+    ["recommendationOutline", (proposal: Record<string, any>) => { proposal.improvedRecommendationOutline = ["Name 2 implementation risks."]; }],
+  ])("rejects numerical claims in qualitative %s", (_label, mutate) => {
+    const proposal = proposalObject();
+    mutate(proposal);
+    expectValidationIssue(
+      proposal,
+      mappedFullTranscript(),
+      _label as any,
+      "unsafe_numeric_claim",
+      "string",
+    );
+  });
+
+  it("keeps structured dimension scores while rejecting numerical prose", () => {
+    const result = validateCasePostCallModelProposal(
+      proposalObject(validRows(4)),
+      mappedFullTranscript(),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.dimensionScores.map((item) => item.score)).toEqual([4, 4, 4, 4, 4]);
+  });
+
+  it("accepts candidate-stated numbers in the quantitative assessment", () => {
+    const mapped = mappedFullTranscript();
+    const candidate = mapped.turns.find((turn) =>
+      turn.role === "candidate" && turn.stage === "data_reveal",
+    )!;
+    candidate.text = "I would use 777 passengers as the starting assumption.";
+    const proposal = proposalObject(validRows(), {
+      quantitativeAssessment: "The assessment used the candidate-stated 777-passenger assumption.",
+    });
+    const result = validateCasePostCallModelProposal(proposal, mapped, getVoiceLlmCaseRecord(AIRPORT)!);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts candidate-visible opening numbers in the quantitative assessment", () => {
+    const proposal = proposalObject(validRows(), {
+      quantitativeAssessment: "The assessment connected the stated 25 percent starting share to the case objective.",
+    });
+    const result = validateCasePostCallModelProposal(
+      proposal,
+      mappedFullTranscript(),
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts canonical equivalents of spoken data-reveal and pressure-test inputs", () => {
+    const mapped = mappedFullTranscript();
+    addAssistantNumericInput(mapped, "data_reveal", "The baseline includes 60,000 international passengers.");
+    addAssistantNumericInput(mapped, "pressure_test", "Consider a five percentage point conversion improvement.");
+    const proposal = proposalObject(validRows(), {
+      quantitativeAssessment: "The assessment used sixty thousand international passengers and a 5 percent conversion improvement.",
+    });
+    const result = validateCasePostCallModelProposal(proposal, mapped, getVoiceLlmCaseRecord(AIRPORT)!);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects unsupported, protected final-answer, and hidden-derived numbers", () => {
+    const caseRecord = getVoiceLlmCaseRecord(AIRPORT)!;
+    const mapped = mappedFullTranscript();
+    for (const quantitativeAssessment of [
+      "The assessment used 999 passengers.",
+      "The assessment reached 4,240,000 in daily revenue.",
+      "The assessment calculated 24,000 buyers.",
+    ]) {
+      const proposal = proposalObject(validRows(), { quantitativeAssessment });
+      expectValidationIssue(
+        proposal,
+        mapped,
+        "quantitativeAssessment",
+        "unsafe_numeric_claim",
+        "string",
+      );
+      expect(caseRecord.quant?.answer).toContain("4,240,000");
+    }
+  });
+
+  it("applies the same grounded numeric policy to partial quantitative assessments", () => {
+    const mapped = mappedStages(["data_reveal"]);
+    addAssistantNumericInput(mapped, "data_reveal", "The baseline includes 60,000 international passengers.");
+    const accepted = validateCasePostCallModelProposal(
+      proposalObject(validRows(), {
+        quantitativeAssessment: "The assessment used sixty thousand international passengers.",
+      }),
+      mapped,
+      getVoiceLlmCaseRecord(AIRPORT)!,
+    );
+    expect(accepted.ok).toBe(true);
+
+    expectValidationIssue(
+      proposalObject(validRows(), { quantitativeAssessment: "The assessment used 999 passengers." }),
+      mapped,
+      "quantitativeAssessment",
+      "unsafe_numeric_claim",
+      "string",
+    );
+  });
+
+  it("keeps a grounded quantitative assessment through the one-call model result", async () => {
+    process.env.SYNTHESIS_USE_MOCKS = "false";
+    const mapped = mappedFullTranscript();
+    addAssistantNumericInput(mapped, "data_reveal", "The baseline includes 60,000 international passengers.");
+    completeMock.mockResolvedValueOnce(completion(qualitativeProposal(validRows(), {
+      quantitativeAssessment: "The assessment used sixty thousand international passengers.",
+    })));
+
+    const result = await scoreCasePostCall(getVoiceLlmCaseRecord(AIRPORT)!, mapped);
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scorerOutcome).toBe("model");
+    expect(result.report.score.quantitative_assessment).toContain("sixty thousand");
   });
 
   it("shortens otherwise-safe model text without changing dimensions or scores", async () => {

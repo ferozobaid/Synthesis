@@ -18,7 +18,12 @@ import {
   type CaseDimension,
 } from "@/lib/fsm/case-evaluator";
 import { MODEL_IDS, type CaseRecord } from "@/lib/types";
-import { canonicalNumericClaims } from "@/lib/voice/case-protected-numbers";
+import {
+  canonicalNumericClaims,
+  canonicalNumericClaimsFromData,
+  canonicalNumericClaimsMatch,
+  type CanonicalNumericClaim,
+} from "@/lib/voice/case-protected-numbers";
 import type {
   CasePostCallDimensionScore,
   CasePostCallReport,
@@ -464,8 +469,103 @@ function protectedReferenceText(caseRecord: CaseRecord): string[] {
   ].filter(Boolean);
 }
 
+function hasMatchingNumericClaim(
+  claim: CanonicalNumericClaim,
+  candidates: readonly CanonicalNumericClaim[],
+  tolerance?: number,
+): boolean {
+  return candidates.some((candidate) =>
+    canonicalNumericClaimsMatch(claim, candidate, tolerance),
+  );
+}
+
+/**
+ * Candidate-visible numeric sources are deliberately constructed from the
+ * authoritative transcript and the public opening prompt only. In particular,
+ * this never reads case exhibits, solution steps, evaluator inputs, or notes.
+ */
+function candidateVisibleNumericClaims(
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+): {
+  all: CanonicalNumericClaim[];
+  authored: CanonicalNumericClaim[];
+} {
+  const transcriptClaims = mapped.turns.flatMap((turn) => canonicalNumericClaims(turn.text));
+  const authored = [
+    ...canonicalNumericClaims(caseRecord.prompt ?? ""),
+    ...mapped.turns
+      .filter((turn) => turn.role === "assistant")
+      .flatMap((turn) => canonicalNumericClaims(turn.text)),
+  ];
+  return { all: [...transcriptClaims, ...canonicalNumericClaims(caseRecord.prompt ?? "")], authored };
+}
+
+/**
+ * The final answer is always protected. Other hidden derivations remain
+ * protected unless the same value was actually disclosed by an assistant or
+ * in the public case opening; this permits discussion of spoken case inputs
+ * without granting access to undisclosed solution work.
+ */
+function protectedNumericClaims(
+  caseRecord: CaseRecord,
+  authoredClaims: readonly CanonicalNumericClaim[],
+): {
+  finalAnswer: CanonicalNumericClaim[];
+  hiddenDerivations: CanonicalNumericClaim[];
+} {
+  const finalAnswer = [
+    ...canonicalNumericClaims(caseRecord.quant?.answer ?? ""),
+    ...canonicalNumericClaimsFromData(caseRecord.quant?.answer_value),
+  ];
+  const hiddenCandidates = [
+    ...(caseRecord.quant?.solution_steps ?? []).flatMap(canonicalNumericClaims),
+    ...canonicalNumericClaims(caseRecord.target_solution_notes ?? ""),
+    ...caseRecord.exhibits.flatMap((exhibit) =>
+      (exhibit.insights ?? []).flatMap(canonicalNumericClaims),
+    ),
+  ];
+  return {
+    finalAnswer,
+    hiddenDerivations: hiddenCandidates.filter(
+      (claim) => !hasMatchingNumericClaim(claim, authoredClaims),
+    ),
+  };
+}
+
+function numericClaimSafetyReason(
+  text: string,
+  path: CasePostCallValidationPath,
+  mapped: MappedCaseTranscript,
+  caseRecord: CaseRecord,
+): Extract<CasePostCallValidationReason, "unsafe_numeric_claim"> | null {
+  const claims = canonicalNumericClaims(text);
+  if (claims.length === 0) return null;
+
+  // Every candidate-facing prose field except the quantitative assessment is
+  // qualitative by contract. Structured dimension scores are validated apart.
+  if (path !== "quantitativeAssessment") return "unsafe_numeric_claim";
+
+  const visible = candidateVisibleNumericClaims(mapped, caseRecord);
+  const protectedClaims = protectedNumericClaims(caseRecord, visible.authored);
+  const answerTolerance = caseRecord.quant?.tolerance;
+  for (const claim of claims) {
+    if (hasMatchingNumericClaim(claim, protectedClaims.finalAnswer, answerTolerance)) {
+      return "unsafe_numeric_claim";
+    }
+    if (hasMatchingNumericClaim(claim, protectedClaims.hiddenDerivations)) {
+      return "unsafe_numeric_claim";
+    }
+    if (!hasMatchingNumericClaim(claim, visible.all)) {
+      return "unsafe_numeric_claim";
+    }
+  }
+  return null;
+}
+
 function modelTextSafetyReason(
   text: string,
+  path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
 ): Extract<
@@ -474,9 +574,9 @@ function modelTextSafetyReason(
 > | null {
   const normalized = normalizedWords(text);
   if (!normalized) return "empty";
-  // Qualitative feedback never needs to repeat figures. Rejecting all numeric
-  // claims prevents answer-key calculations from being reproduced in prose.
-  if (canonicalNumericClaims(text).length > 0) return "unsafe_numeric_claim";
+  if (numericClaimSafetyReason(text, path, mapped, caseRecord)) {
+    return "unsafe_numeric_claim";
+  }
 
   for (const turn of mapped.turns) {
     if (turn.role !== "candidate") continue;
@@ -507,8 +607,9 @@ function modelTextIsUnsafe(
   text: string,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
+  path: CasePostCallValidationPath = "candidateFacingText",
 ): boolean {
-  return modelTextSafetyReason(text, mapped, caseRecord) !== null;
+  return modelTextSafetyReason(text, path, mapped, caseRecord) !== null;
 }
 
 function boundedText(value: unknown, maxLength = 480): string | null {
@@ -1022,13 +1123,13 @@ function validateCasePostCallModelProposalInternal(
   // before checking the shortened candidate-visible result so truncation can
   // never repair candidate overlap, protected material, or numeric claims.
   for (const field of candidateVisibleSourceText(value, mapped)) {
-    const reason = modelTextSafetyReason(field.text, mapped, caseRecord);
+    const reason = modelTextSafetyReason(field.text, field.path, mapped, caseRecord);
     if (reason) {
       return invalidProposal(field.path, reason, field.text);
     }
   }
   for (const field of candidateVisibleText(proposal, mapped)) {
-    const reason = modelTextSafetyReason(field.text, mapped, caseRecord);
+    const reason = modelTextSafetyReason(field.text, field.path, mapped, caseRecord);
     if (reason) {
       return invalidProposal(field.path, reason, field.text);
     }
@@ -1283,12 +1384,15 @@ function modelPrompt(caseRecord: CaseRecord, mapped: MappedCaseTranscript): stri
         "Return exactly five dimension entries, with each required dimension appearing exactly once.",
         "Every score must be an integer from 1 to 5 or null.",
         "Each dimension rationale must be concise and no more than 360 characters.",
+        "Dimension rationales must be entirely qualitative: do not include digits, number words, percentages, currencies, scores, stage counts, or other numerical claims.",
         "overallSummary must be no more than 480 characters.",
         "quantitativeAssessment must be no more than 480 characters.",
         "Return no more than 4 strengths, 4 improvements, 4 framework-outline entries, and 4 recommendation-outline entries.",
         "Return no more than 12 stageFeedback entries.",
         "Each strength, improvement, outline entry, and stageFeedback text must be no more than 320 characters.",
-        "Do not include unsupported numerical claims.",
+        "overallSummary, strengths, improvements, stageFeedback, and outlines must be entirely qualitative and contain no numerical claims.",
+        "quantitativeAssessment is the only prose field that may discuss numbers. Use only numbers stated by the candidate or visible to the candidate in the case opening or assistant discussion.",
+        "Never introduce protected expected answers, hidden calculations, or unsupported numerical claims. Structured dimension scores are separate from prose.",
         "Do not quote or closely reproduce candidate transcript wording.",
       ],
       fullReport: [
@@ -1431,6 +1535,7 @@ function safePublicText(
   fallback: string,
   transcript: readonly NormalizedVoiceTranscriptTurn[],
   caseRecord: CaseRecord,
+  path: CasePostCallValidationPath = "candidateFacingText",
 ): string {
   const text = boundedText(value, 480);
   if (!text) return fallback;
@@ -1441,7 +1546,7 @@ function safePublicText(
       substantiveCandidateResponse: turn.role === "candidate",
     })),
   } as MappedCaseTranscript;
-  return modelTextIsUnsafe(text, mappedLike, caseRecord) ? fallback : text;
+  return modelTextIsUnsafe(text, mappedLike, caseRecord, path) ? fallback : text;
 }
 
 function safePublicArray(
@@ -1606,6 +1711,7 @@ export function candidateSafeCasePostCallScore(
           ),
           transcript,
           caseRecord,
+          "quantitativeAssessment",
         )
       : null,
   };
