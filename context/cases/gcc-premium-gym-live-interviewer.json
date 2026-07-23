@@ -1,0 +1,110 @@
+{
+  "caseId": "gcc_premium_gym_market_entry",
+  "opening": {
+    "readinessPrompt": "Hello, I'll be your case interviewer today. We'll be working through the GCC Premium Gym Market Entry case. Are you ready to begin?",
+    "casePrompt": "Our client is a leading European premium gym chain with more than 400 locations across Western Europe. It operates a mid- to high-end model, with monthly memberships ranging from EUR 60 to EUR 120, premium equipment, personal training and digital wellness services. The CEO is considering entering the Gulf Cooperation Council market, initially focusing on Saudi Arabia and the UAE. She believes rising interest in health and wellness, higher disposable incomes and public investment in active lifestyles may create an attractive opportunity. She has asked us to assess whether the company should enter the GCC gym market and, if so, where, when and through which entry model."
+  },
+  "stageSequence": [
+    "clarification",
+    "framework",
+    "analysis",
+    "data_reveal",
+    "pressure_test",
+    "recommendation",
+    "scoring"
+  ],
+  "stages": {
+    "clarification": {
+      "objective": "Let the candidate ask focused questions about success, scope, entry modes, and constraints before structuring.",
+      "prompt": "What would you like to clarify before structuring your approach?",
+      "fallback": "Let's stay with clarification. What would you like to clarify before structuring your approach?"
+    },
+    "framework": {
+      "objective": "Elicit a structure that assesses market attractiveness before choosing an entry mode.",
+      "prompt": "How would you structure your approach to this market-entry decision?",
+      "fallback": "Let's stay with your framework. How would you organise the areas you would assess?"
+    },
+    "analysis": {
+      "objective": "Draw out market attractiveness and how to handle low-cost competition. Candidate-safe context you may surface here: the GCC fitness market is roughly $3.5 billion, growing at roughly 10 percent a year; Saudi Arabia has about 35 million people with about 60 percent under 35; premium memberships in the region run about SAR 300 to SAR 600 per month; UAE entry and foreign ownership are generally more straightforward, while Saudi Arabia offers greater scale but greater operating and localisation complexity.",
+      "prompt": "The CEO is concerned about low-cost gyms charging approximately SAR 100 per month while the client's premium offer may cost approximately SAR 400. How should the client evaluate this competitive threat, and what would you recommend?",
+      "fallback": "Let's stay with the competitive threat. What else would you consider about segments, differentiation, or positioning?"
+    },
+    "data_reveal": {
+      "objective": "Let the candidate develop assumptions and interpret the revealed inputs to size the market.",
+      "prompt": "Estimate the total addressable premium gym market in Dubai for this client.",
+      "fallback": "Let's stay with the market sizing. State your assumptions and walk me through the addressable market."
+    },
+    "pressure_test": {
+      "objective": "Assess required locations and feasibility. Candidate-safe unit-economics context you may surface here: a premium Dubai location costs roughly $2 to $3 million to set up; a mature location runs about 500 members at about $120 a month, roughly $60,000 of monthly revenue; breakeven is around 300 members; payback is estimated at three to four years at about 70 percent occupancy.",
+      "prompt": "If the client targets 10 percent of the Dubai premium-gym market by year three, how many locations would it need, and is that achievable?",
+      "fallback": "Let's stay with feasibility. Walk me through the revenue required, the per-location economics, and whether the rollout is achievable."
+    },
+    "recommendation": {
+      "objective": "Elicit a clear CEO-level market-entry recommendation supported by the analysis.",
+      "prompt": "The CEO is ready for your recommendation. Should the client enter, and if so, where, when, and how?",
+      "fallback": "Please give the CEO a clear recommendation covering entry, sequencing, entry mode, economics, risks, and a next step."
+    },
+    "scoring": {
+      "objective": "The live interview has concluded and remains unscored until post-call processing.",
+      "prompt": "The live case interview has concluded.",
+      "fallback": "The live case interview has concluded. A score is not available yet."
+    }
+  },
+  "frameworkExpectations": [
+    "Market attractiveness, including market size and growth, consumer demand, segments, willingness to pay, penetration, regulation, Saudi Arabia versus UAE, and city-level attractiveness",
+    "Competitive landscape, including premium, mainstream and low-cost competitors, concentration, positioning, alternatives, differentiation, white spaces, and likely competitive response",
+    "Entry strategy, including country sequencing, franchise, joint venture, wholly owned entry, acquisition, local partners, site strategy, and rollout pace",
+    "Financial viability, including market size, pricing, memberships, occupancy, setup and operating costs, unit economics, breakeven, payback, and capital requirements",
+    "Risks and execution, including regulation, cultural adaptation, localisation, premium real estate, partner quality, brand dilution, digital-platform localisation, and implementation capability"
+  ],
+  "analysisPrompts": [
+    "Encourage segmentation, premium differentiation, integrated wellness, digital and recovery services, brand prestige, corporate partnerships, tiered memberships, and monitoring low-cost growth",
+    "Accept other commercially sound ideas and ask for implications rather than revealing a list"
+  ],
+  "clarificationFacts": [
+    {
+      "id": "clarification.success_definition",
+      "text": "The client wants a financially attractive and scalable GCC business. No fixed revenue or location target is provided initially; you should define suitable success metrics such as profitability, payback, growth, scale, and brand positioning."
+    },
+    {
+      "id": "clarification.geographic_scope",
+      "text": "Saudi Arabia and the UAE are both in scope. The client is open to entering them simultaneously or sequencing one before the other."
+    },
+    {
+      "id": "clarification.entry_modes",
+      "text": "The client is open to wholly owned entry, franchise, joint venture, or acquisition. No entry mode has been selected."
+    },
+    {
+      "id": "clarification.payback_expectation",
+      "text": "No strict payback threshold is provided at the start. Define a reasonable hurdle and test the economics against it."
+    },
+    {
+      "id": "clarification.existing_partnerships",
+      "text": "The client has no committed regional operating partner. Potential partners may be assessed."
+    },
+    {
+      "id": "clarification.brand_positioning",
+      "text": "The client differentiates through a premium integrated wellness experience, including equipment, personal training, and digital wellness services."
+    },
+    {
+      "id": "clarification.unspecified_information",
+      "text": "That information is not specified. Please state a reasonable assumption and explain how you would validate it."
+    }
+  ],
+  "pressureTestPrompt": "Have the candidate reason through the required revenue, per-location economics, and operational feasibility without supplying the answer.",
+  "recommendationRequirements": [
+    "Enter or do not enter",
+    "Saudi Arabia, the UAE, or both, and the sequencing",
+    "Entry mode by country and target customer",
+    "Financial attractiveness and rollout scale",
+    "Material risks, plus a pilot and next steps"
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_dubai_premium_inputs",
+      "title": "Dubai Premium Gym Market Inputs",
+      "stage": "data_reveal",
+      "order": 0
+    }
+  ]
+}

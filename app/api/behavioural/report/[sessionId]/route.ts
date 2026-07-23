@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash, timingSafeEqual } from "node:crypto";
 import { loadSession } from "@/lib/voice/session-store";
+import { verifyReportCapability } from "@/lib/voice/report-capability";
 
 // GET /api/behavioural/report/[sessionId] — client status poll for the post-call
 // report. Authorization is the bootstrap-issued report token (sent as the
@@ -8,16 +8,6 @@ import { loadSession } from "@/lib/voice/session-store";
 // `sessionId` in the path is a lookup key, NOT authorization. The body carries
 // ONLY the report lifecycle — never the raw transcript, context, questions, or
 // any token material.
-
-function tokenMatches(provided: string, storedHashHex: string): boolean {
-  try {
-    const a = createHash("sha256").update(provided).digest();
-    const b = Buffer.from(storedHashHex, "hex");
-    return a.length === b.length && timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
 
 const notFound = () => NextResponse.json({ error: "not_found" }, { status: 404 });
 
@@ -31,7 +21,7 @@ export async function GET(
 
   const record = await loadSession(sessionId).catch(() => null);
   if (!record || record.module !== "behavioural" || !record.reportTokenHash) return notFound();
-  if (!tokenMatches(token, record.reportTokenHash)) return notFound();
+  if (!verifyReportCapability(token, record.reportTokenHash)) return notFound();
 
   const reportStatus = record.reportStatus ?? "pending";
   // Project to the candidate-facing report only. The stored BehaviouralSummary

@@ -1,16 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { startBehavioural } from "@/lib/behavioural/runner";
-import { startCase } from "@/lib/fsm/case-runner";
+import { initSession } from "@/lib/fsm/case-fsm";
 import {
   MOCK_JD_TEXT,
   MOCK_QUESTIONS,
   MOCK_USER_ID,
-  mockCase,
 } from "@/lib/__mocks__/fixtures";
 import { useMocks } from "@/lib/config";
 import { saveSession } from "@/lib/voice/session-store";
+import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
+import { caseReadinessPrompt } from "@/lib/voice/case-conversation";
+import { CASE_VOICE_LLM_VERSION } from "@/lib/voice/case-interviewer-mode";
+import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case-catalog";
+import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
+import {
+  CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
+  resolveCaseVoiceArchitecture,
+  resolveNativeCaseAssistant,
+} from "@/lib/voice/case-native-config";
+import { issueReportCapability } from "@/lib/voice/report-capability";
 
 // POST /api/vapi/session — bootstrap a voice session (called when a call starts).
 //   { module: "behavioural", jdText, candidateName?, targetRole?, companyName? }
@@ -18,13 +28,12 @@ import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/type
 //   { module: "case", caseId, candidateName? }
 //     -> { sessionId, openingPrompt, caseTitle, candidateName }
 //
-// Reuses the existing startBehavioural / startCase implementations verbatim; the
-// only new behaviour is persisting the full session in Redis for the tool routes.
+// Reuses the existing startBehavioural / startCase implementations and persists
+// the server-owned session in Redis for the live voice routes.
 
 const MAX_JD_LENGTH = 20_000;
 const MAX_NAME_LENGTH = 200;
 const MAX_CASE_ID_LENGTH = 100;
-
 function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
@@ -72,8 +81,7 @@ export async function POST(req: NextRequest) {
 
     // Report access capability: return the raw token to the client ONCE; persist
     // only its SHA-256 so the status endpoint can verify without storing the token.
-    const reportToken = randomBytes(32).toString("hex");
-    const reportTokenHash = createHash("sha256").update(reportToken).digest("hex");
+    const { token: reportToken, tokenHash: reportTokenHash } = issueReportCapability();
 
     const resolvedRole = targetRole ?? started.jd?.role_title ?? null;
     const resolvedCompany = companyName ?? started.jd?.company ?? null;
@@ -120,11 +128,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (module === "case") {
-    const caseId = asString((body as { caseId?: unknown }).caseId);
-    if (!caseId) {
-      return NextResponse.json({ error: "caseId required" }, { status: 400 });
-    }
-    if (caseId.length > MAX_CASE_ID_LENGTH) {
+    const requestedCaseId = asString((body as { caseId?: unknown }).caseId);
+    if (requestedCaseId !== undefined && requestedCaseId.length > MAX_CASE_ID_LENGTH) {
       return NextResponse.json({ error: "caseId exceeds length limit" }, { status: 400 });
     }
     const candidateName = asString((body as { candidateName?: unknown }).candidateName);
@@ -132,18 +137,117 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "candidateName exceeds length limit" }, { status: 400 });
     }
 
-    const c = mockCase(caseId);
+    // The Case Simulator supports exactly two LLM cases. Require an explicit,
+    // catalog-listed selection and fail closed (400) on a missing, unknown, or
+    // retired (Beautify/Diconsa) id. Never default to a case.
+    if (!requestedCaseId) {
+      return NextResponse.json({ error: "caseId required" }, { status: 400 });
+    }
+    if (!isPreviewLlmCaseId(requestedCaseId)) {
+      return NextResponse.json({ error: "unsupported_case" }, { status: 400 });
+    }
+    const resolvedCaseId = requestedCaseId;
+
+    const c = voiceCaseRecord(resolvedCaseId);
     if (!c) {
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
+    const catalogEntry = previewLlmCaseCatalogEntry(resolvedCaseId);
+    const architecture = resolveCaseVoiceArchitecture(process.env);
 
-    const started = await startCase(c, MOCK_USER_ID);
+    // Readiness is a voice-only pre-case gate. The authored prompt is withheld
+    // until the candidate confirms they are ready. The two cases always run the
+    // LLM interviewer (v2) — there is no legacy voice path.
+    const voiceSession = {
+      ...initSession(MOCK_USER_ID, resolvedCaseId),
+      fsm_state: "clarification" as const,
+    };
+    const openingText = caseReadinessPrompt(resolvedCaseId);
     const now = new Date().toISOString();
     const sessionId = newSessionId();
+
+    if (architecture === "vapi_native") {
+      const assistant = resolveNativeCaseAssistant(resolvedCaseId, process.env);
+      if (!assistant) {
+        return NextResponse.json({ error: "native_assistant_not_configured" }, { status: 503 });
+      }
+      const { token: reportToken, tokenHash: reportTokenHash } = issueReportCapability();
+      const record: CaseVoiceSession = {
+        module: "case",
+        session: voiceSession,
+        caseId: resolvedCaseId,
+        selectedCaseTitle: catalogEntry?.title ?? c.title,
+        selectedCaseDescription: catalogEntry?.description,
+        architecture: "vapi_native",
+        orchestrationVersion: CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
+        expectedAssistantId: assistant.assistantId,
+        assistantConfigVersion: assistant.assistantConfigVersion,
+        stageAnchorVersion: assistant.stageAnchorVersion,
+        reportTokenHash,
+        reportStatus: "pending",
+        reportAttempt: 0,
+        reportFencingToken: null,
+        reportProcessingStartedAt: null,
+        authoritativeCallId: null,
+        normalizedTranscript: null,
+        finalReport: null,
+        reportErrorCode: null,
+        liveStatus: "active",
+        concludedAt: null,
+        callId: null,
+        turnSeq: 0,
+        responseSeq: 0,
+        score: null,
+        projectedTurns: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await saveSession(sessionId, record);
+      return NextResponse.json({
+        sessionId,
+        architecture: "vapi_native",
+        orchestrationVersion: CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
+        assistantId: assistant.assistantId,
+        reportToken,
+        reportStatus: "pending",
+        caseId: resolvedCaseId,
+        caseTitle: record.selectedCaseTitle,
+        caseDescription: record.selectedCaseDescription ?? null,
+        candidateName: candidateName ?? null,
+      });
+    }
+
+    const projectionToken = randomBytes(32).toString("hex");
+    const projectionTokenHash = createHash("sha256").update(projectionToken).digest("hex");
     const record: CaseVoiceSession = {
       module: "case",
-      session: started.session,
-      caseId,
+      session: voiceSession,
+      caseId: resolvedCaseId,
+      selectedCaseTitle: catalogEntry?.title ?? c.title,
+      selectedCaseDescription: catalogEntry?.description,
+      architecture: "custom_llm",
+      orchestrationVersion: CASE_VOICE_LLM_VERSION,
+      interviewerMode: "llm",
+      interviewerVersion: CASE_VOICE_LLM_VERSION,
+      liveStatus: "active",
+      concludedAt: null,
+      openingText,
+      readinessStatus: "awaiting",
+      readinessConfirmedAt: null,
+      conversationStatus: "active",
+      callId: null,
+      turnSeq: 0,
+      responseSeq: 0,
+      score: null,
+      processedToolCalls: {},
+      processedModelRequests: {},
+      processedLogicalTurns: {},
+      pendingCandidate: null,
+      probedAnswerHashes: {},
+      stageProbeCounts: {},
+      projectedTurns: [],
+      projectionTokenHash,
+      invalidRetries: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -151,8 +255,15 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       sessionId,
-      openingPrompt: started.interviewer.text,
+      architecture: "custom_llm",
+      orchestrationVersion: CASE_VOICE_LLM_VERSION,
+      projectionToken,
+      openingPrompt: openingText,
+      caseId: resolvedCaseId,
       caseTitle: c.title,
+      caseDescription: catalogEntry?.description ?? null,
+      stage: voiceSession.fsm_state,
+      stageIndex: CASE_STATES.indexOf(voiceSession.fsm_state),
       candidateName: candidateName ?? null,
     });
   }

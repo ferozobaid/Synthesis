@@ -1,0 +1,105 @@
+{
+  "caseId": "beautify",
+  "opening": {
+    "readinessPrompt": "Hello, I’ll be your case interviewer today. We’ll be going through the Beautify case. Are you ready to begin?",
+    "casePrompt": "Our client is Beautify, a global prestige cosmetics company that sells mainly through high-end department stores and online specialty retailers under several makeup, fragrance, and skin-care brands. In-store beauty consultants demonstrate products, sell, and maintain loyal customers, but many are underused as shoppers move online. Beautify's president and COO have asked whether training most consultants to advise and sell through virtual and social-media channels could be profitable."
+  },
+  "stageSequence": [
+    "clarification",
+    "framework",
+    "analysis",
+    "data_reveal",
+    "pressure_test",
+    "recommendation",
+    "scoring"
+  ],
+  "stages": {
+    "clarification": {
+      "objective": "Let the candidate ask focused questions about scope, definitions, ownership, and decision framing.",
+      "prompt": "What would you like to clarify before structuring your approach?",
+      "fallback": "Let’s stay with clarification. What would you like to clarify before structuring your approach?"
+    },
+    "framework": {
+      "objective": "Elicit a tailored, organized structure for assessing the proposed virtual-advisor shift.",
+      "prompt": "Please walk me through how you would structure the decision Beautify needs to make.",
+      "fallback": "Let’s stay with your framework. Please organize the main areas you would assess for Beautify."
+    },
+    "analysis": {
+      "objective": "Explore what would make a high-touch customer adopt a mostly virtual experience.",
+      "prompt": "What would make a customer who values high-touch in-store service adopt a mostly virtual experience?",
+      "fallback": "Let’s stay with the customer analysis. What would make the virtual experience compelling and trustworthy?"
+    },
+    "data_reveal": {
+      "objective": "Let the candidate interpret the revealed exhibits and work through the economics.",
+      "prompt": "Please interpret the information available and explain what it means for Beautify.",
+      "fallback": "Let’s stay with the data. Please explain what the revealed information implies for Beautify."
+    },
+    "pressure_test": {
+      "objective": "Test the recommendation against retailer, brand, and implementation risks.",
+      "prompt": "Suppose retail partners push back and the brand team fears dilution. How would you respond?",
+      "fallback": "Let’s stay with the pressure test. Which risk matters most, and how would you mitigate it?"
+    },
+    "recommendation": {
+      "objective": "Elicit a concise decision supported by evidence, risks, and next steps.",
+      "prompt": "The COO just walked in. What is your recommendation, supporting evidence, main risk, and next step?",
+      "fallback": "Please give the COO a concise recommendation with supporting evidence, the main risk, and a next step."
+    },
+    "scoring": {
+      "objective": "The live interview has concluded and remains unscored until post-call processing is implemented.",
+      "prompt": "The live case interview has concluded.",
+      "fallback": "The live case interview has concluded. A score is not available yet."
+    }
+  },
+  "frameworkExpectations": [
+    "External attractiveness, including customer demand, competitors, retailers, and channel dynamics",
+    "Internal feasibility, including brand fit, customer experience, technology, people, and operating model",
+    "Financial viability, including investment, recurring costs, revenue or productivity upside, margins, and downside risk"
+  ],
+  "analysisPrompts": [
+    "Explore personalization, trust, responsiveness, community, and the relationship currently provided in store",
+    "Ask for implications and trade-offs rather than revealing an answer"
+  ],
+  "clarificationFacts": [
+    {
+      "id": "clarification.profitability_horizon",
+      "text": "The case does not specify a fixed profitability horizon, so use a three-year assessment horizon as a transparent working assumption."
+    },
+    {
+      "id": "clarification.rollout_scope",
+      "text": "Beautify is a global, multi-brand business; for this interview, assume the initial scope covers its major brands and priority markets."
+    },
+    {
+      "id": "clarification.cost_ownership",
+      "text": "Assume Beautify bears the technology, training, and ongoing operating costs; the case does not assign those costs to retail partners."
+    },
+    {
+      "id": "clarification.virtual_advisor_definition",
+      "text": "Virtual includes using social-media channels and Beautify-managed online pages to advise customers and support sales."
+    },
+    {
+      "id": "clarification.unspecified_information",
+      "text": "The case does not provide that information, so state a reasonable assumption rather than inventing data."
+    }
+  ],
+  "pressureTestPrompt": "Test retailer reaction, brand control, rollout risk, and practical mitigation without supplying the solution.",
+  "recommendationRequirements": [
+    "A clear decision",
+    "Support from evidence already discussed",
+    "The main risk",
+    "A practical next step"
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_investment",
+      "title": "First-year economics of the virtual-advisor shift",
+      "stage": "data_reveal",
+      "order": 0
+    },
+    {
+      "id": "exhibit_competitor_bots",
+      "title": "Effect of top-4 competitors' AI chatbots (% change in each metric since introduction)",
+      "stage": "data_reveal",
+      "order": 1
+    }
+  ]
+}

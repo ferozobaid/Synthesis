@@ -3,244 +3,101 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CASE_STATES, type CaseScore, type CaseState } from "@/lib/types";
+import type { CaseScore } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
-import { StageTracker } from "@/components/ui/StageTracker";
-import { ChatBubble } from "@/components/ui/ChatBubble";
-import { ExhibitCard } from "@/components/ui/ExhibitCard";
+import CaseVoiceInterview from "@/components/CaseVoiceInterview";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 
-const CASES = [
-  { id: "beautify", title: "Beautify — Virtual Beauty Advisors" },
-  { id: "diconsa", title: "Diconsa — Financial Services for Rural Mexico" },
-];
-
-const STAGE_LABEL: Record<CaseState, string> = {
-  intro: "Intro",
-  clarification: "Clarify",
-  framework: "Framework",
-  analysis: "Analysis",
-  data_reveal: "Data",
-  pressure_test: "Pressure",
-  recommendation: "Recommend",
-  scoring: "Score",
-};
-
-// Interviewer intent → plain-language label. FSM action names never surface.
-const ACTION_LABEL: Record<string, string> = {
-  reveal: "New exhibit",
-  hint: "Hint",
-  pressure_test: "Pressure test",
-};
-
-interface Exhibit {
-  title?: string;
-  synthesized?: boolean;
-  insights?: string[];
-  data?: unknown;
-  [k: string]: unknown;
-}
-interface Msg {
-  role: "interviewer" | "candidate";
-  text: string;
-  label?: string;
-}
-
 export default function CasePage() {
   const router = useRouter();
   const { setModule } = useReadiness();
-  const [caseId, setCaseId] = useState("beautify");
-  const [session, setSession] = useState<unknown>(null);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [exhibits, setExhibits] = useState<Exhibit[]>([]);
-  const [input, setInput] = useState("");
-  const [scratch, setScratch] = useState("");
-  const [stage, setStage] = useState<CaseState>("intro");
-  const [complete, setComplete] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [score, setScore] = useState<CaseScore | null>(null);
+  const [voiceScore, setVoiceScore] = useState<CaseScore | null>(null);
 
-  const caseTitle = CASES.find((c) => c.id === caseId)?.title ?? "Case";
-  const currentIdx = CASE_STATES.indexOf(stage);
-
-  async function start() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/case", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", caseId }),
-      });
-      const d = await res.json();
-      setSession(d.session);
-      setStage(d.stage);
-      setComplete(false);
-      setScore(null);
-      setStarted(true);
-      setExhibits([]);
-      setMsgs([{ role: "interviewer", text: d.interviewer.text }]);
-      setModule("case", { status: "in_progress" });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function send() {
-    if (!input.trim() || loading) return;
-    const answer = input;
-    setMsgs((m) => [...m, { role: "candidate", text: answer }]);
-    setInput("");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/case", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "respond", caseId, session, answer }),
-      });
-      const d = await res.json();
-      setSession(d.session);
-      setStage(d.stage);
-      setComplete(d.complete);
-      const action: string | undefined = d.decision?.action;
-      setMsgs((m) => [...m, { role: "interviewer", text: d.interviewer.text, label: action ? ACTION_LABEL[action] : undefined }]);
-      const ex: Exhibit | null = d.interviewer?.exhibit ?? null;
-      if (ex) setExhibits((list) => [...list, ex]);
-      if (d.score) {
-        const s = d.score as CaseScore;
-        setScore(s);
-        setModule("case", {
-          status: "done",
-          score: to100(s.overall),
-          statusLine: "1 case · full report",
-        });
-      }
-    } finally {
-      setLoading(false);
-    }
+  function completeVoiceInterview(
+    finalScore: CaseScore,
+    context?: { preserveNativeReport?: boolean },
+  ) {
+    if (!context?.preserveNativeReport) setVoiceScore(finalScore);
+    setModule("case", {
+      status: "done",
+      score: to100(finalScore.overall),
+      statusLine: "1 voice case · full report",
+    });
   }
 
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 40px", animation: "fadeIn .4s ease both" }}>
-      <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--ink-3)", textDecoration: "none", marginBottom: 22 }}>
+    <div
+      style={{
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "32px clamp(16px, 4vw, 32px) 40px",
+        animation: "fadeIn .4s ease both",
+      }}
+    >
+      <Link
+        href="/dashboard"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          fontSize: 13,
+          color: "var(--ink-3)",
+          textDecoration: "none",
+          marginBottom: 22,
+        }}
+      >
         ← Dashboard
       </Link>
 
-      {!started ? (
-        <div style={{ maxWidth: 520, margin: "10px auto 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--neutral-tint)", color: "var(--ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◆</div>
-            <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 24, letterSpacing: "-.025em", margin: 0, color: "var(--ink)" }}>Case Coach</h1>
-          </div>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 22, boxShadow: "var(--shadow-sm)" }}>
-            <SectionLabel style={{ marginBottom: 10 }}>Choose a case</SectionLabel>
-            <select
-              value={caseId}
-              onChange={(e) => setCaseId(e.target.value)}
-              aria-label="Choose a case"
-              style={{ width: "100%", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 12px", fontSize: 14, color: "var(--ink)", background: "var(--surface-2)", outline: "none" }}
-            >
-              {CASES.map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
-              ))}
-            </select>
-            <button
-              onClick={start}
-              disabled={loading}
-              style={{ marginTop: 16, border: "none", background: "var(--accent)", color: "#fff", fontSize: 15, fontWeight: 600, padding: "13px 24px", borderRadius: 11, cursor: "pointer", boxShadow: "0 6px 18px rgba(75,70,201,.26)" }}
-            >
-              {loading ? "Starting…" : "Start case"}
-            </button>
-          </div>
-        </div>
-      ) : complete && score ? (
-        <CaseReport score={score} onDone={() => router.push("/dashboard")} />
+      {voiceScore ? (
+        <CaseReport score={voiceScore} onDone={() => router.push("/dashboard")} />
       ) : (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--neutral-tint)", color: "var(--ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◆</div>
-            <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 24, letterSpacing: "-.025em", margin: 0, color: "var(--ink)" }}>Case Coach</h1>
-            <span style={{ fontSize: 13, color: "var(--ink-3)", marginLeft: "auto" }}>{caseTitle}</span>
-          </div>
-
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "16px 20px", boxShadow: "var(--shadow-sm)", marginBottom: 18, overflowX: "auto" }}>
-            <StageTracker stages={CASE_STATES.map((s) => STAGE_LABEL[s])} currentIdx={currentIdx} complete={complete} />
-          </div>
-
-          <div className="case-grid">
-            {/* chat */}
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, boxShadow: "var(--shadow-md)", display: "flex", flexDirection: "column", height: 560, minWidth: 0 }}>
-              <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 9 }}>
-                <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>◆</div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.1, color: "var(--ink)" }}>Your interviewer</div>
-                  <div style={{ fontSize: 11, color: "var(--ink-4)" }}>Case partner</div>
-                </div>
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-                {msgs.map((m, i) => (
-                  <ChatBubble key={i} role={m.role} text={m.text} label={m.label} />
-                ))}
-                {loading && <div style={{ fontSize: 12, color: "var(--ink-4)", fontStyle: "italic" }}>Interviewer is thinking…</div>}
-              </div>
-              <div style={{ borderTop: "1px solid var(--line)", padding: "14px 16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
-                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--accent)" }} />
-                  <span style={{ fontSize: 11.5, color: "var(--ink-3)", fontStyle: "italic" }}>⌘/Ctrl+Enter to send</span>
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
-                    placeholder="Type your response…"
-                    aria-label="Your response to the interviewer"
-                    style={{ flex: 1, height: 64, resize: "none", border: "1px solid var(--line)", borderRadius: 11, padding: "11px 13px", fontSize: 13.5, lineHeight: 1.5, color: "var(--ink)", background: "var(--surface-2)", outline: "none" }}
-                  />
-                  <button
-                    onClick={send}
-                    disabled={loading || !input.trim()}
-                    style={{ flex: "none", border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 11, cursor: loading || !input.trim() ? "not-allowed" : "pointer", opacity: loading || !input.trim() ? 0.5 : 1, height: 44 }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginBottom: 18,
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                background: "var(--neutral-tint)",
+                color: "var(--ink)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+              }}
+            >
+              ◆
             </div>
-
-            {/* right rail */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-              <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 16, boxShadow: "var(--shadow-sm)" }}>
-                <SectionLabel style={{ marginBottom: 10 }}>Scratchpad</SectionLabel>
-                <textarea
-                  value={scratch}
-                  onChange={(e) => setScratch(e.target.value)}
-                  placeholder="Jot structure, numbers, hypotheses…"
-                  aria-label="Scratchpad"
-                  style={{ width: "100%", height: 150, resize: "none", border: "1px dashed var(--line)", borderRadius: 10, padding: "11px 12px", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.6, color: "var(--ink-2)", background: "var(--surface-2)", outline: "none" }}
-                />
-              </div>
-
-              <div>
-                <SectionLabel style={{ marginBottom: 10, paddingLeft: 2 }}>Exhibits</SectionLabel>
-                {exhibits.length === 0 ? (
-                  <div style={{ border: "1.5px dashed var(--line)", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "var(--surface-2)" }}>
-                    <div style={{ fontSize: 22, color: "var(--ink-4)", marginBottom: 6 }}>▤</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.5 }}>Exhibits appear here as the interviewer shares them.</div>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {exhibits.map((e, i) => (
-                      <ExhibitCard key={i} exhibit={e} index={i} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <h1
+              style={{
+                fontFamily: "var(--font-sans)",
+                fontWeight: 600,
+                fontSize: 24,
+                letterSpacing: 0,
+                margin: 0,
+                color: "var(--ink)",
+              }}
+            >
+              Case Coach
+            </h1>
+            <span style={{ fontSize: 13, color: "var(--ink-3)", marginLeft: "auto" }}>
+              Live voice case interview
+            </span>
           </div>
-        </>
+
+          <CaseVoiceInterview onComplete={completeVoiceInterview} />
+        </div>
       )}
     </div>
   );
@@ -307,9 +164,9 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
         <div style={{ background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
           <div>
             <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>Focus next on</SectionLabel>
-            <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: "-.01em", lineHeight: 1.35 }}>{score.next_focus[0]}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0, lineHeight: 1.35 }}>{score.next_focus[0]}</div>
           </div>
-          <button onClick={onDone} style={{ flex: "none", border: "none", background: "#fff", color: "#0b1020", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 10, cursor: "pointer" }}>
+          <button onClick={onDone} style={{ flex: "none", border: "none", background: "#fff", color: "#0b1020", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 8, cursor: "pointer" }}>
             Back to dashboard →
           </button>
         </div>

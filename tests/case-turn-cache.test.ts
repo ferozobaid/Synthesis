@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildCaseVoiceLogicalTurnKey,
+  buildCaseVoiceRequestCacheKey,
+} from "@/lib/voice/case-turn-cache";
+import { CASE_VOICE_CONTROLLER_VERSION } from "@/lib/voice/case-turn-plan";
+
+const BASE_MESSAGES = [
+  { role: "assistant", content: "Current authored prompt" },
+  { role: "user", content: "Could we change direction?" },
+];
+
+describe("Case Voice controller cache identity", () => {
+  it("keeps exact retries stable within the same mode and controller version", () => {
+    const controller = { mode: "hybrid" as const, version: CASE_VOICE_CONTROLLER_VERSION };
+    expect(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, controller))
+      .toBe(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, controller));
+    expect(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, controller))
+      .toBe(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, controller));
+  });
+
+  it("separates shadow, off, and hybrid cache identities", () => {
+    const shadow = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "shadow" },
+    );
+    const off = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "off" },
+    );
+    const hybrid = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "hybrid" },
+    );
+
+    expect(shadow).not.toBe(hybrid);
+    expect(off).not.toBe(hybrid);
+    expect(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, { mode: "shadow" }))
+      .not.toBe(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, { mode: "hybrid" }));
+  });
+
+  it("invalidates request and logical-turn identities when the controller version changes", () => {
+    expect(buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "hybrid", version: "v1" },
+    )).not.toBe(buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "hybrid", version: "v2" },
+    ));
+    expect(buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { mode: "hybrid", version: "v1" },
+    )).not.toBe(buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { mode: "hybrid", version: "v2" },
+    ));
+  });
+
+  it("keeps progressive revisions in one logical slot within a mode and version", () => {
+    const partial = [
+      BASE_MESSAGES[0],
+      { role: "user", content: "I have three clarifying questions." },
+    ];
+    const revision = [
+      BASE_MESSAGES[0],
+      { role: "user", content: "I have three clarifying questions. What time horizon should we use?" },
+    ];
+
+    expect(buildCaseVoiceLogicalTurnKey("call-1", partial, 1, { mode: "hybrid" }))
+      .toBe(buildCaseVoiceLogicalTurnKey("call-1", revision, 1, { mode: "hybrid" }));
+    expect(buildCaseVoiceRequestCacheKey("session-1", "call-1", partial, { mode: "hybrid" }))
+      .not.toBe(buildCaseVoiceRequestCacheKey("session-1", "call-1", revision, { mode: "hybrid" }));
+  });
+
+  it("isolates legacy and LLM architectures and each LLM orchestration version", () => {
+    const legacyRequest = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { mode: "hybrid", version: "legacy-v1" },
+    );
+    const llmV1Request = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1", selectedCaseId: "airport_profitability" },
+    );
+    const llmV2Request = buildCaseVoiceRequestCacheKey(
+      "session-1",
+      "call-1",
+      BASE_MESSAGES,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v2", selectedCaseId: "airport_profitability" },
+    );
+    const legacyLogical = buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { mode: "hybrid", version: "legacy-v1" },
+    );
+    const llmLogical = buildCaseVoiceLogicalTurnKey(
+      "call-1",
+      BASE_MESSAGES,
+      1,
+      { interviewerMode: "llm", interviewerVersion: "case-voice-llm-v1", selectedCaseId: "airport_profitability" },
+    );
+
+    expect(llmV1Request).not.toBe(legacyRequest);
+    expect(llmV2Request).not.toBe(llmV1Request);
+    expect(llmLogical).not.toBe(legacyLogical);
+  });
+
+  it("isolates the selected LLM case so Airport and Gym cannot replay each other", () => {
+    const airport = {
+      interviewerMode: "llm" as const,
+      interviewerVersion: "case-voice-llm-v1",
+      selectedCaseId: "airport_profitability",
+    };
+    const gym = {
+      interviewerMode: "llm" as const,
+      interviewerVersion: "case-voice-llm-v1",
+      selectedCaseId: "gcc_premium_gym_market_entry",
+    };
+    expect(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, airport))
+      .not.toBe(buildCaseVoiceRequestCacheKey("session-1", "call-1", BASE_MESSAGES, gym));
+    expect(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, airport))
+      .not.toBe(buildCaseVoiceLogicalTurnKey("call-1", BASE_MESSAGES, 1, gym));
+  });
+});
