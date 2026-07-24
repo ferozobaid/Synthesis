@@ -240,14 +240,23 @@ beforeEach(() => {
 });
 
 describe("Preview LLM catalog", () => {
-  it("exposes only id, title, and description for all selectable cases in llm mode", async () => {
+  it("exposes only id, title, description, and track/role classification for all selectable cases in llm mode", async () => {
     const response = await catalogGET();
     expect(response.status).toBe(200);
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
     expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM, DATA_ENGINEER]);
     for (const entry of cases) {
-      expect(Object.keys(entry).sort()).toEqual(["description", "id", "title"]);
+      const expectedKeys = entry.id === DATA_ENGINEER
+        ? ["description", "id", "role", "title", "track"]
+        : ["description", "id", "title", "track"];
+      expect(Object.keys(entry).sort()).toEqual(expectedKeys);
     }
+    expect(cases.find((entry) => entry.id === AIRPORT)).toMatchObject({ track: "strategy" });
+    expect(cases.find((entry) => entry.id === GYM)).toMatchObject({ track: "strategy" });
+    expect(cases.find((entry) => entry.id === DATA_ENGINEER)).toMatchObject({
+      track: "technical",
+      role: "data_engineering",
+    });
   });
 
   it("always presents exactly the three cases with no Beautify or Diconsa options", async () => {

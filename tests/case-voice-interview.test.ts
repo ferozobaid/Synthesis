@@ -29,8 +29,8 @@ import { PREVIEW_LLM_CASES } from "@/lib/voice/case-catalog";
 import type { CaseExhibit, CaseScore } from "@/lib/types";
 
 const CATALOG_CASES: PreviewCaseChoice[] = [
-  { id: "airport_profitability", title: "Airport Profitability", description: "Airport case." },
-  { id: "gcc_premium_gym_market_entry", title: "GCC Premium Gym Market Entry", description: "Gym case." },
+  { id: "airport_profitability", title: "Airport Profitability", description: "Airport case.", track: "strategy" },
+  { id: "gcc_premium_gym_market_entry", title: "GCC Premium Gym Market Entry", description: "Gym case.", track: "strategy" },
 ];
 
 describe("Case Voice two-case picker state", () => {

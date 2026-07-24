@@ -175,12 +175,13 @@ beforeEach(() => {
 });
 
 describe("Data Engineer case catalog registration", () => {
-  it("is listed in the selectable catalog with only id/title/description", async () => {
+  it("is listed in the selectable catalog with id/title/description/track/role and nothing else", async () => {
     const response = await catalogGET();
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
     const entry = cases.find((c) => c.id === DATA_ENGINEER);
     expect(entry).toBeDefined();
-    expect(Object.keys(entry!).sort()).toEqual(["description", "id", "title"]);
+    expect(Object.keys(entry!).sort()).toEqual(["description", "id", "role", "title", "track"]);
+    expect(entry).toMatchObject({ track: "technical", role: "data_engineering" });
   });
 
   it("isPreviewLlmCaseId / previewLlmCaseCatalogEntry recognize the case", () => {
