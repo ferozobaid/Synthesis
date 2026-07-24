@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRevealOnScroll } from "@/components/ui/useRevealOnScroll";
 import Link from "next/link";
 import type { EmbeddingBackend, FitReport } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
@@ -242,6 +243,7 @@ export default function FitPage() {
 }
 
 function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScoring }) {
+  const practiceCta = useRevealOnScroll<HTMLDivElement>();
   const reqs = report.per_requirement;
   const matched = reqs.filter((r) => r.status === "matched").length;
   const partial = reqs.filter((r) => r.status === "partial").length;
@@ -356,7 +358,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
         </div>
       </div>
 
-      <div className="reveal-item" style={{ "--reveal-index": 5, marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
+      <div ref={practiceCta.ref} className={`scroll-reveal${practiceCta.revealed ? "" : " is-pre-reveal"}`} style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>Turn these gaps into practice</div>
           <div style={{ fontSize: 13, color: "var(--ink-3)" }}>Your fit report set the agenda — now rehearse the stories and drills that close the gaps.</div>

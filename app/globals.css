@@ -6849,3 +6849,28 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
     animation: none;
   }
 }
+
+/* Scroll reveal (used with useRevealOnScroll): visible by default; the
+   pre-reveal state is only applied after mount when IO exists and
+   motion is allowed. */
+.scroll-reveal {
+  transition:
+    opacity .5s cubic-bezier(.22,1,.36,1),
+    transform .5s cubic-bezier(.22,1,.36,1);
+}
+
+.scroll-reveal.is-pre-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal {
+    transition: none;
+  }
+
+  .scroll-reveal.is-pre-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -15,6 +15,7 @@ import VoiceInterview, {
 } from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
+import { useRevealOnScroll } from "@/components/ui/useRevealOnScroll";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
@@ -378,6 +379,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
   const score100 = to100(summary.overall);
   const band = readinessBand(score100);
   const nextFocus = summary.feedback.next_focus[0];
+  const qualitativeReveal = useRevealOnScroll<HTMLDivElement>();
   return (
     <div>
       <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
@@ -416,7 +418,10 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
       </div>
 
       {summary.qualitative ? (
-        <div className="reveal-item" style={{ "--reveal-index": 2 } as React.CSSProperties}>
+        <div
+          ref={qualitativeReveal.ref}
+          className={`scroll-reveal${qualitativeReveal.revealed ? "" : " is-pre-reveal"}`}
+        >
           <QualitativeReportView qualitative={summary.qualitative} />
         </div>
       ) : null}
