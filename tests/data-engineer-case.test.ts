@@ -53,6 +53,7 @@ import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 import { TECHNICAL_DIMENSIONS } from "@/lib/voice/case-technical-post-call-scorer";
 import type { CasePostCallReport, CaseVoiceSession } from "@/lib/voice/types";
+import { nativeCaseReportPresentation } from "@/components/CaseNativeVoiceInterview";
 
 const DATA_ENGINEER = "data_engineer_clickstream";
 const AIRPORT = "airport_profitability";
@@ -210,6 +211,17 @@ describe("Data Engineer case record loading", () => {
     expect(manifest).not.toBeNull();
     expect(manifest!.anchors.data_reveal).toContain("scale requirements");
   });
+
+  it("has an authored custom-LLM live packet under the exact catalog id", async () => {
+    const { caseLiveAuthoredConfig, isCaseLiveCaseId } = await import("@/lib/voice/case-live-packet");
+    expect(isCaseLiveCaseId(DATA_ENGINEER)).toBe(true);
+    expect(caseLiveAuthoredConfig(DATA_ENGINEER)).toMatchObject({
+      caseId: DATA_ENGINEER,
+      opening: {
+        casePrompt: expect.stringContaining("clickstream"),
+      },
+    });
+  });
 });
 
 describe("Data Engineer native assistant resolution", () => {
@@ -235,6 +247,26 @@ describe("Data Engineer session bootstrap", () => {
     expect(json).toMatchObject({ architecture: "vapi_native", assistantId: DE_ASSISTANT, reportStatus: "pending" });
   });
 
+  it("falls back to the existing custom-LLM Case transport when the optional native assistant is absent", async () => {
+    delete process.env.VAPI_DATA_ENGINEER_ASSISTANT_ID;
+    process.env.CASE_VOICE_ARCHITECTURE = "vapi_native";
+    const { response, json } = await bootstrap(DATA_ENGINEER);
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({
+      architecture: "custom_llm",
+      caseId: DATA_ENGINEER,
+      caseTrack: "technical",
+      caseRole: "data_engineering",
+      openingPrompt: expect.stringContaining("Clickstream Data Pipeline"),
+    });
+    expect(stored(json.sessionId)).toMatchObject({
+      caseId: DATA_ENGINEER,
+      caseTrack: "technical",
+      caseRole: "data_engineering",
+      architecture: "custom_llm",
+    });
+  });
+
   it("does not change Airport's architecture resolution (still governed by the global flag)", async () => {
     process.env.CASE_VOICE_ARCHITECTURE = "custom_llm";
     const { response, json } = await bootstrap(AIRPORT);
@@ -242,18 +274,13 @@ describe("Data Engineer session bootstrap", () => {
     expect(json.architecture).toBe("custom_llm");
   });
 
-  it("fails with 503 when the Data Engineer assistant id is not configured", async () => {
-    delete process.env.VAPI_DATA_ENGINEER_ASSISTANT_ID;
-    const { response } = await bootstrap(DATA_ENGINEER);
-    expect(response.status).toBe(503);
-    expect(redisStore.size).toBe(0);
-  });
-
   it("snapshots the technical assistant config and stage anchor version", async () => {
     const { json } = await bootstrap(DATA_ENGINEER);
     const record = stored(json.sessionId);
     expect(record).toMatchObject({
       caseId: DATA_ENGINEER,
+      caseTrack: "technical",
+      caseRole: "data_engineering",
       architecture: "vapi_native",
       expectedAssistantId: DE_ASSISTANT,
       assistantConfigVersion: "data-engineer-clickstream-assistant-v1",
@@ -332,6 +359,11 @@ describe("Data Engineer candidate-safe report output", () => {
     const projection = await response.json();
 
     expect(response.status).toBe(200);
+    expect(projection).toMatchObject({
+      caseId: DATA_ENGINEER,
+      caseTrack: "technical",
+      caseRole: "data_engineering",
+    });
     expect(projection.evaluatorType).toBe("technical_system_design");
     expect(projection.score.dimension_scores.map((d: { dimension: string }) => d.dimension).sort()).toEqual(
       [...TECHNICAL_DIMENSIONS].sort(),
@@ -339,6 +371,7 @@ describe("Data Engineer candidate-safe report output", () => {
     expect(JSON.stringify(projection)).not.toMatch(
       /transcript|assistantId|callId|fencing|rubric|exhibit|validationPath|validationReason/i,
     );
+    expect(nativeCaseReportPresentation(projection)?.readinessUpdated).toBe(false);
   });
 
   it("marks Airport's projection as the consulting evaluator with its 5 dimensions intact", async () => {

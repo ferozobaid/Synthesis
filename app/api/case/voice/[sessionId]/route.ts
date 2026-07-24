@@ -45,6 +45,8 @@ export async function GET(
 
   return NextResponse.json({
     caseId: record.caseId,
+    caseTrack: record.caseTrack ?? null,
+    caseRole: record.caseRole ?? null,
     caseTitle: c.title,
     caseDescription: record.selectedCaseDescription ?? null,
     openingText: record.openingText ?? c.prompt ?? "Let's begin.",

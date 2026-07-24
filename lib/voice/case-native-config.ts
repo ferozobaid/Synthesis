@@ -37,17 +37,6 @@ const STATIC_CONFIG = {
   },
 } as const;
 
-/**
- * Cases with no custom_llm interview content at all (Data Engineer ships
- * native-only) always resolve to vapi_native, regardless of the deployment-wide
- * CASE_VOICE_ARCHITECTURE flag. This is deliberately per-case and additive: it
- * leaves resolveCaseVoiceArchitecture() — and therefore Airport/GCC's existing
- * global-flag behavior — completely unchanged.
- */
-const CASE_FORCED_ARCHITECTURE: Readonly<Partial<Record<string, CaseVoiceArchitecture>>> = {
-  data_engineer_clickstream: "vapi_native",
-};
-
 export function resolveCaseVoiceArchitecture(
   env: NativeEnvironment = process.env,
 ): CaseVoiceArchitecture {
@@ -61,7 +50,13 @@ export function resolveCaseVoiceArchitectureForCase(
   caseId: string,
   env: NativeEnvironment = process.env,
 ): CaseVoiceArchitecture {
-  return CASE_FORCED_ARCHITECTURE[caseId] ?? resolveCaseVoiceArchitecture(env);
+  // Clickstream may use its dedicated native assistant when one is configured,
+  // but it must remain startable through the authored custom-LLM Case transport
+  // when that optional deployment-specific id is absent.
+  if (caseId === "data_engineer_clickstream") {
+    return resolveNativeCaseAssistant(caseId, env) ? "vapi_native" : "custom_llm";
+  }
+  return resolveCaseVoiceArchitecture(env);
 }
 
 export function storedCaseVoiceArchitecture(session: {

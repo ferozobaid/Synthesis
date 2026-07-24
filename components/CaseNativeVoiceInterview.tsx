@@ -22,6 +22,8 @@ export interface PendingNativeCaseReport {
   sessionId: string;
   reportToken: string;
   caseId: string;
+  caseTrack?: "strategy" | "technical";
+  caseRole?: "data_engineering" | "data_analyst";
   caseTitle: string;
   assistantId: string;
   createdAt: number;
@@ -30,6 +32,8 @@ export interface PendingNativeCaseReport {
 export interface NativeCaseReportProjection {
   status: ReportStatus;
   caseId: string;
+  caseTrack?: "strategy" | "technical" | null;
+  caseRole?: "data_engineering" | "data_analyst" | null;
   caseTitle: string | null;
   evaluatorType?: string;
   partial: boolean | null;
@@ -117,7 +121,10 @@ export function nativeCaseReportPresentation(
     label: partial ? "Partial Report" : "Case Report",
     caseTitle: report.caseTitle ?? "Case interview",
     partial,
-    readinessUpdated: !partial && report.score.overall !== null,
+    readinessUpdated:
+      report.caseTrack !== "technical" &&
+      !partial &&
+      report.score.overall !== null,
     overall: partial ? null : report.score.overall,
     summary: report.score.summary,
     dimensions: partial

@@ -1,0 +1,110 @@
+{
+  "caseId": "data_engineer_clickstream",
+  "opening": {
+    "readinessPrompt": "Hello, I'll be your data engineering interviewer today. We'll be working through the Clickstream Data Pipeline case. Are you ready to begin?",
+    "casePrompt": "Design a data pipeline to process and aggregate user clickstream data in near-real time. Events arrive from Web, iOS, and Android as semi-structured JSON. The product needs sessionization, daily active users, and trending-page metrics refreshed roughly every minute. Raw events must never be lost, dashboards may be eventually consistent, and Gold reporting tables must avoid double-counting."
+  },
+  "stageSequence": [
+    "clarification",
+    "framework",
+    "analysis",
+    "data_reveal",
+    "pressure_test",
+    "recommendation",
+    "scoring"
+  ],
+  "stages": {
+    "clarification": {
+      "objective": "Let the candidate clarify the functional scope, scale, latency, availability, durability, and consistency requirements.",
+      "prompt": "Before you design your approach, what would you like to clarify?",
+      "fallback": "Let's stay with clarification. What functional or non-functional requirement would you clarify before designing?"
+    },
+    "framework": {
+      "objective": "Elicit a complete high-level design from event producers through ingestion, durable buffering, processing, storage, and serving.",
+      "prompt": "How would you structure your high-level design for this pipeline?",
+      "fallback": "Let's stay with the architecture. Walk me through the data flow from producers to the dashboard and Gold tables."
+    },
+    "analysis": {
+      "objective": "Drill into ingestion, schema evolution, malformed events, ETL versus ELT, and storage-modeling choices.",
+      "prompt": "How would you handle ingestion and schema for these events, and would you transform data before loading it or after, and why?",
+      "fallback": "Let's stay with ingestion and storage. How will you validate evolving JSON events, handle bad records, and choose between ETL and ELT?"
+    },
+    "data_reveal": {
+      "objective": "Use the revealed scale inputs to justify stream processing, windowing, partitioning, and the dashboard-versus-Gold split.",
+      "prompt": "Here are the scale requirements. How would you design the stream-processing, windowing, and storage layers to meet them?",
+      "fallback": "Let's stay with the scale inputs. Tie your processing, windowing, and storage choices to throughput, latency, and correctness."
+    },
+    "pressure_test": {
+      "objective": "Stress-test the design against spikes, late and duplicate events, downstream outages, and exactly-once Gold requirements.",
+      "prompt": "How would your design handle a sudden traffic spike, late-arriving events, and duplicate mobile retries while preserving availability and Gold-table correctness?",
+      "fallback": "Let's stay with failure handling. Explain backpressure, late-data handling, deduplication, and how raw events remain durable."
+    },
+    "recommendation": {
+      "objective": "Elicit a concise final architecture recommendation including operations, observability, backfills, cost, and explicit trade-offs.",
+      "prompt": "What is your final recommendation for this pipeline, including how you would operate and evolve it over time?",
+      "fallback": "Please close with your recommended architecture, the key trade-offs, operational controls, and the first implementation step."
+    },
+    "scoring": {
+      "objective": "The live technical interview has concluded and remains separate from strategy Case readiness.",
+      "prompt": "The live technical interview has concluded.",
+      "fallback": "The live technical interview has concluded. It does not update strategy Case readiness."
+    }
+  },
+  "frameworkExpectations": [
+    "Event producers and an ingestion layer that validates identity and schema without losing raw events",
+    "A replicated durable stream buffer sized for burst traffic and downstream outages",
+    "Stream processing for sessionization, minute-level aggregates, watermarking, and bounded deduplication",
+    "Immutable raw storage plus modeled serving layers for low-latency dashboards and exactly-once Gold reporting",
+    "Schema evolution, replay and backfill, observability, partitioning, compaction, security, and cost controls"
+  ],
+  "analysisPrompts": [
+    "Encourage explicit reasoning about schema registry compatibility, dead-letter handling, event identifiers, partition keys, watermarks, session windows, idempotent sinks, and replay",
+    "Accept equivalent technologies when the candidate explains the guarantees and trade-offs rather than rewarding brand names"
+  ],
+  "clarificationFacts": [
+    {
+      "id": "clarification.sources",
+      "text": "Events arrive from Web, iOS, and Android as semi-structured JSON."
+    },
+    {
+      "id": "clarification.outputs",
+      "text": "The required outputs are sessionization, daily active users, and the top ten trending pages refreshed roughly every minute."
+    },
+    {
+      "id": "clarification.scale",
+      "text": "The system serves 100 million daily active users, processes 10 billion events per day, and peaks at 500,000 events per second."
+    },
+    {
+      "id": "clarification.latency",
+      "text": "End-to-end latency from click to dashboard must remain below 60 seconds."
+    },
+    {
+      "id": "clarification.reliability",
+      "text": "Availability must be 99.99 percent, and raw events must not be lost even when downstream processing is unavailable."
+    },
+    {
+      "id": "clarification.consistency",
+      "text": "Dashboards may be eventually consistent, but Gold reporting tables must avoid double-counting through exactly-once or equivalent idempotent processing."
+    },
+    {
+      "id": "clarification.unspecified_information",
+      "text": "That detail is not specified. State a reasonable assumption and explain how you would validate it."
+    }
+  ],
+  "pressureTestPrompt": "Have the candidate reason about backpressure, replay, late data, deduplication, failure recovery, and consistency without prescribing a specific vendor.",
+  "recommendationRequirements": [
+    "A coherent end-to-end pipeline and the guarantees of each layer",
+    "The dashboard and Gold processing paths and why their consistency differs",
+    "How spikes, outages, late data, duplicates, and schema evolution are handled",
+    "A replay and backfill strategy plus operational monitoring",
+    "The main cost, latency, correctness, and complexity trade-offs"
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_clickstream_scale_inputs",
+      "title": "Clickstream Scale & Reliability Inputs",
+      "stage": "data_reveal",
+      "order": 0
+    }
+  ]
+}

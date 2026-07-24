@@ -69,6 +69,8 @@ export async function GET(
   return NextResponse.json({
     status: record.reportStatus ?? "pending",
     caseId: record.caseId,
+    caseTrack: record.caseTrack ?? null,
+    caseRole: record.caseRole ?? null,
     caseTitle: record.selectedCaseTitle ?? null,
     evaluatorType: isTechnical ? "technical_system_design" : "consulting",
     partial: report?.partial ?? null,

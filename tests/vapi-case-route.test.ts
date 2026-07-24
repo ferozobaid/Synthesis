@@ -37,6 +37,7 @@ import type { CaseVoiceSession } from "@/lib/voice/types";
 const SECRET = "test-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
 const AIRPORT = "airport_profitability";
+const GYM = "gcc_premium_gym_market_entry";
 const INTRO_ANSWER =
   "We are being asked whether data and AI can grow the airport's non-aeronautical revenue from a quarter to a bit over a third of total revenue within three years, and if so, how.";
 
@@ -108,6 +109,25 @@ describe("POST /api/vapi/session (Case bootstrap)", () => {
     );
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe("unsupported_case");
+  });
+
+  it("continues to start the existing GCC strategy case unchanged", async () => {
+    const response = await sessionPOST(
+      makeReq({ module: "case", caseId: GYM }) as never,
+    );
+    expect(response.status).toBe(200);
+    const started = await response.json();
+    expect(started).toMatchObject({
+      architecture: "custom_llm",
+      caseId: GYM,
+      caseTrack: "strategy",
+      caseRole: null,
+    });
+    expect(stored(started.sessionId)).toMatchObject({
+      caseId: GYM,
+      caseTrack: "strategy",
+      architecture: "custom_llm",
+    });
   });
 });
 

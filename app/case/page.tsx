@@ -17,8 +17,12 @@ export default function CasePage() {
 
   function completeVoiceInterview(
     finalScore: CaseScore,
-    context?: { preserveNativeReport?: boolean },
+    context?: {
+      preserveNativeReport?: boolean;
+      contributesToCaseReadiness?: boolean;
+    },
   ) {
+    if (context?.contributesToCaseReadiness === false) return;
     if (!context?.preserveNativeReport) setVoiceScore(finalScore);
     setModule("case", {
       status: "done",

@@ -206,6 +206,9 @@ export interface CaseVoiceSession {
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Catalog classification snapshotted at session creation. */
+  caseTrack?: "strategy" | "technical";
+  caseRole?: "data_engineering" | "data_analyst";
   /** Snapshotted candidate-facing selection metadata (backend-derived). */
   selectedCaseTitle?: string;
   selectedCaseDescription?: string;

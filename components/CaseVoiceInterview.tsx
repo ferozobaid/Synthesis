@@ -99,6 +99,8 @@ export interface CaseVoiceProjectedTurn {
 
 export interface CaseVoiceProjection {
   caseId: string;
+  caseTrack?: PreviewCaseTrack | null;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
   openingText: string;
   readinessStatus: "awaiting" | "confirmed";
@@ -122,6 +124,8 @@ export interface PendingCaseVoiceCapability {
   sessionId: string;
   projectionToken: string;
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole;
   caseTitle: string;
   openingPrompt: string;
   createdAt: number;
@@ -138,6 +142,8 @@ export interface CaseBootstrap {
   projectionToken: string;
   openingPrompt: string;
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
   caseDescription?: string | null;
 }
@@ -149,6 +155,8 @@ export interface NativeCaseBootstrap {
   reportToken: string;
   reportStatus: "pending";
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
 }
 
@@ -721,7 +729,13 @@ function statusLabel(status: CaseVoiceStatus): string {
 export default function CaseVoiceInterview({
   onComplete,
 }: {
-  onComplete?: (score: CaseScore, context?: { preserveNativeReport?: boolean }) => void;
+  onComplete?: (
+    score: CaseScore,
+    context?: {
+      preserveNativeReport?: boolean;
+      contributesToCaseReadiness?: boolean;
+    },
+  ) => void;
 }) {
   // Native sessions receive their closed-mapped assistant id from bootstrap;
   // only the public Web SDK key is needed before the architecture is known.
@@ -815,8 +829,11 @@ export default function CaseVoiceInterview({
     completionReportedRef.current = true;
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
-    onCompleteRef.current?.(score, { preserveNativeReport: true });
-  }, []);
+    onCompleteRef.current?.(score, {
+      preserveNativeReport: true,
+      contributesToCaseReadiness: nativeCapability?.caseTrack !== "technical",
+    });
+  }, [nativeCapability?.caseTrack]);
 
   const expireSession = useCallback(() => {
     startAttemptRef.current += 1;
@@ -930,6 +947,8 @@ export default function CaseVoiceInterview({
           assistantId: bootstrap.assistantId,
           reportToken: bootstrap.reportToken,
           caseId: bootstrap.caseId,
+          caseTrack: bootstrap.caseTrack,
+          caseRole: bootstrap.caseRole ?? undefined,
           caseTitle: bootstrap.caseTitle,
           createdAt: Date.now(),
         };
@@ -953,6 +972,8 @@ export default function CaseVoiceInterview({
           sessionId: customBootstrap.sessionId,
           projectionToken: customBootstrap.projectionToken,
           caseId: customBootstrap.caseId,
+          caseTrack: customBootstrap.caseTrack,
+          caseRole: customBootstrap.caseRole ?? undefined,
           caseTitle: customBootstrap.caseTitle,
           openingPrompt: customBootstrap.openingPrompt,
           createdAt: Date.now(),

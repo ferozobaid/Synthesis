@@ -1,4 +1,5 @@
 import airportAuthored from "@/context/cases/airport-profitability-live-interviewer.json";
+import dataEngineerClickstreamAuthored from "@/context/cases/data-engineer-clickstream-live-interviewer.json";
 import gymAuthored from "@/context/cases/gcc-premium-gym-live-interviewer.json";
 import { nextState } from "@/lib/fsm/case-fsm";
 import type { CaseRecord, CaseSessionState, CaseState } from "@/lib/types";
@@ -81,6 +82,7 @@ const LIVE_STAGE_SEQUENCE: CaseState[] = [
 export const CASE_LIVE_CASE_IDS = [
   "airport_profitability",
   "gcc_premium_gym_market_entry",
+  "data_engineer_clickstream",
 ] as const;
 
 export type CaseLiveCaseId = (typeof CASE_LIVE_CASE_IDS)[number];
@@ -154,6 +156,7 @@ function assertAuthoredConfig(config: CaseLiveAuthoredConfig, expectedId: string
 const CONFIGS: Readonly<Record<CaseLiveCaseId, CaseLiveAuthoredConfig>> = {
   airport_profitability: airportAuthored as unknown as CaseLiveAuthoredConfig,
   gcc_premium_gym_market_entry: gymAuthored as unknown as CaseLiveAuthoredConfig,
+  data_engineer_clickstream: dataEngineerClickstreamAuthored as unknown as CaseLiveAuthoredConfig,
 };
 
 for (const caseId of CASE_LIVE_CASE_IDS) {
