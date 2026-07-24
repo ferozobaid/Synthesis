@@ -379,7 +379,8 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
   const band = readinessBand(score100);
   const nextFocus = summary.feedback.next_focus[0];
   return (
-    <div style={{ animation: "fadeUp .5s ease both" }}>
+    <div>
+      <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
       <SectionLabel color="var(--secondary)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Behavioural readiness report</SectionLabel>
       <VerdictBanner
         score={score100}
@@ -391,6 +392,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         bandTint={band.tintBg}
         verdict={summary.feedback.summary}
       />
+      </div>
 
       {summary.unanswered && summary.unanswered > 0 ? (
         <p style={{ margin: "-6px 0 16px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
@@ -400,7 +402,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </p>
       ) : null}
 
-      <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 }}>
+      <div className="reveal-item" style={{ "--reveal-index": 1, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 } as React.CSSProperties}>
         <SectionLabel style={{ marginBottom: 16 }}>Across all {summary.answered} answer{summary.answered === 1 ? "" : "s"}</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {summary.dimension_averages.map((d, i) => (
@@ -413,9 +415,13 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </div>
       </div>
 
-      {summary.qualitative ? <QualitativeReportView qualitative={summary.qualitative} /> : null}
+      {summary.qualitative ? (
+        <div className="reveal-item" style={{ "--reveal-index": 2 } as React.CSSProperties}>
+          <QualitativeReportView qualitative={summary.qualitative} />
+        </div>
+      ) : null}
 
-      <div style={{ background: "var(--glow)", boxShadow: "0 10px 28px rgba(20,45,82,.18)", borderRadius: 18, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div className="reveal-item" style={{ "--reveal-index": 3, background: "var(--glow)", boxShadow: "0 10px 28px rgba(20,45,82,.18)", borderRadius: 18, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
         <div>
           <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>{nextFocus ? "Focus next on" : "Report complete"}</SectionLabel>
           <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.01em" }}>

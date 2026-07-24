@@ -254,14 +254,16 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
 
   return (
     <>
-      <VerdictBanner
-        score={report.overall_score}
-        suffix="fit score"
-        bandLabel={band.label}
-        bandColor={band.color}
-        bandTint={band.tintBg}
-        verdict={verdict}
-      />
+      <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
+        <VerdictBanner
+          score={report.overall_score}
+          suffix="fit score"
+          bandLabel={band.label}
+          bandColor={band.color}
+          bandTint={band.tintBg}
+          verdict={verdict}
+        />
+      </div>
 
       {scoreLine && (
         <div
@@ -293,7 +295,13 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             {reqs.map((r, i) => (
-              <RequirementCard key={i} requirement={r.requirement} status={r.status} evidence={r.evidence} mustHave={r.weight >= 1} />
+              <div
+                key={i}
+                className="reveal-item"
+                style={{ "--reveal-index": Math.min(1 + i, 8) } as React.CSSProperties}
+              >
+                <RequirementCard requirement={r.requirement} status={r.status} evidence={r.evidence} mustHave={r.weight >= 1} />
+              </div>
             ))}
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 9, alignItems: "flex-start", padding: "12px 14px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 11 }}>
@@ -308,7 +316,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
         {/* right rail */}
         <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
           {fixes.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 2, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel color="var(--accent-ink)" style={{ marginBottom: 14 }}>Fix these next</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {fixes.map((f, i) => (
@@ -322,7 +330,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           )}
 
           {report.top_strengths.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel color="var(--success)" style={{ marginBottom: 12 }}>Your strengths</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {report.top_strengths.map((st, i) => (
@@ -336,7 +344,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           )}
 
           {report.missing_keywords.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 4, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel style={{ marginBottom: 12 }}>Keywords to weave in</SectionLabel>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                 {report.missing_keywords.map((k, i) => (
@@ -348,7 +356,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
         </div>
       </div>
 
-      <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div className="reveal-item" style={{ "--reveal-index": 5, marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>Turn these gaps into practice</div>
           <div style={{ fontSize: 13, color: "var(--ink-3)" }}>Your fit report set the agenda — now rehearse the stories and drills that close the gaps.</div>

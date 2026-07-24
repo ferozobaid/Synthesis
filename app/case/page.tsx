@@ -71,7 +71,8 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
       : "A workable case with clear room to grow. Tighten your structure and lean harder on the exhibits to lift your score.";
 
   return (
-    <div className="case-report" style={{ maxWidth: 760, margin: "0 auto", animation: "fadeUp .5s ease both" }}>
+    <div className="case-report" style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
       <SectionLabel color="var(--ink-3)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Strategy readiness</SectionLabel>
       <VerdictBanner
         score={score100}
@@ -83,8 +84,9 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
         bandTint={band.tintBg}
         verdict={verdict}
       />
+      </div>
 
-      <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 }}>
+      <div className="reveal-item" style={{ "--reveal-index": 1, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 } as React.CSSProperties}>
         <SectionLabel style={{ marginBottom: 16 }}>Scoring rubric</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {score.dimension_scores.map((d, i) => (
@@ -100,7 +102,7 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 18 }}>
+      <div className="reveal-item" style={{ "--reveal-index": 2, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 18 } as React.CSSProperties}>
         <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 18, boxShadow: "var(--shadow-sm)" }}>
           <SectionLabel color="var(--success)" style={{ marginBottom: 11, fontSize: 9.5 }}>What worked</SectionLabel>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -120,7 +122,7 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
       </div>
 
       {score.next_focus.length > 0 && (
-        <div style={{ background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+        <div className="reveal-item" style={{ "--reveal-index": 3, background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
           <div>
             <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>Focus next on</SectionLabel>
             <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0, lineHeight: 1.35 }}>{score.next_focus[0]}</div>
