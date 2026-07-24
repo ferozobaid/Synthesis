@@ -25,6 +25,12 @@ export const PREVIEW_LLM_CASES: readonly PreviewLlmCaseCatalogEntry[] = [
     description:
       "Assess whether a European premium gym chain should enter Saudi Arabia and the UAE, and determine the appropriate entry strategy.",
   },
+  {
+    id: "data_engineer_clickstream",
+    title: "Clickstream Data Pipeline",
+    description:
+      "Design a near-real-time data pipeline to ingest, process, and aggregate user clickstream events at massive scale.",
+  },
 ] as const;
 
 const CATALOG_BY_ID = new Map(PREVIEW_LLM_CASES.map((entry) => [entry.id, entry]));

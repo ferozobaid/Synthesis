@@ -7,10 +7,10 @@ import type { CaseScore } from "@/lib/types";
 import type { PublicCaseReportFailureCode } from "@/lib/voice/case-report-public";
 // Type-only import: erased at build, so no worked-solution content is bundled.
 import type { CaseWorkedSolutionView } from "@/lib/voice/case-worked-solution-types";
+import { TECHNICAL_DIM_LABEL } from "@/lib/voice/case-technical-dimensions";
 import type {
   CasePostCallDimensionScore,
   CasePostCallScore,
-  CaseReportDimension,
   CaseReportStage,
   ReportStatus,
 } from "@/lib/voice/types";
@@ -31,6 +31,7 @@ export interface NativeCaseReportProjection {
   status: ReportStatus;
   caseId: string;
   caseTitle: string | null;
+  evaluatorType?: string;
   partial: boolean | null;
   observedStages: CaseReportStage[];
   missingStages: CaseReportStage[];
@@ -47,13 +48,39 @@ const STAGE_LABEL: Record<CaseReportStage, string> = {
   recommendation: "Recommendation",
 };
 
-const DIMENSION_LABEL: Record<CaseReportDimension, string> = {
+const CONSULTING_DIMENSION_LABEL: Record<string, string> = {
   structure: "Structure",
   hypothesis_driven_thinking: "Hypothesis-driven thinking",
   quantitative_reasoning: "Quantitative reasoning",
   synthesis: "Synthesis",
   communication: "Communication",
 };
+
+/** Every dimension label this build knows about, keyed by dimension id. */
+const DIMENSION_LABEL: Record<string, string> = {
+  ...CONSULTING_DIMENSION_LABEL,
+  ...TECHNICAL_DIM_LABEL,
+};
+
+/** Falls back to a humanized dimension id for any evaluator this build doesn't know about yet. */
+function dimensionLabel(dimension: string): string {
+  return DIMENSION_LABEL[dimension] ?? dimension.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+const SECTION_LABELS = {
+  consulting: {
+    framework: "Framework feedback",
+    recommendation: "Recommendation feedback",
+    quantitative: "Quantitative reasoning feedback",
+  },
+  technical_system_design: {
+    framework: "Pipeline design feedback",
+    recommendation: "Operations & trade-off feedback",
+    quantitative: "Scale & reliability feedback",
+  },
+} as const;
+
+export type NativeCaseEvaluatorType = keyof typeof SECTION_LABELS;
 
 export interface NativeCaseReportPresentation {
   label: "Case Report" | "Partial Report";
@@ -68,9 +95,16 @@ export interface NativeCaseReportPresentation {
   strengths: string[];
   improvements: string[];
   frameworkFeedback: string[] | null;
+  frameworkFeedbackLabel: string;
   quantitativeFeedback: string | null;
+  quantitativeFeedbackLabel: string;
   recommendationFeedback: string[] | null;
+  recommendationFeedbackLabel: string;
   nextPracticePriorities: string[];
+}
+
+function resolveEvaluatorType(value: string | undefined): NativeCaseEvaluatorType {
+  return value === "technical_system_design" ? "technical_system_design" : "consulting";
 }
 
 export function nativeCaseReportPresentation(
@@ -78,6 +112,7 @@ export function nativeCaseReportPresentation(
 ): NativeCaseReportPresentation | null {
   if (report.status !== "done" || !report.score || report.partial === null) return null;
   const partial = report.partial;
+  const sectionLabels = SECTION_LABELS[resolveEvaluatorType(report.evaluatorType)];
   return {
     label: partial ? "Partial Report" : "Case Report",
     caseTitle: report.caseTitle ?? "Case interview",
@@ -93,8 +128,11 @@ export function nativeCaseReportPresentation(
     strengths: report.score.strengths,
     improvements: report.score.improvements,
     frameworkFeedback: report.score.improved_framework_outline,
+    frameworkFeedbackLabel: sectionLabels.framework,
     quantitativeFeedback: report.score.quantitative_assessment,
+    quantitativeFeedbackLabel: sectionLabels.quantitative,
     recommendationFeedback: report.score.improved_recommendation_outline,
+    recommendationFeedbackLabel: sectionLabels.recommendation,
     nextPracticePriorities: report.score.next_focus,
   };
 }
@@ -422,7 +460,7 @@ function NativeCaseReportView({
             <div key={dimension.dimension}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ width: 190, fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
-                  {DIMENSION_LABEL[dimension.dimension]}
+                  {dimensionLabel(dimension.dimension)}
                 </span>
                 {dimension.score !== null && (
                   <>
@@ -457,17 +495,17 @@ function NativeCaseReportView({
       {(presentation.frameworkFeedback || presentation.recommendationFeedback) && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginBottom: 16 }}>
           {presentation.frameworkFeedback && (
-            <FeedbackList title="Framework feedback" values={presentation.frameworkFeedback} color="var(--accent)" />
+            <FeedbackList title={presentation.frameworkFeedbackLabel} values={presentation.frameworkFeedback} color="var(--accent)" />
           )}
           {presentation.recommendationFeedback && (
-            <FeedbackList title="Recommendation feedback" values={presentation.recommendationFeedback} color="var(--accent)" />
+            <FeedbackList title={presentation.recommendationFeedbackLabel} values={presentation.recommendationFeedback} color="var(--accent)" />
           )}
         </div>
       )}
 
       {presentation.quantitativeFeedback && (
         <section style={cardStyle}>
-          <SectionLabel style={{ marginBottom: 9 }}>Quantitative reasoning feedback</SectionLabel>
+          <SectionLabel style={{ marginBottom: 9 }}>{presentation.quantitativeFeedbackLabel}</SectionLabel>
           <p style={{ ...bodyStyle, margin: 0 }}>{presentation.quantitativeFeedback}</p>
         </section>
       )}

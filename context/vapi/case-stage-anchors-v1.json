@@ -26,6 +26,15 @@
       "data_reveal": "I am now sharing the Dubai Premium Gym Market Inputs. Use these inputs to estimate the annual premium gym market in Dubai.",
       "pressure_test": "If the client targets ten percent of the Dubai premium gym market by year three, how many locations would it need, and is that achievable?",
       "recommendation": "The CEO is ready for your recommendation. Should the client enter, and if so, where, when, and how?"
+    },
+    "data_engineer_clickstream": {
+      "openingAnchor": "Design a data pipeline to process and aggregate user clickstream data in near real-time.",
+      "clarification": "Before you design your approach, what would you like to clarify?",
+      "framework": "How would you structure your high-level design for this pipeline?",
+      "analysis": "Let's drill into your design. How would you handle ingestion and schema for these events, and would you transform data before loading it or after, and why?",
+      "data_reveal": "Here are the scale requirements. Using these inputs, how would you design your stream processing, windowing, and storage layers to hit the latency and consistency targets?",
+      "pressure_test": "How would your design handle a sudden traffic spike, late-arriving events, and duplicate events from mobile retries, while still meeting the availability target and exactly-once Gold tables?",
+      "recommendation": "Let's bring it together. What is your final recommendation for this pipeline, including how you'd operate and evolve it over time?"
     }
   }
 }

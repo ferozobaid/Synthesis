@@ -248,6 +248,12 @@ export interface CaseRecord {
   quant?: CaseQuant;
   scoring_rubric: ScoringRubric;
   target_solution_notes?: string;
+  /**
+   * Selects the post-call evaluator for native Case Voice scoring. Absent (or
+   * "consulting") keeps the existing 5-dimension case evaluator; "technical_system_design"
+   * routes to the dedicated technical evaluator. Never inferred from case id.
+   */
+  evaluator_type?: "consulting" | "technical_system_design";
 }
 
 export interface CaseTurn {

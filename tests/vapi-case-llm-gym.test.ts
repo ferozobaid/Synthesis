@@ -96,6 +96,7 @@ const SECRET = "gym-route-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
 const GYM = "gcc_premium_gym_market_entry";
 const AIRPORT = "airport_profitability";
+const DATA_ENGINEER = "data_engineer_clickstream";
 
 interface ChatMessage { id?: string; role: "assistant" | "user"; content: string }
 
@@ -239,21 +240,21 @@ beforeEach(() => {
 });
 
 describe("Preview LLM catalog", () => {
-  it("exposes only id, title, and description for both selectable cases in llm mode", async () => {
+  it("exposes only id, title, and description for all selectable cases in llm mode", async () => {
     const response = await catalogGET();
     expect(response.status).toBe(200);
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
-    expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM]);
+    expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM, DATA_ENGINEER]);
     for (const entry of cases) {
       expect(Object.keys(entry).sort()).toEqual(["description", "id", "title"]);
     }
   });
 
-  it("always presents exactly the two cases with no Beautify or Diconsa options", async () => {
+  it("always presents exactly the three cases with no Beautify or Diconsa options", async () => {
     for (const mode of ["llm", "legacy", "production"]) {
       process.env.CASE_VOICE_INTERVIEWER_MODE = mode;
       const { cases } = await (await catalogGET()).json() as { cases: Array<{ id: string }> };
-      expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM]);
+      expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM, DATA_ENGINEER]);
       expect(JSON.stringify(cases)).not.toContain("beautify");
       expect(JSON.stringify(cases)).not.toContain("diconsa");
     }
