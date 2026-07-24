@@ -43,7 +43,15 @@ export type CaseReportDimension =
   | "communication";
 
 export interface CasePostCallDimensionScore {
-  dimension: CaseReportDimension;
+  /**
+   * The 5 consulting-case dimensions for consulting-evaluated cases, or the
+   * dedicated technical evaluator's dimension keys (see
+   * lib/voice/case-technical-post-call-scorer.ts) for technical_system_design
+   * cases. Widened from CaseReportDimension so both evaluators share one report
+   * shape; CaseReportDimension itself stays the consulting scorer's exhaustive
+   * internal union.
+   */
+  dimension: CaseReportDimension | string;
   score: number | null;
   justification: string;
   evidence: string | null;

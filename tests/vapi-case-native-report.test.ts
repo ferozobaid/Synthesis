@@ -407,7 +407,7 @@ describe("protected Case report polling", () => {
     const projection = await response.json();
     expect(response.status).toBe(200);
     expect(Object.keys(projection).sort()).toEqual([
-      "caseId", "caseTitle", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
+      "caseId", "caseTitle", "evaluatorType", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
     ]);
     expect(JSON.stringify(projection)).not.toMatch(
       /transcript|assistantId|callId|fencing|solution|rubric|exhibit|validationPath|validationReason|validationReceivedType/i,

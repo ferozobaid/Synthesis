@@ -318,6 +318,95 @@ describe("native Case report status presentation", () => {
     expect(presentation.readinessUpdated).toBe(false);
     expect(fullAuthoritativeCaseScore(partial)).toBeNull();
   });
+
+  it("defaults a legacy report payload without evaluatorType to the consulting section labels", () => {
+    // Simulates a report record persisted before evaluatorType existed on the
+    // wire, or an evaluatorType-less mock in an older client bundle. The field
+    // is optional on NativeCaseReportProjection; the API never removed it.
+    const legacyFull = report({
+      status: "done",
+      partial: false,
+      observedStages: ["clarification", "framework", "analysis", "data_reveal", "pressure_test", "recommendation"],
+      score: {
+        overall: 4,
+        dimension_scores: ["structure", "hypothesis_driven_thinking", "quantitative_reasoning", "synthesis", "communication"]
+          .map((dimension) => ({ dimension, score: 4, justification: "Observed.", evidence: null })),
+        summary: "Legacy consulting summary.",
+        strengths: ["Legacy strength."],
+        improvements: ["Legacy improvement."],
+        next_focus: ["Legacy focus."],
+        stage_feedback: [],
+        improved_framework_outline: ["Legacy framework coaching."],
+        improved_recommendation_outline: ["Legacy recommendation coaching."],
+        quantitative_assessment: "Legacy quantitative coaching.",
+      },
+      // evaluatorType intentionally omitted.
+    });
+    expect("evaluatorType" in legacyFull).toBe(false);
+
+    const presentation = nativeCaseReportPresentation(legacyFull)!;
+
+    expect(presentation).not.toBeNull();
+    expect(presentation.frameworkFeedbackLabel).toBe("Framework feedback");
+    expect(presentation.recommendationFeedbackLabel).toBe("Recommendation feedback");
+    expect(presentation.quantitativeFeedbackLabel).toBe("Quantitative reasoning feedback");
+    expect(presentation.dimensions).toHaveLength(5);
+    expect(fullAuthoritativeCaseScore(legacyFull)).not.toBeNull();
+  });
+
+  it("falls back to consulting labels for an unrecognized evaluatorType instead of crashing", () => {
+    const garbage = report({
+      status: "done",
+      partial: false,
+      evaluatorType: "some_future_evaluator_this_build_does_not_know_about",
+      observedStages: ["clarification", "framework", "analysis", "data_reveal", "pressure_test", "recommendation"],
+      score: {
+        overall: 3,
+        dimension_scores: [],
+        summary: "n/a",
+        strengths: [],
+        improvements: [],
+        next_focus: [],
+        stage_feedback: [],
+        improved_framework_outline: null,
+        improved_recommendation_outline: null,
+        quantitative_assessment: null,
+      },
+    });
+
+    expect(() => nativeCaseReportPresentation(garbage)).not.toThrow();
+    const presentation = nativeCaseReportPresentation(garbage)!;
+    expect(presentation.frameworkFeedbackLabel).toBe("Framework feedback");
+    expect(presentation.recommendationFeedbackLabel).toBe("Recommendation feedback");
+    expect(presentation.quantitativeFeedbackLabel).toBe("Quantitative reasoning feedback");
+  });
+
+  it("selects the technical section labels only for evaluatorType: technical_system_design", () => {
+    const technical = report({
+      status: "done",
+      partial: false,
+      caseId: "data_engineer_clickstream",
+      caseTitle: "Clickstream Data Pipeline",
+      evaluatorType: "technical_system_design",
+      observedStages: ["clarification", "framework", "analysis", "data_reveal", "pressure_test", "recommendation"],
+      score: {
+        overall: 4,
+        dimension_scores: [{ dimension: "pipeline_design", score: 4, justification: "Observed.", evidence: null }],
+        summary: "Technical summary.",
+        strengths: [],
+        improvements: [],
+        next_focus: [],
+        stage_feedback: [],
+        improved_framework_outline: ["Pipeline coaching."],
+        improved_recommendation_outline: ["Operations coaching."],
+        quantitative_assessment: "Scale coaching.",
+      },
+    });
+    const presentation = nativeCaseReportPresentation(technical)!;
+    expect(presentation.frameworkFeedbackLabel).toBe("Pipeline design feedback");
+    expect(presentation.recommendationFeedbackLabel).toBe("Operations & trade-off feedback");
+    expect(presentation.quantitativeFeedbackLabel).toBe("Scale & reliability feedback");
+  });
 });
 
 describe("native Case live stage progress and timer", () => {

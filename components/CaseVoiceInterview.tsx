@@ -1376,7 +1376,7 @@ export default function CaseVoiceInterview({
                   a scored native report.
                 </span>
                 <span className="grid-track-card__meta">
-                  Airport · GCC Premium Gym <span aria-hidden="true">→</span>
+                  Airport · GCC Premium Gym · Data Engineer <span aria-hidden="true">→</span>
                 </span>
               </button>
               <button

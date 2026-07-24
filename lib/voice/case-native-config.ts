@@ -5,7 +5,10 @@ export const CASE_VOICE_NATIVE_ORCHESTRATION_VERSION = "case-voice-vapi-native-v
 export const CASE_VOICE_STAGE_ANCHOR_VERSION = "case-stage-anchors-v1";
 
 export interface CaseNativeAssistantConfig {
-  caseId: "airport_profitability" | "gcc_premium_gym_market_entry";
+  caseId:
+    | "airport_profitability"
+    | "gcc_premium_gym_market_entry"
+    | "data_engineer_clickstream";
   assistantId: string;
   assistantConfigVersion: string;
   stageAnchorVersion: typeof CASE_VOICE_STAGE_ANCHOR_VERSION;
@@ -16,6 +19,7 @@ interface NativeEnvironment {
   CASE_VOICE_ARCHITECTURE?: string;
   VAPI_AIRPORT_ASSISTANT_ID?: string;
   VAPI_GCC_GYM_ASSISTANT_ID?: string;
+  VAPI_DATA_ENGINEER_ASSISTANT_ID?: string;
 }
 
 const STATIC_CONFIG = {
@@ -27,7 +31,22 @@ const STATIC_CONFIG = {
     envKey: "VAPI_GCC_GYM_ASSISTANT_ID",
     assistantConfigVersion: "gcc-premium-gym-assistant-v1",
   },
+  data_engineer_clickstream: {
+    envKey: "VAPI_DATA_ENGINEER_ASSISTANT_ID",
+    assistantConfigVersion: "data-engineer-clickstream-assistant-v1",
+  },
 } as const;
+
+/**
+ * Cases with no custom_llm interview content at all (Data Engineer ships
+ * native-only) always resolve to vapi_native, regardless of the deployment-wide
+ * CASE_VOICE_ARCHITECTURE flag. This is deliberately per-case and additive: it
+ * leaves resolveCaseVoiceArchitecture() — and therefore Airport/GCC's existing
+ * global-flag behavior — completely unchanged.
+ */
+const CASE_FORCED_ARCHITECTURE: Readonly<Partial<Record<string, CaseVoiceArchitecture>>> = {
+  data_engineer_clickstream: "vapi_native",
+};
 
 export function resolveCaseVoiceArchitecture(
   env: NativeEnvironment = process.env,
@@ -35,6 +54,14 @@ export function resolveCaseVoiceArchitecture(
   return env.CASE_VOICE_ARCHITECTURE?.trim().toLowerCase() === "vapi_native"
     ? "vapi_native"
     : "custom_llm";
+}
+
+/** Per-case architecture resolution: forced cases win; everything else falls back unchanged. */
+export function resolveCaseVoiceArchitectureForCase(
+  caseId: string,
+  env: NativeEnvironment = process.env,
+): CaseVoiceArchitecture {
+  return CASE_FORCED_ARCHITECTURE[caseId] ?? resolveCaseVoiceArchitecture(env);
 }
 
 export function storedCaseVoiceArchitecture(session: {

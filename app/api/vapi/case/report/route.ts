@@ -18,13 +18,31 @@ import {
   CASE_POST_CALL_VALIDATION_RECEIVED_TYPES,
   scoreCasePostCall,
   type CasePostCallAnthropicErrorType,
+  type CasePostCallScoringResult,
   type CasePostCallStopReason,
   type CasePostCallValidationPath,
   type CasePostCallValidationReason,
   type CasePostCallValidationReceivedType,
 } from "@/lib/voice/case-post-call-scorer";
+import { scoreTechnicalCasePostCall } from "@/lib/voice/case-technical-post-call-scorer";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
+import type { CaseRecord } from "@/lib/types";
 import type { CaseVoiceSession } from "@/lib/voice/types";
+import type { MappedCaseTranscript } from "@/lib/voice/case-transcript";
+
+/**
+ * Evaluator dispatch. Selected by CaseRecord.evaluator_type — set explicitly on
+ * each case record — never inferred from a case id. Absent/"consulting" keeps
+ * the existing 5-dimension case evaluator unchanged for Airport and GCC.
+ */
+function scoreForCase(
+  caseRecord: CaseRecord,
+  mapped: MappedCaseTranscript,
+): Promise<CasePostCallScoringResult> {
+  return caseRecord.evaluator_type === "technical_system_design"
+    ? scoreTechnicalCasePostCall(caseRecord, mapped)
+    : scoreCasePostCall(caseRecord, mapped);
+}
 
 export const maxDuration = 300;
 
@@ -314,7 +332,7 @@ export async function POST(req: NextRequest) {
       };
     } else {
       try {
-        const scoring = await scoreCasePostCall(caseRecord, mapped);
+        const scoring = await scoreForCase(caseRecord, mapped);
         scorerOutcome = scoring.ok
           ? scoring.scorerOutcome ?? "deterministic_fallback"
           : "failed";

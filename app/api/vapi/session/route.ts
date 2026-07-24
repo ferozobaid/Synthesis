@@ -17,7 +17,7 @@ import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import {
   CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
-  resolveCaseVoiceArchitecture,
+  resolveCaseVoiceArchitectureForCase,
   resolveNativeCaseAssistant,
 } from "@/lib/voice/case-native-config";
 import { issueReportCapability } from "@/lib/voice/report-capability";
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
     const catalogEntry = previewLlmCaseCatalogEntry(resolvedCaseId);
-    const architecture = resolveCaseVoiceArchitecture(process.env);
+    const architecture = resolveCaseVoiceArchitectureForCase(resolvedCaseId, process.env);
 
     // Readiness is a voice-only pre-case gate. The authored prompt is withheld
     // until the candidate confirms they are ready. The two cases always run the

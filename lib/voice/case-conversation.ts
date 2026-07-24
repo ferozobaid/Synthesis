@@ -14,6 +14,8 @@ const CASE_READINESS_PROMPTS: Record<string, string> = {
     "Hello, I’ll be your case interviewer today. We’ll be working through the Airport Profitability case. Are you ready to begin?",
   gcc_premium_gym_market_entry:
     "Hello, I’ll be your case interviewer today. We’ll be working through the GCC Premium Gym Market Entry case. Are you ready to begin?",
+  data_engineer_clickstream:
+    "Hello, I’ll be your interviewer today. We’ll be working through the Clickstream Data Pipeline system design case. Are you ready to begin?",
 };
 
 export function caseReadinessPrompt(caseId: string): string {

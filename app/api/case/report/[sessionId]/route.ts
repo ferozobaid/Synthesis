@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadSession } from "@/lib/voice/session-store";
 import { storedCaseVoiceArchitecture } from "@/lib/voice/case-native-config";
 import { candidateSafeCasePostCallScore } from "@/lib/voice/case-post-call-scorer";
+import { candidateSafeTechnicalCasePostCallScore } from "@/lib/voice/case-technical-post-call-scorer";
 import { publicCaseReportFailureCode } from "@/lib/voice/case-report-public";
 import { verifyReportCapability } from "@/lib/voice/report-capability";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
@@ -29,8 +30,12 @@ export async function GET(
 
   const report = record.reportStatus === "done" ? record.finalReport : null;
   const caseRecord = getVoiceLlmCaseRecord(record.caseId);
+  const isTechnical = caseRecord?.evaluator_type === "technical_system_design";
+  const candidateSafeScore = isTechnical
+    ? candidateSafeTechnicalCasePostCallScore
+    : candidateSafeCasePostCallScore;
   const safe = report?.score && caseRecord
-    ? candidateSafeCasePostCallScore(
+    ? candidateSafeScore(
         report.score,
         record.normalizedTranscript ?? [],
         caseRecord,
@@ -65,6 +70,7 @@ export async function GET(
     status: record.reportStatus ?? "pending",
     caseId: record.caseId,
     caseTitle: record.selectedCaseTitle ?? null,
+    evaluatorType: isTechnical ? "technical_system_design" : "consulting",
     partial: report?.partial ?? null,
     observedStages: report?.observedStages ?? [],
     missingStages: report?.missingStages ?? [],
