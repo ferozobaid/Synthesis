@@ -218,7 +218,7 @@ export default function FitPage() {
           <h2 style={{ fontSize: 17, fontWeight: 600, margin: "0 0 20px", color: "var(--ink)" }}>Analyzing your fit…</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 11, maxWidth: 360, margin: "0 auto", textAlign: "left" }}>
             {LOADING_STEPS.map((s, i) => (
-              <div key={s} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: i < 2 ? "var(--ink-2)" : "var(--ink-4)" }}>
+              <div key={s} className="reveal-item" style={{ "--reveal-index": i, display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: i < 2 ? "var(--ink-2)" : "var(--ink-4)" } as React.CSSProperties}>
                 {i < 2 ? (
                   <span style={{ color: "var(--success)" }}>✓</span>
                 ) : i === 2 ? (
@@ -361,7 +361,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>Turn these gaps into practice</div>
           <div style={{ fontSize: 13, color: "var(--ink-3)" }}>Your fit report set the agenda — now rehearse the stories and drills that close the gaps.</div>
         </div>
-        <Link href="/behavioural" style={{ flex: "none", border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 10, cursor: "pointer", textDecoration: "none" }}>
+        <Link href="/behavioural" className="lift-hover" style={{ flex: "none", border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 10, cursor: "pointer", textDecoration: "none" }}>
           Start rehearsing →
         </Link>
       </div>
