@@ -107,7 +107,7 @@ export default function FitPage() {
   const report = data?.report;
 
   return (
-    <main className="page-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell page-enter">
       <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>

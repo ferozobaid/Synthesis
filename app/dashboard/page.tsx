@@ -35,7 +35,7 @@ export default function Dashboard() {
   const modulesDone = [state.fit, state.behavioural, state.case].filter((m) => m.status === "done").length;
 
   return (
-    <main className="page-shell dashboard-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell dashboard-shell page-enter">
       {/* header */}
       <div className="dashboard-header" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 32, flexWrap: "wrap" }}>
         <div>

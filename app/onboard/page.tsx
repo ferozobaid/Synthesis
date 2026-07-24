@@ -42,7 +42,7 @@ export default function Onboard() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", animation: "fadeIn .4s ease both" }}>
+    <main className="page-enter" style={{ minHeight: "100vh" }}>
       <div className="page-shell onboard-shell">
         <Link href="/" className="page-back">
           ← Back

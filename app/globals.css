@@ -6782,3 +6782,52 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
     transform: none;
   }
 }
+
+/* ============================================================
+   Motion utilities — shared entry/reveal/hover polish. Entry-only
+   (no exit animations); transform/opacity only; all neutralized
+   under prefers-reduced-motion below.
+   ============================================================ */
+.page-enter {
+  animation: fadeUp .45s cubic-bezier(.22,1,.36,1) both;
+}
+
+/* Staggered reveal: set --reveal-index per sibling at the call site. */
+.reveal-item {
+  animation: fadeUp .4s cubic-bezier(.22,1,.36,1) both;
+  animation-delay: calc(var(--reveal-index, 0) * 70ms);
+}
+
+/* CSS-only lift, generalized from the ModuleCard hover treatment. */
+@media (hover: hover) {
+  .lift-hover {
+    transition:
+      transform .16s ease,
+      box-shadow .16s ease,
+      border-color .16s ease;
+  }
+
+  .lift-hover:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 7px 7px 0 var(--line-strong);
+  }
+}
+
+.lift-hover:focus-visible {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .reveal-item {
+    animation: none;
+  }
+
+  .lift-hover,
+  .lift-hover:hover,
+  .lift-hover:focus-visible {
+    transition: none;
+    transform: none;
+  }
+}

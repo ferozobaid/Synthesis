@@ -28,7 +28,7 @@ export default function CasePage() {
   }
 
   return (
-    <main className="page-shell case-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell case-shell page-enter">
       <Link
         href="/dashboard"
         className="page-back"

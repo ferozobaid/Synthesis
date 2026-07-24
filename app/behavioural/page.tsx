@@ -191,7 +191,7 @@ export default function BehaviouralPage() {
   }
 
   return (
-    <main className="page-shell page-shell--narrow behavioural-page-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell page-shell--narrow behavioural-page-shell page-enter">
       <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
