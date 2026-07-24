@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, PointerEvent, WheelEvent } from "react";
+import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
 
 export interface ModuleCarouselItem {
   glyph: string;
@@ -70,6 +70,9 @@ export function ModuleCarousel({ items }: { items: ModuleCarouselItem[] }) {
   const pointerId = useRef<number | null>(null);
   const dragged = useRef(false);
   const wheelRemainder = useRef(0);
+  const mobileRef = useRef<HTMLDivElement | null>(null);
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
 
   const goTo = useCallback((index: number) => {
     setActiveIndex((index + items.length) % items.length);
@@ -126,18 +129,26 @@ export function ModuleCarousel({ items }: { items: ModuleCarouselItem[] }) {
     else if (event.key === "End") { event.preventDefault(); goTo(items.length - 1); }
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    // Trackpads emit horizontal wheel deltas rather than pointer events. Keep
-    // vertical page scrolling native, but turn a deliberate horizontal gesture
-    // into the same circular step as a swipe.
-    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 1) return;
-    event.preventDefault();
-    wheelRemainder.current += event.deltaX;
-    if (Math.abs(wheelRemainder.current) < SWIPE_THRESHOLD) return;
-    const direction = wheelRemainder.current > 0 ? 1 : -1;
-    wheelRemainder.current = 0;
-    goTo(activeIndex + direction);
-  }
+  // Trackpads emit horizontal wheel deltas rather than pointer events. Keep
+  // vertical page scrolling native, but turn a deliberate horizontal gesture
+  // into the same circular step as a swipe. React registers onWheel as a
+  // passive root listener, so preventDefault would be a no-op there; attach a
+  // non-passive native listener on the mobile track instead.
+  useEffect(() => {
+    const node = mobileRef.current;
+    if (!node) return;
+    const onWheel = (event: globalThis.WheelEvent) => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 1) return;
+      event.preventDefault();
+      wheelRemainder.current += event.deltaX;
+      if (Math.abs(wheelRemainder.current) < SWIPE_THRESHOLD) return;
+      const direction = wheelRemainder.current > 0 ? 1 : -1;
+      wheelRemainder.current = 0;
+      goTo(activeIndexRef.current + direction);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [goTo]);
 
   const focusIndex = activeIndex - dragOffset / stepSize;
 
@@ -148,6 +159,7 @@ export function ModuleCarousel({ items }: { items: ModuleCarouselItem[] }) {
       </div>
 
       <div
+        ref={mobileRef}
         className={`module-carousel__mobile${isDragging ? " module-carousel__mobile--dragging" : ""}`}
         role="region"
         aria-roledescription="carousel"
@@ -158,7 +170,6 @@ export function ModuleCarousel({ items }: { items: ModuleCarouselItem[] }) {
         onPointerMove={handlePointerMove}
         onPointerUp={finishPointer}
         onPointerCancel={finishPointer}
-        onWheel={handleWheel}
       >
         <div className="module-carousel__track">
           {items.map((item, index) => {

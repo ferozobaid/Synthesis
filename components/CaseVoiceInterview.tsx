@@ -1728,7 +1728,7 @@ export default function CaseVoiceInterview({
             </button>
           </div>
 
-          <div className={showTranscript ? "case-grid case-workspace" : "case-workspace"} style={{ marginTop: 16 }}>
+          <div className={showTranscript ? "case-grid" : undefined} style={{ marginTop: 16 }}>
             {showTranscript && (
               <div className="case-transcript-panel" style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
