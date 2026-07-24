@@ -158,21 +158,35 @@ export interface NativeCaseVoiceTranscriptLine {
   sequence: number;
 }
 
+export type PreviewCaseTrack = "strategy" | "technical";
+export type PreviewCaseTechnicalRole = "data_engineering" | "data_analyst";
+
 export interface PreviewCaseChoice {
   id: string;
   title: string;
   description: string;
+  track: PreviewCaseTrack;
+  /** Present only for track: "technical" entries. */
+  role?: PreviewCaseTechnicalRole;
 }
 
 type GridTrack = "case" | "technical";
-type TechnicalRoleId = "data_analyst" | "data_engineer";
+type TechnicalRoleId = PreviewCaseTechnicalRole;
 
-const TECHNICAL_ROLE_PREVIEWS: Array<{
+/** Presentational metadata for every technical role card, active or upcoming. */
+const TECHNICAL_ROLE_META: Array<{
   id: TechnicalRoleId;
   title: string;
   description: string;
   focus: string;
 }> = [
+  {
+    id: "data_engineering",
+    title: "Data Engineering",
+    description:
+      "Prepare for data modeling, pipeline design, reliability, and production trade-offs.",
+    focus: "Pipelines · modeling · reliability",
+  },
   {
     id: "data_analyst",
     title: "Data Analyst",
@@ -180,14 +194,23 @@ const TECHNICAL_ROLE_PREVIEWS: Array<{
       "Practice the judgment behind SQL, metrics, experimentation, and analytical storytelling.",
     focus: "SQL · metrics · experimentation",
   },
-  {
-    id: "data_engineer",
-    title: "Data Engineer",
-    description:
-      "Prepare for data modeling, pipeline design, reliability, and production trade-offs.",
-    focus: "Pipelines · modeling · reliability",
-  },
 ];
+
+/** Catalog-driven classification helpers. No case id is ever hardcoded here. */
+export function strategyCatalogCases(catalog: PreviewCaseChoice[]): PreviewCaseChoice[] {
+  return catalog.filter((entry) => entry.track === "strategy");
+}
+
+export function technicalCatalogCasesByRole(
+  catalog: PreviewCaseChoice[],
+): Partial<Record<PreviewCaseTechnicalRole, PreviewCaseChoice[]>> {
+  const out: Partial<Record<PreviewCaseTechnicalRole, PreviewCaseChoice[]>> = {};
+  for (const entry of catalog) {
+    if (entry.track !== "technical" || !entry.role) continue;
+    (out[entry.role] ??= []).push(entry);
+  }
+  return out;
+}
 
 export class CaseProjectionUnavailableError extends Error {
   constructor() {
@@ -389,7 +412,10 @@ export function caseVoiceControls(
 
 export type CaseCatalogStatus = "loading" | "loaded" | "error";
 
-/** Load the two selectable Preview LLM cases. Any failure (or empty list) is an error state. */
+const VALID_TRACKS: readonly PreviewCaseTrack[] = ["strategy", "technical"];
+const VALID_TECHNICAL_ROLES: readonly PreviewCaseTechnicalRole[] = ["data_engineering", "data_analyst"];
+
+/** Load the selectable Preview LLM cases. Any failure (or empty list) is an error state. */
 export async function fetchPreviewCatalog(
   fetcher: typeof fetch = fetch,
 ): Promise<{ status: "loaded" | "error"; cases: PreviewCaseChoice[] }> {
@@ -403,7 +429,10 @@ export async function fetchPreviewCatalog(
             Boolean(entry) &&
             typeof (entry as PreviewCaseChoice).id === "string" &&
             typeof (entry as PreviewCaseChoice).title === "string" &&
-            typeof (entry as PreviewCaseChoice).description === "string",
+            typeof (entry as PreviewCaseChoice).description === "string" &&
+            VALID_TRACKS.includes((entry as PreviewCaseChoice).track) &&
+            ((entry as PreviewCaseChoice).role === undefined ||
+              VALID_TECHNICAL_ROLES.includes((entry as PreviewCaseChoice).role as PreviewCaseTechnicalRole)),
         )
       : [];
     return cases.length > 0 ? { status: "loaded", cases } : { status: "error", cases: [] };
@@ -619,6 +648,62 @@ export async function fetchCaseVoiceProjection(
   if (response.status === 404) throw new CaseProjectionUnavailableError();
   if (!response.ok) throw new Error("Could not synchronize the Case interview.");
   return parseProjection(await response.json());
+}
+
+/** Shared card grid for any track/role's case list — Strategy and Technical alike. */
+function CaseCardGrid({
+  cases,
+  selectedCaseId,
+  onSelect,
+}: {
+  cases: PreviewCaseChoice[];
+  selectedCaseId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+      {cases.map((entry) => {
+        const selected = selectedCaseId === entry.id;
+        return (
+          <button
+            key={entry.id}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(entry.id)}
+            className={`case-picker-card${selected ? " is-selected" : ""}`}
+            style={{
+              textAlign: "left",
+              border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
+              borderRadius: 12,
+              background: selected ? "var(--surface-2)" : "var(--surface)",
+              padding: "16px 18px",
+              cursor: "pointer",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Shared "Start voice interview" action for any track/role's case list. */
+function StartVoiceInterviewButton({ canStart, onStart }: { canStart: boolean; onStart: () => void }) {
+  return (
+    <div className="case-picker-actions" style={{ marginTop: 16 }}>
+      <button
+        type="button"
+        disabled={!canStart}
+        onClick={onStart}
+        style={buttonStyle("solid", !canStart)}
+      >
+        Start voice interview
+      </button>
+    </div>
+  );
 }
 
 function statusLabel(status: CaseVoiceStatus): string {
@@ -1307,6 +1392,23 @@ export default function CaseVoiceInterview({
   const showAllTracks = () => {
     setSelectedTrack(null);
     setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
+  };
+
+  const chooseTrack = (track: GridTrack) => {
+    setSelectedTrack(track);
+    setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
+  };
+
+  const chooseTechnicalRole = (role: TechnicalRoleId) => {
+    setSelectedTechnicalRole(role);
+    setSelectedCaseId(null);
+  };
+
+  const backToTechnicalRoles = () => {
+    setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
   };
 
   if (!recoveryChecked) {
@@ -1339,6 +1441,14 @@ export default function CaseVoiceInterview({
   }
 
   if (showPicker) {
+    const strategyCases = strategyCatalogCases(catalog);
+    const technicalByRole = technicalCatalogCasesByRole(catalog);
+    const activeRoleCases = selectedTechnicalRole ? technicalByRole[selectedTechnicalRole] ?? [] : [];
+    const selectedRoleMeta = TECHNICAL_ROLE_META.find((role) => role.id === selectedTechnicalRole);
+    const anyTechnicalRoleActive = TECHNICAL_ROLE_META.some(
+      (role) => (technicalByRole[role.id] ?? []).length > 0,
+    );
+
     return (
       <div className="grid-hub" style={{ marginTop: 18 }}>
         {selectedTrack === null && (
@@ -1347,8 +1457,8 @@ export default function CaseVoiceInterview({
               <SectionLabel style={{ marginBottom: 11 }}>Choose your simulation</SectionLabel>
               <h2 id="grid-track-heading">Where do you want to train?</h2>
               <p>
-                Enter a live strategy case now, or preview the technical interview rounds
-                being built for data roles.
+                Enter a live strategy case, or start a technical interview for a specific
+                data role.
               </p>
               {(notice || error) && (
                 <p
@@ -1364,7 +1474,7 @@ export default function CaseVoiceInterview({
               <button
                 type="button"
                 className="grid-track-card grid-track-card--case"
-                onClick={() => setSelectedTrack("case")}
+                onClick={() => chooseTrack("case")}
               >
                 <span className="grid-track-card__top">
                   <span className="grid-track-card__icon" aria-hidden="true">◆</span>
@@ -1376,25 +1486,24 @@ export default function CaseVoiceInterview({
                   a scored native report.
                 </span>
                 <span className="grid-track-card__meta">
-                  Airport · GCC Premium Gym · Data Engineer <span aria-hidden="true">→</span>
+                  Airport · GCC Premium Gym <span aria-hidden="true">→</span>
                 </span>
               </button>
               <button
                 type="button"
                 className="grid-track-card grid-track-card--technical"
-                onClick={() => setSelectedTrack("technical")}
+                onClick={() => chooseTrack("technical")}
               >
                 <span className="grid-track-card__top">
                   <span className="grid-track-card__icon" aria-hidden="true">⌁</span>
                   <span className="grid-track-card__index">02</span>
                 </span>
-                <span className="grid-track-card__title">Technical Simulation</span>
+                <span className="grid-track-card__title">Technical Interviews</span>
                 <span className="grid-track-card__copy">
-                  Preview role-specific technical interview rounds for Data Analyst and
-                  Data Engineer paths.
+                  Live voice interviews by data role — start with Data Engineering.
                 </span>
                 <span className="grid-track-card__meta">
-                  Role previews · Coming soon <span aria-hidden="true">→</span>
+                  Data Engineering · Data Analyst coming soon <span aria-hidden="true">→</span>
                 </span>
               </button>
             </div>
@@ -1441,44 +1550,13 @@ export default function CaseVoiceInterview({
 
             {availability.showCases && (
               <>
-                <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                  {catalog.map((entry) => {
-                    const selected = selectedCaseId === entry.id;
-                    return (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setSelectedCaseId(entry.id)}
-                        className={`case-picker-card${selected ? " is-selected" : ""}`}
-                        style={{
-                          textAlign: "left",
-                          border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
-                          borderRadius: 12,
-                          background: selected ? "var(--surface-2)" : "var(--surface)",
-                          padding: "16px 18px",
-                          cursor: "pointer",
-                          boxShadow: "var(--shadow-sm)",
-                        }}
-                      >
-                        <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
-                        <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="case-picker-actions" style={{ marginTop: 16 }}>
-                  <button
-                    type="button"
-                    disabled={!availability.canStart}
-                    onClick={() => {
-                      if (availability.canStart && selectedCaseId) void start(selectedCaseId);
-                    }}
-                    style={buttonStyle("solid", !availability.canStart)}
-                  >
-                    Start voice interview
-                  </button>
-                </div>
+                <CaseCardGrid cases={strategyCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <StartVoiceInterviewButton
+                  canStart={availability.canStart}
+                  onStart={() => {
+                    if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                  }}
+                />
               </>
             )}
 
@@ -1490,38 +1568,38 @@ export default function CaseVoiceInterview({
           </section>
         )}
 
-        {selectedTrack === "technical" && (
+        {selectedTrack === "technical" && selectedTechnicalRole === null && (
           <section className="technical-simulation surface-card" aria-labelledby="technical-simulation-heading">
             <button type="button" className="grid-all-tracks" onClick={showAllTracks}>
               <span aria-hidden="true">←</span> All tracks
             </button>
             <div className="grid-track-header">
               <div>
-                <SectionLabel style={{ marginBottom: 9 }}>Technical Simulation</SectionLabel>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews</SectionLabel>
                 <h2 id="technical-simulation-heading">Choose your role</h2>
                 <p>
-                  Explore the shape of upcoming technical interview rounds. These previews
-                  do not contribute to Case readiness.
+                  Data Engineering is live. Other roles are still being built.
                 </p>
               </div>
-              <span className="grid-track-status">Coming soon</span>
+              <span className="grid-track-status">{anyTechnicalRoleActive ? "Live voice" : "Coming soon"}</span>
             </div>
             <div className="technical-role-grid">
-              {TECHNICAL_ROLE_PREVIEWS.map((role) => {
-                const selected = selectedTechnicalRole === role.id;
+              {TECHNICAL_ROLE_META.map((role) => {
+                const roleCases = technicalByRole[role.id] ?? [];
+                const active = roleCases.length > 0;
                 return (
                   <button
                     key={role.id}
                     type="button"
-                    aria-pressed={selected}
-                    className={`technical-role-card${selected ? " is-selected" : ""}`}
-                    onClick={() => setSelectedTechnicalRole(role.id)}
+                    aria-pressed={false}
+                    className="technical-role-card"
+                    onClick={() => chooseTechnicalRole(role.id)}
                   >
                     <span className="technical-role-card__top">
                       <span className="technical-role-card__glyph" aria-hidden="true">
                         {role.id === "data_analyst" ? "◌" : "⌘"}
                       </span>
-                      <span>Preview</span>
+                      <span>{active ? "Live voice" : "Coming soon"}</span>
                     </span>
                     <span className="technical-role-card__title">{role.title}</span>
                     <span className="technical-role-card__copy">{role.description}</span>
@@ -1530,21 +1608,76 @@ export default function CaseVoiceInterview({
                 );
               })}
             </div>
-            {selectedTechnicalRole && (
-              <div className="technical-role-preview" role="status" aria-live="polite">
-                <div>
-                  <SectionLabel style={{ marginBottom: 7 }}>Selected role</SectionLabel>
-                  <h3>
-                    {TECHNICAL_ROLE_PREVIEWS.find((role) => role.id === selectedTechnicalRole)?.title}
-                  </h3>
-                </div>
+          </section>
+        )}
+
+        {selectedTrack === "technical" && selectedTechnicalRole !== null && activeRoleCases.length > 0 && (
+          <section className="case-voice-picker surface-card" aria-labelledby="technical-role-cases-heading">
+            <button type="button" className="grid-all-tracks" onClick={backToTechnicalRoles}>
+              <span aria-hidden="true">←</span> Roles
+            </button>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews · {selectedRoleMeta?.title}</SectionLabel>
+                <h2 id="technical-role-cases-heading">Choose a case</h2>
                 <p>
-                  Technical interview rounds for this role will appear here when they are ready.
-                  No readiness score or application data is changed by this preview.
+                  This live voice interview does not contribute to Case readiness.
                 </p>
-                <span>Coming soon</span>
               </div>
+              <span className="grid-track-status">Live voice</span>
+            </div>
+            {!configured && (
+              <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
+                Case voice is not configured for this Preview deployment.
+              </p>
             )}
+            {availability.showLoading && (
+              <p role="status" aria-live="polite" style={{ margin: "0 2px", fontSize: 13, color: "var(--ink-3)" }}>
+                Loading cases…
+              </p>
+            )}
+            {availability.showCases && (
+              <>
+                <CaseCardGrid cases={activeRoleCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <StartVoiceInterviewButton
+                  canStart={availability.canStart}
+                  onStart={() => {
+                    if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                  }}
+                />
+              </>
+            )}
+            {(notice || error) && (
+              <p role="status" style={{ margin: "12px 2px 0", fontSize: 12, color: error ? "var(--gap)" : "var(--ink-3)" }}>
+                {error ?? notice}
+              </p>
+            )}
+          </section>
+        )}
+
+        {selectedTrack === "technical" && selectedTechnicalRole !== null && activeRoleCases.length === 0 && (
+          <section className="technical-simulation surface-card" aria-labelledby="technical-role-preview-heading">
+            <button type="button" className="grid-all-tracks" onClick={backToTechnicalRoles}>
+              <span aria-hidden="true">←</span> Roles
+            </button>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews</SectionLabel>
+                <h2 id="technical-role-preview-heading">{selectedRoleMeta?.title}</h2>
+              </div>
+              <span className="grid-track-status">Coming soon</span>
+            </div>
+            <div className="technical-role-preview" role="status" aria-live="polite">
+              <div>
+                <SectionLabel style={{ marginBottom: 7 }}>Selected role</SectionLabel>
+                <h3>{selectedRoleMeta?.title}</h3>
+              </div>
+              <p>
+                Technical interview rounds for this role will appear here when they are ready.
+                No readiness score or application data is changed by this preview.
+              </p>
+              <span>Coming soon</span>
+            </div>
           </section>
         )}
       </div>
