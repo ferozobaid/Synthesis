@@ -3105,3 +3105,128 @@ select:focus-visible,
     transition: none !important;
   }
 }
+
+/* ============================================================
+   Cinematic hero (`.shero`) — scoped animations for the opening
+   section rendered above the landing page. The global
+   prefers-reduced-motion block above neutralizes all of these.
+   ============================================================ */
+@keyframes shero-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+@keyframes shero-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shero-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shero-blink-frames {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes shero-pulse-frames {
+  0%,
+  100% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+
+@keyframes shero-scroll-frames {
+  0% {
+    transform: translateY(-100%);
+  }
+  55% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.shero-line {
+  animation: shero-line-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.shero-rise {
+  animation: shero-rise-in 0.5s ease both;
+}
+
+.shero-fade {
+  animation: shero-fade-in 0.45s ease both;
+}
+
+.shero-blink {
+  animation: shero-blink-frames 1s step-end infinite;
+}
+
+.shero-pulse {
+  animation: shero-pulse-frames 2.4s ease-in-out infinite;
+}
+
+.shero-pulse-slow > span {
+  animation: shero-pulse-frames 3.2s ease-in-out infinite;
+}
+
+.shero-scroll-line {
+  animation: shero-scroll-frames 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+#synthesis-platform {
+  scroll-margin-top: 12px;
+}
+
+/* Merges the hero's video into the page background below. Dark theme gets a
+   long cinematic fade; light theme keeps the hero dark until a short edge so
+   white hero text never sits on the light paper wash. */
+.shero-bottom-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 65%,
+    color-mix(in srgb, var(--paper) 55%, transparent) 82%,
+    var(--paper) 100%
+  );
+}
+
+html[data-theme="light"] .shero-bottom-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 88%,
+    color-mix(in srgb, var(--paper) 60%, transparent) 96%,
+    var(--paper) 100%
+  );
+}

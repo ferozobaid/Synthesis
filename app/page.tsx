@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/ui/Logo";
 import { ModuleCarousel } from "@/components/ui/ModuleCarousel";
+import { SynthesisHero } from "@/components/hero/SynthesisHero";
 import { useReadiness } from "@/components/readiness-store";
 import { useTheme } from "@/components/theme";
 
@@ -65,7 +66,9 @@ export default function Landing() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", position: "relative", overflow: "hidden" }}>
+    <>
+      <SynthesisHero />
+      <div id="synthesis-platform" style={{ minHeight: "100vh", position: "relative", overflow: "hidden" }}>
 
       {/* header */}
       <header className="landing-header">
@@ -230,7 +233,8 @@ export default function Landing() {
           </span>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
 
