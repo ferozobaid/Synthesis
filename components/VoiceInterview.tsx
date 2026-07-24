@@ -179,11 +179,14 @@ function nextQuestionIndex(spoken: string, questions: Question[], currentQ: numb
 export default function VoiceInterview({
   jdText,
   onActiveChange,
+  onVoiceStateChange,
   onComplete,
 }: {
   jdText?: string;
   /** True while the configured voice flow owns the screen. */
   onActiveChange?: (active: boolean) => void;
+  /** Fine-grained call state for the interviewer avatar. */
+  onVoiceStateChange?: (state: { status: VoiceStatus; muted: boolean }) => void;
   /** Called once the post-call report is ready. */
   onComplete?: (report: VoiceReport) => void;
 }) {
@@ -220,6 +223,11 @@ export default function VoiceInterview({
     // text form (the report replaces it when done).
     onActiveChange?.(voiceOwnsManualMode(configured, status));
   }, [configured, status, onActiveChange]);
+
+  useEffect(() => {
+    if (!configured) return;
+    onVoiceStateChange?.({ status, muted });
+  }, [configured, status, muted, onVoiceStateChange]);
 
   const teardown = useCallback(() => {
     pollCancelRef.current = true;

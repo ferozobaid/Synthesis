@@ -9,7 +9,7 @@ import type {
   BehaviouralSession,
 } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
-import VoiceInterview, { type VoiceReport } from "@/components/VoiceInterview";
+import VoiceInterview, { type VoiceReport, type VoiceStatus } from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
@@ -17,7 +17,11 @@ import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
-import { BehaviouralInterviewerStage } from "@/components/behavioural/BehaviouralInterviewerStage";
+import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
+import {
+  mapVoiceStatusToAvatarMode,
+  type AvatarMode,
+} from "@/components/interviewer/avatarState";
 
 interface StartResult {
   session: BehaviouralSession;
@@ -79,6 +83,11 @@ export default function BehaviouralPage() {
   const [voiceActive, setVoiceActive] = useState(false);
   // The post-call voice report (same shape as the manual summary) once ready.
   const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
+  // Fine-grained Vapi call state lifted from VoiceInterview for the avatar;
+  // null until the configured voice flow reports in (manual/mock mode stays null).
+  const [voiceState, setVoiceState] = useState<{ status: VoiceStatus; muted: boolean } | null>(
+    null,
+  );
 
   const handleVoiceComplete = useCallback(
     (report: VoiceReport) => {
@@ -108,6 +117,18 @@ export default function BehaviouralPage() {
     start: startVoice,
     stop: stopVoice,
   } = useSpeechRecognition({ onFinalResult: appendSpeech });
+
+  // Avatar mode: the configured Vapi flow reports fine-grained state; in
+  // manual/mock mode the avatar reacts to local dictation and the report.
+  const avatarMode: AvatarMode = voiceState
+    ? mapVoiceStatusToAvatarMode(voiceState.status, voiceState.muted, false)
+    : summary || voiceSummary
+      ? "complete"
+      : starting
+        ? "processing"
+        : listening
+          ? "userSpeaking"
+          : "ready";
 
   const start = useCallback(async () => {
     setStarting(true);
@@ -174,12 +195,17 @@ export default function BehaviouralPage() {
         ← Dashboard
       </Link>
 
-      <BehaviouralInterviewerStage active={voiceActive || listening} />
+      <InterviewerAvatar
+        mode={avatarMode}
+        variant="stage"
+        captionKicker="Behavioural voice / cinematic interviewer"
+      />
 
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
       <VoiceInterview
         jdText={state.target.jdText}
         onActiveChange={setVoiceActive}
+        onVoiceStateChange={setVoiceState}
         onComplete={handleVoiceComplete}
       />
 
