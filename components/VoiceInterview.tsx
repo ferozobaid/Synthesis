@@ -111,6 +111,18 @@ export interface PendingReadResult {
   expired: boolean;
 }
 
+export type InitialVoiceAction = "resume" | "expire" | "start" | "idle";
+
+export function resolveInitialVoiceAction(
+  pending: PendingCapability | null,
+  expired: boolean,
+  startRequested: boolean,
+): InitialVoiceAction {
+  if (pending) return "resume";
+  if (expired) return "expire";
+  return startRequested ? "start" : "idle";
+}
+
 export function isPendingExpired(p: Partial<PendingCapability> | null, now = Date.now()): boolean {
   if (!p || typeof p.createdAt !== "number" || !Number.isFinite(p.createdAt)) return true;
   return now - p.createdAt >= PENDING_CLIENT_TTL_MS;
@@ -196,11 +208,14 @@ function nextQuestionIndex(spoken: string, questions: Question[], currentQ: numb
 
 export default function VoiceInterview({
   jdText,
+  startRequested = true,
   onActiveChange,
   onVoiceStateChange,
   onComplete,
 }: {
   jdText?: string;
+  /** Fresh sessions remain idle until the page's preflight CTA is activated. */
+  startRequested?: boolean;
   /** True while the configured voice flow owns the screen. */
   onActiveChange?: (active: boolean) => void;
   /** Fine-grained call state for the interviewer avatar. */
@@ -210,7 +225,7 @@ export default function VoiceInterview({
 }) {
   const configured = !!(WEB_KEY && ASSISTANT_ID);
 
-  const [status, setStatus] = useState<VoiceStatus>("connecting");
+  const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -232,6 +247,8 @@ export default function VoiceInterview({
   const initRef = useRef(false);
   const jdTextRef = useRef(jdText);
   jdTextRef.current = jdText;
+  const startRequestedRef = useRef(startRequested);
+  startRequestedRef.current = startRequested;
   const questionsRef = useRef<Question[]>([]);
   const currentIndexRef = useRef(-1);
   const sessionIdRef = useRef<string | null>(null);
@@ -526,25 +543,60 @@ export default function VoiceInterview({
     void start();
   }, [start]);
 
-  // Init once: resume polling a pending report (refresh recovery), else auto-start.
+  // Init once: pending report recovery always wins. Fresh sessions only start
+  // after the page explicitly clears its preflight gate.
   useEffect(() => {
     if (!configured || initRef.current) return;
     initRef.current = true;
     const { pending, expired } = readPending();
-    if (pending) {
-      sessionIdRef.current = pending.sessionId;
-      reportTokenRef.current = pending.reportToken;
-      setStatus("processing");
-      void pollReport();
-    } else if (expired) {
-      expireReportSession();
-    } else {
-      void start();
+    const action = resolveInitialVoiceAction(
+      pending,
+      expired,
+      startRequestedRef.current,
+    );
+    switch (action) {
+      case "resume":
+        sessionIdRef.current = pending!.sessionId;
+        reportTokenRef.current = pending!.reportToken;
+        setStatus("processing");
+        void pollReport();
+        break;
+      case "expire":
+        expireReportSession();
+        break;
+      case "start":
+        void start();
+        break;
+      case "idle":
+        setStatus("idle");
+        break;
     }
     return teardown;
-  }, [configured, start, teardown, pollReport, expireReportSession]);
+  }, [
+    configured,
+    start,
+    teardown,
+    pollReport,
+    expireReportSession,
+  ]);
+
+  // The initial pass may deliberately leave the component idle. Start when the
+  // preflight button is clicked without remounting or changing routes.
+  useEffect(() => {
+    if (
+      !configured ||
+      !startRequested ||
+      !initRef.current ||
+      statusRef.current !== "idle" ||
+      startedRef.current
+    ) {
+      return;
+    }
+    void start();
+  }, [configured, startRequested, start]);
 
   if (!configured) return null;
+  if (!startRequested && status === "idle") return null;
 
   const active = status === "listening" || status === "speaking";
   const label =

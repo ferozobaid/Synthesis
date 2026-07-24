@@ -5,7 +5,10 @@ import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import {
   clampSlide,
   dragThreshold,
-  hasHorizontalWheelIntent,
+  INITIAL_WHEEL_GESTURE,
+  reduceWheelGesture,
+  WHEEL_GESTURE_QUIET_MS,
+  type WheelGestureState,
   type CarouselSlideIndex,
 } from "./homeExperienceState";
 
@@ -33,8 +36,14 @@ export function useCarouselGestures({
     horizontal: boolean;
   } | null>(null);
   const suppressClickUntil = useRef(0);
-  const wheelTotal = useRef(0);
+  const wheelState = useRef<WheelGestureState>(INITIAL_WHEEL_GESTURE);
   const wheelQuietTimer = useRef<number | null>(null);
+  const activeSlideRef = useRef(activeSlide);
+  const lockedRef = useRef(locked);
+  const requestSlideRef = useRef(requestSlide);
+  activeSlideRef.current = activeSlide;
+  lockedRef.current = locked;
+  requestSlideRef.current = requestSlide;
 
   const setDragOffset = (offset: number) => {
     trackRef.current?.style.setProperty("--home-drag-x", `${offset}px`);
@@ -115,26 +124,30 @@ export function useCarouselGestures({
     if (!node || !interactive) return;
 
     const onWheel = (event: WheelEvent) => {
-      if (locked || !hasHorizontalWheelIntent(event.deltaX, event.deltaY)) return;
+      const decision = reduceWheelGesture(wheelState.current, {
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        now: performance.now(),
+        activeSlide: activeSlideRef.current,
+        locked: lockedRef.current,
+      });
+      wheelState.current = decision.state;
+      if (!decision.preventDefault) return;
       event.preventDefault();
-      wheelTotal.current += event.deltaX;
       if (wheelQuietTimer.current != null) window.clearTimeout(wheelQuietTimer.current);
       wheelQuietTimer.current = window.setTimeout(() => {
-        wheelTotal.current = 0;
-      }, 160);
-      if (Math.abs(wheelTotal.current) < 56) return;
-      const direction = wheelTotal.current > 0 ? 1 : -1;
-      wheelTotal.current = 0;
-      requestSlide(clampSlide(activeSlide + direction));
+        wheelState.current = INITIAL_WHEEL_GESTURE;
+      }, WHEEL_GESTURE_QUIET_MS);
+      if (decision.nextSlide != null) requestSlideRef.current(decision.nextSlide);
     };
 
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       node.removeEventListener("wheel", onWheel);
       if (wheelQuietTimer.current != null) window.clearTimeout(wheelQuietTimer.current);
-      wheelTotal.current = 0;
+      wheelState.current = INITIAL_WHEEL_GESTURE;
     };
-  }, [activeSlide, interactive, locked, requestSlide, viewportRef]);
+  }, [interactive, viewportRef]);
 
   useEffect(() => {
     if (interactive && !locked) return;
@@ -142,6 +155,17 @@ export function useCarouselGestures({
     setDragOffset(0);
     viewportRef.current?.removeAttribute("data-dragging");
   }, [interactive, locked, viewportRef]);
+
+  useEffect(() => {
+    // Never carry partial accumulation through a slide transition. The
+    // consumed flag remains until the stream goes quiet to suppress momentum.
+    wheelState.current = {
+      ...wheelState.current,
+      totalX: 0,
+      totalY: 0,
+      oppositeTotal: 0,
+    };
+  }, [activeSlide, locked]);
 
   return {
     onPointerDown,

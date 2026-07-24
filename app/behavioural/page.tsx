@@ -68,6 +68,7 @@ const STAR = [
 ];
 
 const DIM_COLORS = ["var(--secondary)", "var(--accent)", "var(--success)", "var(--partial)", "var(--ink)"];
+const BEHAVIOURAL_QUESTION_COUNT = 14;
 
 export default function BehaviouralPage() {
   const router = useRouter();
@@ -80,7 +81,8 @@ export default function BehaviouralPage() {
   const [answer, setAnswer] = useState("");
   const [results, setResults] = useState<Record<string, TurnResult>>({});
   const [loading, setLoading] = useState(false);
-  const [starting, setStarting] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [interviewStarted, setInterviewStarted] = useState(false);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   // True while the Vapi voice flow owns the screen — hide the manual question
   // during the live call and post-call report processing.
@@ -120,8 +122,9 @@ export default function BehaviouralPage() {
     stop: stopVoice,
   } = useSpeechRecognition({ onFinalResult: appendSpeech });
 
-  // Avatar mode: the configured Vapi flow reports fine-grained state; in
-  // manual/mock mode the avatar reacts to local dictation and the report.
+  // The monitor is rendered only while the configured Vapi flow owns the
+  // screen. This fallback covers its first connecting render before the
+  // fine-grained Vapi state callback arrives.
   const avatarMode: AvatarMode = voiceState
     ? mapVoiceStatusToAvatarMode(voiceState.status, voiceState.muted, voiceState.userSpeaking)
     : summary || voiceSummary
@@ -147,12 +150,19 @@ export default function BehaviouralPage() {
     }
   }, [state.target.jdText]);
 
-  // Wait for the store to hydrate so the session is built from the target JD.
-  useEffect(() => {
+  const beginInterview = useCallback(() => {
     if (!hydrated || startedRef.current) return;
     startedRef.current = true;
-    start();
+    setInterviewStarted(true);
+    void start();
   }, [hydrated, start]);
+
+  const handleVoiceActiveChange = useCallback((active: boolean) => {
+    setVoiceActive(active);
+    // Pending report recovery remains automatic across refreshes and bypasses
+    // the fresh-session preflight without starting a new microphone session.
+    if (active) setInterviewStarted(true);
+  }, []);
 
   async function submit() {
     if (!session || !current) return;
@@ -197,22 +207,56 @@ export default function BehaviouralPage() {
         ← Dashboard
       </Link>
 
-      <InterviewerAvatar
-        mode={avatarMode}
-        level={voiceState?.level ?? 0}
-        variant="stage"
-        captionKicker="Behavioural voice / cinematic interviewer"
-      />
+      {voiceActive && !summary && !voiceSummary && (
+        <InterviewerAvatar
+          mode={avatarMode}
+          level={voiceState?.level ?? 0}
+          variant="stage"
+          captionKicker="Behavioural voice / live interviewer"
+        />
+      )}
 
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
       <VoiceInterview
         jdText={state.target.jdText}
-        onActiveChange={setVoiceActive}
+        startRequested={interviewStarted}
+        onActiveChange={handleVoiceActiveChange}
         onVoiceStateChange={setVoiceState}
         onComplete={handleVoiceComplete}
       />
 
-      {starting ? (
+      {!interviewStarted ? (
+        <section className="behavioural-preflight" aria-labelledby="behavioural-preflight-title">
+          <div>
+            <SectionLabel style={{ marginBottom: 12 }}>Behavioural interview preflight</SectionLabel>
+            <h1 id="behavioural-preflight-title">Turn your experience into a clear story.</h1>
+            <p>
+              You&apos;ll answer a structured set of motivation and experience questions.
+              Use STAR where it helps; your interviewer will keep the conversation moving.
+            </p>
+          </div>
+          <div className="behavioural-preflight__facts" aria-label="Interview details">
+            <div>
+              <span>Questions</span>
+              <strong>{BEHAVIOURAL_QUESTION_COUNT}</strong>
+            </div>
+            <div>
+              <span>Microphone</span>
+              <strong>{hydrated ? "Not active" : "Checking…"}</strong>
+              <small>Starts only after you continue</small>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="behavioural-preflight__start"
+            onClick={beginInterview}
+            disabled={!hydrated}
+          >
+            Start behavioural interview
+            <span aria-hidden="true">→</span>
+          </button>
+        </section>
+      ) : starting ? (
         <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
           <Spinner />
           <div style={{ fontSize: 14, color: "var(--ink-3)" }}>Preparing your questions…</div>

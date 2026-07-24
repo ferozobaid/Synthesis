@@ -11,6 +11,7 @@ import {
 import { CarouselControls } from "./CarouselControls";
 import {
   clampSlide,
+  shouldUnlockCarouselTransition,
   type CarouselSlideIndex,
 } from "./homeExperienceState";
 import { useCarouselGestures } from "./useCarouselGestures";
@@ -134,18 +135,8 @@ export const SynthesisCarousel = forwardRef<
         <div
           ref={trackRef}
           className="home-carousel__track"
-          onTransitionEnd={(event) => {
-            const target = event.target as HTMLElement;
-            if (
-              event.propertyName === "transform" &&
-              target.classList.contains("is-active")
-            ) {
-              unlock();
-            }
-          }}
           style={
             {
-              "--home-slide-index": activeSlide,
               "--home-drag-x": "0px",
             } as React.CSSProperties
           }
@@ -164,6 +155,16 @@ export const SynthesisCarousel = forwardRef<
                       ? "is-before"
                       : "is-after"
                 }`}
+                onTransitionEnd={(event) => {
+                  if (shouldUnlockCarouselTransition(
+                    index as CarouselSlideIndex,
+                    activeSlide,
+                    event.propertyName,
+                    event.target === event.currentTarget,
+                  )) {
+                    unlock();
+                  }
+                }}
                 aria-label={`Slide ${index + 1} of 3`}
                 aria-hidden={index !== activeSlide}
               >
