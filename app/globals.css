@@ -3545,56 +3545,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   color: #171715 !important;
 }
 
-.behavioural-interviewer-screen {
-  padding: 10px 10px 8px;
-  background:
-    radial-gradient(circle at 50% 44%, rgba(58, 75, 69, .38), transparent 64%),
-    linear-gradient(180deg, rgba(4, 7, 7, .96), rgba(7, 11, 10, .94)),
-    repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.behavioural-interviewer-eyes {
-  position: absolute;
-  top: 30%;
-  right: 17%;
-  left: 17%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.behavioural-interviewer-eyes i {
-  width: 20%;
-  aspect-ratio: .72;
-  border-radius: 50%;
-  background: rgba(227, 232, 222, .82);
-  box-shadow: 0 0 16px rgba(227, 232, 222, .28);
-}
-
-.behavioural-audio-wave {
-  position: absolute;
-  right: 13%;
-  bottom: 12%;
-  left: 13%;
-  height: 19%;
-  gap: 2px;
-}
-
-.behavioural-audio-wave::before {
-  position: absolute;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: rgba(241, 237, 228, .18);
-  content: "";
-}
-
-.behavioural-audio-wave span {
-  width: 2px;
-}
-
 @media (max-width: 760px) {
   .home-experience,
   .product-experience {
@@ -3738,56 +3688,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   border-color: #f5f2eb !important;
   background: #f5f2eb !important;
   color: #171715 !important;
-}
-
-.behavioural-interviewer-screen {
-  padding: 10px 10px 8px;
-  background:
-    radial-gradient(circle at 50% 44%, rgba(58, 75, 69, .38), transparent 64%),
-    linear-gradient(180deg, rgba(4, 7, 7, .96), rgba(7, 11, 10, .94)),
-    repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.behavioural-interviewer-eyes {
-  position: absolute;
-  top: 30%;
-  right: 17%;
-  left: 17%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.behavioural-interviewer-eyes i {
-  width: 20%;
-  aspect-ratio: .72;
-  border-radius: 50%;
-  background: rgba(227, 232, 222, .82);
-  box-shadow: 0 0 16px rgba(227, 232, 222, .28);
-}
-
-.behavioural-audio-wave {
-  position: absolute;
-  right: 13%;
-  bottom: 12%;
-  left: 13%;
-  height: 19%;
-  gap: 2px;
-}
-
-.behavioural-audio-wave::before {
-  position: absolute;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: rgba(241, 237, 228, .18);
-  content: "";
-}
-
-.behavioural-audio-wave span {
-  width: 2px;
 }
 
 @media (max-width: 760px) {
@@ -3977,146 +3877,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   width: min(100%, 1040px);
 }
 
-.behavioural-interviewer-stage {
-  --screen-left: 61.8%;
-  --screen-top: 7%;
-  --screen-width: 18%;
-  --screen-height: 38%;
-  position: relative;
-  height: clamp(300px, 40vw, 410px);
-  margin-bottom: 34px;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 24px;
-  background: #0b0b09;
-  box-shadow:
-    0 28px 72px rgba(0,0,0,.28),
-    inset 0 1px 0 rgba(255,255,255,.06);
-  isolation: isolate;
-}
-
-.behavioural-interviewer-stage__video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 70% center;
-  transform: scale(1.15);
-}
-
-.behavioural-interviewer-stage__wash {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(5,5,4,.72) 0%, rgba(5,5,4,.26) 38%, transparent 66%),
-    linear-gradient(180deg, rgba(0,0,0,.08), transparent 55%, rgba(0,0,0,.52));
-}
-
-.behavioural-interviewer-screen {
-  position: absolute;
-  z-index: 2;
-  top: var(--screen-top);
-  left: var(--screen-left);
-  display: flex;
-  width: var(--screen-width);
-  height: var(--screen-height);
-  padding: 13px 12px 11px;
-  overflow: hidden;
-  flex-direction: column;
-  justify-content: space-between;
-  border: 1px solid rgba(226,220,207,.32);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(10,12,10,.58), rgba(15,19,15,.38)),
-    repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px);
-  box-shadow:
-    inset 0 0 28px rgba(0,0,0,.72),
-    0 0 24px rgba(217,224,211,.1);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-.behavioural-interviewer-screen__label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: rgba(242,239,231,.7);
-  font-family: var(--font-mono);
-  font-size: 6px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.behavioural-interviewer-screen__label i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #d8dfd3;
-  box-shadow: 0 0 8px rgba(216,223,211,.75);
-}
-
-.behavioural-interviewer-stage.is-active .behavioural-interviewer-screen__label i {
-  background: var(--success);
-  animation: shero-pulse-frames 1.2s ease-in-out infinite;
-}
-
-.behavioural-audio-wave {
-  display: flex;
-  height: 55%;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-}
-
-.behavioural-audio-wave span {
-  width: 3px;
-  height: 100%;
-  border-radius: 999px;
-  background: rgba(241,237,228,.85);
-  box-shadow: 0 0 5px rgba(241,237,228,.32);
-  animation: behavioural-wave 1.15s ease-in-out infinite alternate;
-  animation-delay: var(--wave-delay);
-  transform: scaleY(calc(var(--wave-height) * .68));
-}
-
-.behavioural-interviewer-stage.is-active .behavioural-audio-wave span {
-  animation-duration: .58s;
-  background: #f5f2eb;
-  box-shadow: 0 0 8px rgba(241,237,228,.52);
-}
-
-@keyframes behavioural-wave {
-  from { transform: scaleY(calc(var(--wave-height) * .28)); opacity: .58; }
-  to { transform: scaleY(var(--wave-height)); opacity: 1; }
-}
-
-.behavioural-interviewer-stage__caption {
-  position: absolute;
-  z-index: 3;
-  bottom: 24px;
-  left: 26px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: #f5f2eb;
-}
-
-.behavioural-interviewer-stage__caption span {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  opacity: .55;
-}
-
-.behavioural-interviewer-stage__caption strong {
-  font-size: 18px;
-  font-weight: 620;
-  letter-spacing: -.025em;
-}
-
 .fit-document-grid {
   align-items: stretch;
 }
@@ -4208,11 +3968,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   .fit-document-card .document-input__dropzone {
     min-height: 190px;
   }
-
-  .behavioural-interviewer-stage {
-    --screen-left: 62%;
-    height: clamp(280px, 53vw, 390px);
-  }
 }
 
 @media (max-width: 760px) {
@@ -4234,44 +3989,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
 
   .home-navigation__dashboard {
     display: none;
-  }
-
-  .behavioural-interviewer-stage {
-    --screen-left: 60.5%;
-    --screen-top: 8%;
-    --screen-width: 22%;
-    height: 260px;
-    margin-bottom: 26px;
-    border-radius: 18px;
-  }
-
-  .behavioural-interviewer-stage__video {
-    object-position: 68% center;
-    transform: scale(1.2);
-  }
-
-  .behavioural-interviewer-stage__caption {
-    bottom: 17px;
-    left: 18px;
-  }
-
-  .behavioural-interviewer-stage__caption strong {
-    font-size: 15px;
-  }
-
-  .behavioural-interviewer-stage__caption span {
-    font-size: 7px;
-  }
-
-  .behavioural-interviewer-screen {
-    padding: 8px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .behavioural-audio-wave span,
-  .behavioural-interviewer-stage.is-active .behavioural-interviewer-screen__label i {
-    animation: none;
   }
 }
 
@@ -6488,56 +6205,6 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   border-color: #f5f2eb !important;
   background: #f5f2eb !important;
   color: #171715 !important;
-}
-
-.behavioural-interviewer-screen {
-  padding: 10px 10px 8px;
-  background:
-    radial-gradient(circle at 50% 44%, rgba(58, 75, 69, .38), transparent 64%),
-    linear-gradient(180deg, rgba(4, 7, 7, .96), rgba(7, 11, 10, .94)),
-    repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 4px);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.behavioural-interviewer-eyes {
-  position: absolute;
-  top: 30%;
-  right: 17%;
-  left: 17%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.behavioural-interviewer-eyes i {
-  width: 20%;
-  aspect-ratio: .72;
-  border-radius: 50%;
-  background: rgba(227, 232, 222, .82);
-  box-shadow: 0 0 16px rgba(227, 232, 222, .28);
-}
-
-.behavioural-audio-wave {
-  position: absolute;
-  right: 13%;
-  bottom: 12%;
-  left: 13%;
-  height: 19%;
-  gap: 2px;
-}
-
-.behavioural-audio-wave::before {
-  position: absolute;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: rgba(241, 237, 228, .18);
-  content: "";
-}
-
-.behavioural-audio-wave span {
-  width: 2px;
 }
 
 @media (max-width: 760px) {
