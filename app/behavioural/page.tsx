@@ -168,8 +168,8 @@ export default function BehaviouralPage() {
   }
 
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 32px 90px", animation: "fadeIn .4s ease both" }}>
-      <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--ink-3)", textDecoration: "none", marginBottom: 22 }}>
+    <main className="page-shell page-shell--narrow" style={{ animation: "fadeIn .4s ease both" }}>
+      <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
 
@@ -181,7 +181,7 @@ export default function BehaviouralPage() {
       />
 
       {starting ? (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
+        <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
           <Spinner />
           <div style={{ fontSize: 14, color: "var(--ink-3)" }}>Preparing your questions…</div>
         </div>
@@ -195,9 +195,9 @@ export default function BehaviouralPage() {
         null
       ) : current ? (
         <>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--secondary-tint)", color: "var(--secondary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◈</div>
-            <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 24, letterSpacing: "-.025em", margin: 0, color: "var(--ink)" }}>Behavioural Coach</h1>
+          <div className="page-heading-row">
+            <div className="page-icon" style={{ background: "var(--inverse)", color: "var(--inverse-ink)" }}>◈</div>
+            <h1 className="page-title">Behavioural Coach</h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "18px 0 22px" }}>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-3)", whiteSpace: "nowrap" }}>
@@ -207,25 +207,28 @@ export default function BehaviouralPage() {
             <span style={{ fontSize: 11, color: "var(--ink-4)", whiteSpace: "nowrap" }}>{answeredCount} answered</span>
           </div>
 
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 26px", boxShadow: "var(--shadow-md)" }}>
+          <section className="surface-card behavioural-question-card" style={{ borderRadius: 2, padding: "28px", boxShadow: "8px 8px 0 var(--accent-tint)" }}>
             <SectionLabel style={{ marginBottom: 10 }}>{current.competency || "Interviewer asks"}</SectionLabel>
             <p style={{ fontFamily: "var(--font-sans)", fontSize: 21, fontWeight: 600, lineHeight: 1.35, margin: "0 0 20px", letterSpacing: "-.02em", color: "var(--ink)" }}>
               {current.question}
             </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
               {STAR.map((s) => (
-                <div key={s.k} style={{ flex: "1 1 120px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 11px" }}>
+                <div key={s.k} className="star-step" style={{ flex: "1 1 120px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 0, padding: "10px 11px" }}>
                   <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: ".06em", color: "var(--secondary)", fontWeight: 600, marginBottom: 2 }}>{s.k}</div>
                   <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.35 }}>{s.v}</div>
                 </div>
               ))}
             </div>
+            <label htmlFor="behavioural-answer" className="field-label">Your answer</label>
             <textarea
+              id="behavioural-answer"
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               placeholder="Type your answer using the STAR structure above…"
               aria-label="Your behavioural answer"
-              style={{ width: "100%", height: 150, resize: "vertical", border: "1px solid var(--line)", borderRadius: 11, padding: "14px 15px", fontSize: 14, lineHeight: 1.6, color: "var(--ink)", background: "var(--surface-2)", outline: "none" }}
+              className="form-control"
+              style={{ width: "100%", height: 160, resize: "vertical", padding: "14px 15px", fontSize: 14, lineHeight: 1.6 }}
             />
 
             {/* Voice input: appends into the same answer box; typing always works. */}
@@ -252,23 +255,23 @@ export default function BehaviouralPage() {
               <button
                 onClick={submit}
                 disabled={loading || !answer.trim()}
-                style={{ border: "none", background: "var(--secondary)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 22px", borderRadius: 10, cursor: loading || !answer.trim() ? "not-allowed" : "pointer", opacity: loading || !answer.trim() ? 0.5 : 1 }}
+                className="app-button app-button--primary"
               >
                 {loading ? "Scoring…" : currentResult ? "Re-score" : "Get coaching"}
               </button>
               {idx < questions.length - 1 && (
-                <button onClick={next} style={ghostBtn}>Next question →</button>
+                <button onClick={next} className="app-button app-button--secondary">Next question →</button>
               )}
               {answeredCount > 0 && (
-                <button onClick={finish} disabled={loading} style={ghostBtn}>Finish &amp; see report →</button>
+                <button onClick={finish} disabled={loading} className="app-button app-button--secondary">Finish &amp; see report →</button>
               )}
             </div>
-          </div>
+          </section>
 
           {currentResult && <CoachingCard result={currentResult} />}
         </>
       ) : null}
-    </div>
+    </main>
   );
 }
 
@@ -278,7 +281,7 @@ function CoachingCard({ result }: { result: TurnResult }) {
   const tip = score.improvements[0] ?? score.missed_key_points[0] ?? "Tighten your ending with a concrete, quantified result.";
 
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "24px 26px", boxShadow: "var(--shadow-md)", marginTop: 18, animation: "fadeUp .45s ease both" }}>
+    <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 20, padding: "24px 26px", boxShadow: "var(--shadow-sm)", marginTop: 18, animation: "fadeUp .45s ease both" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
         <ReadinessRing value={score.overall} max={5} size={60} strokeWidth={14} color="var(--secondary)" suffix="/5" />
         <div>
@@ -321,7 +324,7 @@ function CoachingCard({ result }: { result: TurnResult }) {
         </div>
       )}
 
-      <div style={{ background: "var(--glow)", borderRadius: 12, padding: "16px 18px", marginBottom: matched_answer ? 16 : 0, color: "#fff", boxShadow: "0 8px 30px rgba(124,120,255,.28)" }}>
+      <div style={{ background: "var(--glow)", borderRadius: 14, padding: "16px 18px", marginBottom: matched_answer ? 16 : 0, color: "#fff", boxShadow: "0 8px 22px rgba(20,45,82,.16)" }}>
         <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 7, fontSize: 9.5 }}>One thing to try next</SectionLabel>
         <div style={{ fontSize: 14, lineHeight: 1.5 }}>{tip}</div>
       </div>
@@ -381,7 +384,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
 
       {summary.qualitative ? <QualitativeReportView qualitative={summary.qualitative} /> : null}
 
-      <div style={{ background: "var(--glow)", boxShadow: "0 10px 34px rgba(124,120,255,.3)", borderRadius: 16, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div style={{ background: "var(--glow)", boxShadow: "0 10px 28px rgba(20,45,82,.18)", borderRadius: 18, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
           <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>{nextFocus ? "Focus next on" : "Report complete"}</SectionLabel>
           <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.01em" }}>
@@ -563,14 +566,3 @@ function BulletList({ items, emptyLabel }: { items: string[]; emptyLabel?: strin
     </ul>
   );
 }
-
-const ghostBtn: React.CSSProperties = {
-  border: "1px solid var(--line)",
-  background: "var(--surface)",
-  color: "var(--ink-2)",
-  fontSize: 14,
-  fontWeight: 600,
-  padding: "12px 18px",
-  borderRadius: 10,
-  cursor: "pointer",
-};

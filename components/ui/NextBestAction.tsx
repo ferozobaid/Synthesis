@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /**
- * The glow gradient CTA card — the dashboard's "Your next best action" and the
+ * The focused CTA panel — the dashboard's "Your next best action" and the
  * "Focus next on" footers on result screens.
  */
 export function NextBestAction({
@@ -21,12 +21,14 @@ export function NextBestAction({
 }) {
   return (
     <div
+      className="next-best-action"
       style={{
-        background: "var(--glow)",
-        borderRadius: compact ? 16 : 18,
-        padding: compact ? "20px 24px" : "24px 26px",
-        color: "#fff",
-        boxShadow: "0 10px 34px rgba(124,120,255,.3)",
+        background: "var(--accent)",
+        borderRadius: 2,
+        padding: compact ? "20px 24px" : "30px",
+        color: "var(--accent-contrast)",
+        border: "1px solid var(--accent)",
+        boxShadow: "8px 8px 0 var(--accent-tint)",
         position: "relative",
         overflow: "hidden",
         display: "flex",
@@ -37,14 +39,17 @@ export function NextBestAction({
       }}
     >
       <div
+        className="next-best-action__frame"
         style={{
           position: "absolute",
-          right: -40,
-          top: -40,
-          width: 180,
-          height: 180,
-          borderRadius: "50%",
-          background: "radial-gradient(circle,rgba(91,87,232,.4),transparent 70%)",
+          right: -12,
+          top: 34,
+          width: 176,
+          height: 128,
+          borderRadius: 0,
+          border: "1px solid color-mix(in srgb, var(--accent-contrast) 34%, transparent)",
+          background: "transparent",
+          transform: "rotate(-5deg)",
           pointerEvents: "none",
         }}
       />
@@ -58,11 +63,13 @@ export function NextBestAction({
           }}
         >
           <div
+            className="next-best-action__icon"
             style={{
               width: 26,
               height: 26,
-              borderRadius: 8,
-              background: "rgba(255,255,255,.12)",
+              borderRadius: 0,
+              border: "1px solid color-mix(in srgb, var(--accent-contrast) 38%, transparent)",
+              background: "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -77,7 +84,7 @@ export function NextBestAction({
               fontSize: 10,
               letterSpacing: ".12em",
               textTransform: "uppercase",
-              color: "rgba(255,255,255,.6)",
+              color: "color-mix(in srgb, var(--accent-contrast) 68%, transparent)",
             }}
           >
             {eyebrow}
@@ -86,7 +93,7 @@ export function NextBestAction({
         <div
           style={{
             fontSize: compact ? 16 : 22,
-            fontWeight: 700,
+            fontWeight: 650,
             lineHeight: 1.25,
             letterSpacing: "-.02em",
             marginBottom: desc ? 8 : 0,
@@ -100,7 +107,7 @@ export function NextBestAction({
             style={{
               fontSize: 13.5,
               lineHeight: 1.55,
-              color: "rgba(255,255,255,.72)",
+              color: "color-mix(in srgb, var(--accent-contrast) 74%, transparent)",
               maxWidth: 440,
               marginBottom: compact ? 0 : 18,
             }}
@@ -111,16 +118,17 @@ export function NextBestAction({
       </div>
       <Link
         href={href}
+        className="next-best-action__cta"
         style={{
           position: "relative",
           flex: "none",
           border: "none",
-          background: "#fff",
-          color: "#0b1020",
+          background: "var(--accent-contrast)",
+          color: "var(--accent)",
           fontSize: 14,
           fontWeight: 600,
           padding: "12px 20px",
-          borderRadius: 10,
+          borderRadius: 0,
           cursor: "pointer",
           whiteSpace: "nowrap",
           textDecoration: "none",

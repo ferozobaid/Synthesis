@@ -15,7 +15,7 @@ vi.mock("@/components/CaseVoiceInterview", () => ({
 }));
 
 describe("/case voice-only surface", () => {
-  it("renders the voice case surface without a manual mode selector", async () => {
+  it("renders The GRID around the current voice surface without a manual mode selector", async () => {
     vi.stubGlobal("React", React);
     const { default: CasePage } = await import("@/app/case/page");
     const html = renderToStaticMarkup(React.createElement(CasePage));
@@ -23,7 +23,9 @@ describe("/case voice-only surface", () => {
     // The page hosts the (server-selected) voice interview; case selection is
     // driven inside the component, not by a hardcoded page-level case.
     expect(html).toContain("Voice interview");
-    expect(html).toContain("Live voice case interview");
+    expect(html).toContain("The GRID");
+    expect(html).toContain("Live interview simulations");
+    expect(html).not.toContain("Case Coach");
     expect(html).not.toContain("Interview format");
     expect(html).not.toContain(">Manual<");
   });

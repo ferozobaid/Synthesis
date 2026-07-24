@@ -28,11 +28,11 @@ export function VerdictBanner({
   return (
     <div
       style={{
-        background: `linear-gradient(120deg, var(--surface), ${tintFrom})`,
+        background: `linear-gradient(120deg, var(--surface) 55%, ${tintFrom})`,
         border: "1px solid var(--line)",
-        borderRadius: 18,
-        padding: "26px 28px",
-        boxShadow: "var(--shadow-md)",
+        borderRadius: 20,
+        padding: "28px 30px",
+        boxShadow: "var(--shadow-sm)",
         display: "flex",
         alignItems: "center",
         gap: 28,
@@ -59,11 +59,11 @@ export function VerdictBanner({
         <p
           style={{
             fontFamily: "var(--font-sans)",
-            fontSize: 18,
+            fontSize: 18.5,
             lineHeight: 1.45,
             color: "var(--ink)",
             margin: 0,
-            fontWeight: 600,
+            fontWeight: 620,
             letterSpacing: "-.015em",
           }}
         >

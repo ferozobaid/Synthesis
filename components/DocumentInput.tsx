@@ -47,6 +47,7 @@ export function DocumentInput({
   height = 120,
 }: DocumentInputProps) {
   const inputId = useId();
+  const textareaId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>("idle");
   const [filename, setFilename] = useState<string | null>(null);
@@ -118,8 +119,8 @@ export function DocumentInput({
     setMessage("The extracted text remains available below.");
   }
 
-  return (
-    <div>
+  const uploadControl = (
+    <>
       <input
         ref={inputRef}
         id={inputId}
@@ -127,7 +128,7 @@ export function DocumentInput({
         accept={ACCEPT}
         disabled={state === "uploading"}
         onChange={(event) => receiveFiles(event.target.files)}
-        style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}
+        className="document-input__file"
       />
       <label
         htmlFor={inputId}
@@ -141,83 +142,94 @@ export function DocumentInput({
           setDragging(false);
         }}
         onDrop={drop}
-        style={{
-          display: "block",
-          border: `1.5px dashed ${dragging ? "var(--accent)" : "var(--line)"}`,
-          borderRadius: 12,
-          padding: "17px 18px",
-          textAlign: "center",
-          background: dragging ? "var(--accent-tint)" : "var(--surface-2)",
-          cursor: state === "uploading" ? "wait" : "pointer",
-          transition: "border-color .15s ease, background .15s ease",
-        }}
+        className="document-input__dropzone"
       >
-        <div style={{ fontSize: 13, color: "var(--ink-2)", fontWeight: 600, marginBottom: 4 }}>
-          {state === "uploading"
-            ? `Reading ${filename ?? "document"}…`
-            : filename
-              ? filename
-              : `Drop your ${kind} here or choose a file`}
+        <span className="document-input__icon" aria-hidden="true">
+          {state === "uploading" ? <span className="document-input__spinner" /> : filename ? "✓" : "↥"}
+        </span>
+        <div className="document-input__drop-copy">
+          <div className="document-input__title">
+            {state === "uploading"
+              ? `Reading ${filename ?? "document"}…`
+              : filename
+                ? filename
+                : <>Drop your {kind} here or <span className="document-input__action">choose a file</span></>}
+          </div>
+          <div className="document-input__guidance">PDF, DOCX, or TXT <span aria-hidden="true">·</span> up to 10 MB</div>
         </div>
-        <div style={{ fontSize: 11, color: "var(--ink-4)" }}>PDF, DOCX, or TXT · up to 10 MB</div>
       </label>
 
       {(message || filename) && (
         <div
           role={state === "error" ? "alert" : "status"}
           aria-live="polite"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            marginTop: 8,
-            minHeight: 20,
-            fontSize: 11.5,
-            color: state === "error" ? "var(--gap)" : "var(--ink-3)",
-          }}
+          className="document-input__status"
         >
-          <span>{message}</span>
+          <span className="document-input__status-message">
+            <span className="document-input__status-dot" aria-hidden="true" />
+            {message}
+          </span>
           {filename && state !== "uploading" && (
             <button
               type="button"
               onClick={removeFile}
-              style={{
-                border: 0,
-                padding: 0,
-                background: "transparent",
-                color: "var(--accent-ink)",
-                cursor: "pointer",
-                fontSize: 11.5,
-                fontWeight: 600,
-              }}
+              className="document-input__remove"
             >
               Remove file
             </button>
           )}
         </div>
       )}
+    </>
+  );
 
+  const divider = (
+    <div className="document-input__divider" aria-hidden="true">
+      <span />
+      <small>{kind === "resume" ? "or paste manually" : "or upload a document"}</small>
+      <span />
+    </div>
+  );
+
+  const textControl = (
+    <>
+      <label htmlFor={textareaId} className="document-input__text-label">
+        {textareaLabel}
+        <span>{value.length.toLocaleString()} characters</span>
+      </label>
       <textarea
+        id={textareaId}
         value={value}
         onChange={(event) => onTextChange(event.target.value)}
         placeholder={placeholder}
         aria-label={textareaLabel}
+        className="form-control document-input__textarea"
         style={{
-          marginTop: 10,
-          width: "100%",
           height,
-          resize: "vertical",
-          border: "1px solid var(--line)",
-          borderRadius: 10,
-          padding: "11px 12px",
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: "var(--ink)",
-          background: "var(--surface)",
-          outline: "none",
         }}
       />
+    </>
+  );
+
+  return (
+    <div
+      className={`document-input document-input--${kind === "resume" ? "resume" : "job-description"}`}
+      data-state={state}
+      data-dragging={dragging ? "true" : "false"}
+    >
+      {kind === "job description" ? (
+        <>
+          {textControl}
+          {divider}
+          {uploadControl}
+        </>
+      ) : (
+        <>
+          {uploadControl}
+          {divider}
+          {textControl}
+        </>
+      )}
     </div>
   );
 }

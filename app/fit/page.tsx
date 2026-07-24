@@ -100,91 +100,100 @@ export default function FitPage() {
   const report = data?.report;
 
   return (
-    <div style={{ maxWidth: 1120, margin: "0 auto", padding: "32px 32px 90px", animation: "fadeIn .4s ease both" }}>
-      <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--ink-3)", textDecoration: "none", marginBottom: 22 }}>
+    <main className="page-shell" style={{ animation: "fadeIn .4s ease both" }}>
+      <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-        <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--accent-tint)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>◎</div>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 26, letterSpacing: "-.025em", margin: 0, color: "var(--ink)" }}>
+      <div className="page-heading-row">
+        <div className="page-icon" style={{ background: "var(--accent-tint)", color: "var(--accent-ink)" }}>◎</div>
+        <h1 className="page-title">
           Resume Fit Analyzer
         </h1>
       </div>
-      <p style={{ fontSize: 14, color: "var(--ink-3)", margin: "0 0 26px", paddingLeft: 46 }}>
+      <p className="page-description module-page-description" style={{ marginBottom: 32 }}>
         Your resume measured against what <b style={{ color: "var(--ink-2)", fontWeight: 600 }}>{roleName}</b> actually demands.
       </p>
 
       {/* EMPTY */}
       {phase === "empty" && (
-        <div style={{ maxWidth: 620, margin: "20px auto 0" }}>
-          <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
-            <div>
-              <SectionLabel style={{ marginBottom: 8 }}>Resume</SectionLabel>
+        <div style={{ maxWidth: 1040, margin: "20px auto 0" }}>
+          <div className="fit-document-grid" style={{ marginBottom: 18 }}>
+            <section className="surface-card fit-document-card fit-document-card--resume">
+              <div className="fit-document-card__header">
+                <div className="fit-document-card__icon" aria-hidden="true">↥</div>
+                <div>
+                  <div className="fit-document-card__eyebrow">Primary source</div>
+                  <h2 className="fit-document-card__title">Your resume</h2>
+                  <p className="fit-document-card__help">Upload the document you use for applications. You can review and refine the extracted text below.</p>
+                </div>
+              </div>
               <DocumentInput
                 kind="resume"
                 value={resume}
                 onTextChange={setResume}
                 textareaLabel="Your resume text"
-                placeholder="Paste your resume text…"
+                placeholder="Or paste your complete resume text here…"
+                height={180}
               />
-            </div>
-            <div>
-              <SectionLabel style={{ marginBottom: 8 }}>Job description</SectionLabel>
+            </section>
+
+            <section className="surface-card fit-document-card fit-document-card--jd">
+              <div className="fit-document-card__header">
+                <div className="fit-document-card__icon fit-document-card__icon--secondary" aria-hidden="true">⌘</div>
+                <div>
+                  <div className="fit-document-card__eyebrow">Paste-first</div>
+                  <h2 className="fit-document-card__title">Job description</h2>
+                  <p className="fit-document-card__help">Paste the full posting from LinkedIn or the employer site. Upload remains available as a secondary option.</p>
+                </div>
+              </div>
               <DocumentInput
                 kind="job description"
                 value={jd}
                 onTextChange={setJd}
                 textareaLabel="Job description text"
-                placeholder="Paste the job description…"
+                placeholder="Paste the role responsibilities and requirements here…"
+                height={218}
               />
-            </div>
-            <div style={{ fontSize: 12, color: "var(--ink-4)" }}>
+            </section>
+
+            <div className="fit-document-grid__footer">
               Or <Link href="/onboard" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>set a target role</Link> once and reuse it everywhere.
             </div>
           </div>
           <div
+            className="surface-card fit-ready-panel"
             style={{
-              background: "var(--surface)",
-              border: "1px solid var(--line)",
-              borderRadius: 18,
-              padding: "48px 40px",
-              textAlign: "center",
-              boxShadow: "var(--shadow-sm)",
+              background: "linear-gradient(135deg,var(--surface),var(--accent-tint-2))",
             }}
           >
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--accent-tint)", color: "var(--accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, margin: "0 auto 18px" }}>◎</div>
-            <h2 style={{ fontFamily: "var(--font-sans)", fontWeight: 500, fontSize: 22, margin: "0 0 8px", letterSpacing: "-.01em", color: "var(--ink)" }}>
-              Ready to analyze your fit
-            </h2>
-            <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--ink-2)", margin: "0 auto 24px", maxWidth: 380 }}>
-              We&apos;ll compare your resume line by line against the role&apos;s real requirements and show you exactly where you stand.
-            </p>
-            <button
-              onClick={run}
-              disabled={!hasInputs}
-              style={{
-                border: "none",
-                background: "var(--accent)",
-                color: "#fff",
-                fontSize: 15,
-                fontWeight: 600,
-                padding: "14px 26px",
-                borderRadius: 11,
-                cursor: hasInputs ? "pointer" : "not-allowed",
-                opacity: hasInputs ? 1 : 0.5,
-                boxShadow: "0 6px 18px rgba(75,70,201,.26)",
-              }}
-            >
-              Run analysis
-            </button>
-            <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 16 }}>Takes a few seconds</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div className="page-icon" style={{ width: 44, height: 44, background: "var(--accent-tint)", color: "var(--accent-ink)", fontSize: 20 }}>◎</div>
+              <div>
+                <h2 style={{ fontWeight: 620, fontSize: 18, margin: "0 0 4px", letterSpacing: "-.018em", color: "var(--ink)" }}>
+                  Ready to analyze your fit
+                </h2>
+                <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink-3)", margin: 0, maxWidth: 500 }}>
+                  We&apos;ll match resume evidence against each role requirement and prioritize what to improve.
+                </p>
+              </div>
+            </div>
+            <div style={{ flex: "none" }}>
+              <button
+                onClick={run}
+                disabled={!hasInputs}
+                className="app-button app-button--primary"
+              >
+                Run analysis
+              </button>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 7, textAlign: "center" }}>Takes a few seconds</div>
+            </div>
           </div>
         </div>
       )}
 
       {/* LOADING */}
       {phase === "loading" && (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 18, padding: "52px 40px", boxShadow: "var(--shadow-sm)", maxWidth: 560, margin: "20px auto 0", textAlign: "center" }}>
+        <div role="status" aria-live="polite" className="surface-card" style={{ padding: "52px 40px", maxWidth: 560, margin: "20px auto 0", textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
             <Spinner />
           </div>
@@ -210,7 +219,7 @@ export default function FitPage() {
       {phase === "result" && report && (
         <FitResult report={report} scoring={data?.scoring} />
       )}
-    </div>
+    </main>
   );
 }
 

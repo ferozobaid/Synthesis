@@ -35,31 +35,26 @@ export default function Dashboard() {
   const modulesDone = [state.fit, state.behavioural, state.case].filter((m) => m.status === "done").length;
 
   return (
-    <div style={{ maxWidth: 1160, margin: "0 auto", padding: "32px 32px 90px", animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell dashboard-shell" style={{ animation: "fadeIn .4s ease both" }}>
       {/* header */}
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 22, flexWrap: "wrap" }}>
+      <div className="dashboard-header" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 32, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, letterSpacing: ".13em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 7 }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 10 }}>
             Readiness for
           </div>
-          <h1 style={{ fontFamily: "var(--font-sans)", fontWeight: 700, fontSize: 28, letterSpacing: "-.03em", margin: 0, lineHeight: 1.05, color: "var(--ink)" }}>
+          <h1 className="page-title dashboard-role-title">
             {role}
           </h1>
-          {company && <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 5 }}>{company}</div>}
+          <p className="dashboard-role-description">
+            {company && <><strong>{company}</strong><span aria-hidden="true"> · </span></>}
+            See how your resume evidence, interview stories, and case performance line up with this target—and what to
+            strengthen next.
+          </p>
         </div>
         <Link
           href="/onboard"
-          style={{
-            border: "1px solid var(--line)",
-            background: "var(--surface)",
-            color: "var(--ink-2)",
-            fontSize: 13,
-            fontWeight: 600,
-            padding: "9px 14px",
-            borderRadius: 9,
-            cursor: "pointer",
-            textDecoration: "none",
-          }}
+          className="app-button app-button--secondary"
+          style={{ minHeight: 38, padding: "8px 14px" }}
         >
           Change role
         </Link>
@@ -68,20 +63,20 @@ export default function Dashboard() {
       <div className="bento-grid">
         {/* readiness card */}
         <div
-          className="col-5"
+          className="col-6 dashboard-readiness-card"
           style={{
             minWidth: 0,
             background: "var(--surface)",
             border: "1px solid var(--line)",
-            borderRadius: 18,
-            padding: 24,
-            boxShadow: "var(--shadow-md)",
+            borderRadius: 2,
+            padding: 36,
+            boxShadow: "var(--shadow-sm)",
             position: "relative",
             overflow: "hidden",
           }}
         >
-          <div style={{ position: "absolute", inset: 0, background: "radial-gradient(110% 70% at 50% -10%,var(--accent-tint-2),transparent 55%)" }} />
-          <div style={{ position: "relative", display: "flex", gap: 22, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="dashboard-readiness-card__geometry" aria-hidden="true" />
+          <div style={{ position: "relative", display: "flex", gap: 38, alignItems: "center", flexWrap: "wrap" }}>
             <ReadinessRing value={overall} size={132} strokeWidth={10} color={band?.color ?? "var(--accent)"} suffix="of 100" />
             <div style={{ flex: 1, minWidth: 180 }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 8 }}>
@@ -95,7 +90,7 @@ export default function Dashboard() {
                   padding: "5px 11px",
                   borderRadius: 999,
                   background: band?.tintBg ?? "var(--neutral-tint)",
-                  marginBottom: 14,
+                  marginBottom: 20,
                 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: band?.color ?? "var(--ink-3)" }} />
@@ -103,12 +98,12 @@ export default function Dashboard() {
                   {band?.label ?? "Not started"}
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <BreakdownRow label="Resume fit" module={state.fit} color="var(--accent)" />
                 <BreakdownRow label="Behavioural" module={state.behavioural} color="var(--secondary)" />
-                <BreakdownRow label="Case" module={state.case} color="var(--ink)" />
+                <BreakdownRow label="Case readiness" module={state.case} color="var(--ink)" />
               </div>
-              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 18 }}>
                 {modulesDone} of 3 modules complete
               </div>
             </div>
@@ -116,13 +111,13 @@ export default function Dashboard() {
         </div>
 
         {/* next best action */}
-        <div className="col-7" style={{ minWidth: 0 }}>
+        <div className="col-6" style={{ minWidth: 0 }}>
           <NextBestAction title={action.title} desc={action.desc} cta={action.cta} href={action.href} />
         </div>
 
         {/* module cards */}
         <ModuleCard
-          className="col-4"
+          className="col-4 module-card--inverse"
           href="/fit"
           glyph="◎"
           iconColor="var(--accent-ink)"
@@ -135,7 +130,7 @@ export default function Dashboard() {
           hoverBorder="var(--accent)"
         />
         <ModuleCard
-          className="col-4"
+          className="col-4 module-card--signal"
           href="/behavioural"
           glyph="◈"
           iconColor="var(--secondary)"
@@ -153,11 +148,12 @@ export default function Dashboard() {
           glyph="◆"
           iconColor="var(--ink)"
           iconTint="var(--neutral-tint)"
-          title="Case Interview"
-          statusLine={statusLine(state.case, "Drill an adaptive case")}
+          title="The GRID"
+          statusLine={statusLine(state.case, "Enter Case Simulation")}
           badge={badgeFor(state.case.status)}
           score={state.case.score}
-          ctaLabel="Drill a case"
+          scoreLabel="Case Simulation readiness"
+          ctaLabel="Open The GRID"
           hoverBorder="var(--ink-3)"
         />
 
@@ -169,16 +165,16 @@ export default function Dashboard() {
           </GroundingNote>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 
 function BreakdownRow({ label, module, color }: { label: string; module: ModuleResult; color: string }) {
   const has = module.score != null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-      <span style={{ fontSize: 11.5, color: "var(--ink-3)", width: 78, flex: "none" }}>{label}</span>
-      <MeterBar value={has ? (module.score as number) : 0} color={color} height={5} muted={!has} />
+    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <span style={{ fontSize: 12, color: "var(--ink-3)", width: 116, flex: "none" }}>{label}</span>
+      <MeterBar value={has ? (module.score as number) : 0} color={color} height={6} muted={!has} />
       <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink)", width: 22, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
         {has ? module.score : "—"}
       </span>

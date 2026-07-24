@@ -156,6 +156,31 @@ export interface PreviewCaseChoice {
   description: string;
 }
 
+type GridTrack = "case" | "technical";
+type TechnicalRoleId = "data_analyst" | "data_engineer";
+
+const TECHNICAL_ROLE_PREVIEWS: Array<{
+  id: TechnicalRoleId;
+  title: string;
+  description: string;
+  focus: string;
+}> = [
+  {
+    id: "data_analyst",
+    title: "Data Analyst",
+    description:
+      "Practice the judgment behind SQL, metrics, experimentation, and analytical storytelling.",
+    focus: "SQL · metrics · experimentation",
+  },
+  {
+    id: "data_engineer",
+    title: "Data Engineer",
+    description:
+      "Prepare for data modeling, pipeline design, reliability, and production trade-offs.",
+    focus: "Pipelines · modeling · reliability",
+  },
+];
+
 export class CaseProjectionUnavailableError extends Error {
   constructor() {
     super("Case voice session not found or projection token rejected.");
@@ -322,6 +347,22 @@ export function nativeCaseReportPollingReady(
   callActive: boolean,
 ): pending is PendingNativeCaseReport {
   return pending !== null && !callActive;
+}
+
+export function gridTrackSelectorVisible(input: {
+  recoveryChecked: boolean;
+  callActive: boolean;
+  capability: PendingCaseVoiceCapability | null;
+  nativeCapability: PendingNativeCaseReport | null;
+  nativeLiveCapability: PendingNativeCaseReport | null;
+}): boolean {
+  return (
+    input.recoveryChecked &&
+    !input.callActive &&
+    !input.capability &&
+    !input.nativeCapability &&
+    !input.nativeLiveCapability
+  );
 }
 
 export function caseVoiceControls(
@@ -595,6 +636,10 @@ export default function CaseVoiceInterview({
   const [catalogStatus, setCatalogStatus] = useState<CaseCatalogStatus>("loading");
   const [catalog, setCatalog] = useState<PreviewCaseChoice[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<GridTrack | null>(null);
+  const [selectedTechnicalRole, setSelectedTechnicalRole] =
+    useState<TechnicalRoleId | null>(null);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
   const [status, setStatus] = useState<CaseVoiceStatus>("idle");
   const [muted, setMuted] = useState(false);
   const [callActive, setCallActive] = useState(false);
@@ -1005,6 +1050,7 @@ export default function CaseVoiceInterview({
     if (nativePending) {
       setNativeCapability(nativePending);
       setStatus("recovering");
+      setRecoveryChecked(true);
       return () => {
         startAttemptRef.current += 1;
         teardown();
@@ -1020,6 +1066,7 @@ export default function CaseVoiceInterview({
       setStatus("expired");
       setError("The saved Case voice session expired. Start a new interview.");
     }
+    setRecoveryChecked(true);
     return () => {
       startAttemptRef.current += 1;
       teardown();
@@ -1161,10 +1208,16 @@ export default function CaseVoiceInterview({
         ),
       );
 
-  // The Case Simulator always opens on the two-case picker. It shows whenever no
-  // session is active, and Start stays disabled until the catalog has loaded and
-  // a case is explicitly selected.
-  const showPicker = !callActive && !capability && !nativeLiveCapability;
+  // Recovery is resolved before the presentation-only track selector appears.
+  // Existing session, call, and report capabilities remain the lifecycle source
+  // of truth; recoveryChecked only prevents an idle-selector flash on first load.
+  const showPicker = gridTrackSelectorVisible({
+    recoveryChecked,
+    callActive,
+    capability,
+    nativeCapability,
+    nativeLiveCapability,
+  });
   const availability = caseVoiceStartAvailability({
     catalogStatus,
     cases: catalog,
@@ -1199,6 +1252,30 @@ export default function CaseVoiceInterview({
     setSyncError(null);
   };
 
+  const showAllTracks = () => {
+    setSelectedTrack(null);
+    setSelectedTechnicalRole(null);
+  };
+
+  if (!recoveryChecked) {
+    return (
+      <div
+        className="grid-recovery-status surface-card"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span className="grid-recovery-status__mark" aria-hidden="true">
+          ◆
+        </span>
+        <div>
+          <SectionLabel style={{ marginBottom: 7 }}>The GRID</SectionLabel>
+          <p>Checking for an active simulation…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (nativeCaseReportPollingReady(nativeCapability, callActive)) {
     return (
       <CaseNativeVoiceInterview
@@ -1211,85 +1288,221 @@ export default function CaseVoiceInterview({
 
   if (showPicker) {
     return (
-      <div style={{ marginTop: 18 }}>
-        <SectionLabel style={{ marginBottom: 12 }}>Choose a case</SectionLabel>
-        {!configured && (
-          <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
-            Case voice is not configured for this Preview deployment.
-          </p>
+      <div className="grid-hub" style={{ marginTop: 18 }}>
+        {selectedTrack === null && (
+          <section className="grid-track-selector" aria-labelledby="grid-track-heading">
+            <div className="grid-track-intro">
+              <SectionLabel style={{ marginBottom: 11 }}>Choose your simulation</SectionLabel>
+              <h2 id="grid-track-heading">Where do you want to train?</h2>
+              <p>
+                Enter a live strategy case now, or preview the technical interview rounds
+                being built for data roles.
+              </p>
+              {(notice || error) && (
+                <p
+                  className="grid-track-intro__notice"
+                  role="status"
+                  style={{ color: error ? "var(--gap)" : "var(--ink-3)" }}
+                >
+                  {error ?? notice}
+                </p>
+              )}
+            </div>
+            <div className="grid-track-grid">
+              <button
+                type="button"
+                className="grid-track-card grid-track-card--case"
+                onClick={() => setSelectedTrack("case")}
+              >
+                <span className="grid-track-card__top">
+                  <span className="grid-track-card__icon" aria-hidden="true">◆</span>
+                  <span className="grid-track-card__index">01</span>
+                </span>
+                <span className="grid-track-card__title">Case Simulation</span>
+                <span className="grid-track-card__copy">
+                  Work through live strategy cases with an adaptive voice interviewer and
+                  a scored native report.
+                </span>
+                <span className="grid-track-card__meta">
+                  Airport · GCC Premium Gym <span aria-hidden="true">→</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="grid-track-card grid-track-card--technical"
+                onClick={() => setSelectedTrack("technical")}
+              >
+                <span className="grid-track-card__top">
+                  <span className="grid-track-card__icon" aria-hidden="true">⌁</span>
+                  <span className="grid-track-card__index">02</span>
+                </span>
+                <span className="grid-track-card__title">Technical Simulation</span>
+                <span className="grid-track-card__copy">
+                  Preview role-specific technical interview rounds for Data Analyst and
+                  Data Engineer paths.
+                </span>
+                <span className="grid-track-card__meta">
+                  Role previews · Coming soon <span aria-hidden="true">→</span>
+                </span>
+              </button>
+            </div>
+          </section>
         )}
 
-        {availability.showLoading && (
-          <p role="status" aria-live="polite" style={{ margin: "0 2px", fontSize: 13, color: "var(--ink-3)" }}>
-            Loading cases…
-          </p>
-        )}
-
-        {availability.showError && (
-          <div role="alert" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: "var(--gap)" }}>
-              The available cases could not be loaded.
-            </span>
-            <button type="button" onClick={() => void loadCatalog()} style={buttonStyle("ghost")}>
-              Retry
+        {selectedTrack === "case" && (
+          <section className="case-voice-picker surface-card" aria-labelledby="case-simulation-heading">
+            <button type="button" className="grid-all-tracks" onClick={showAllTracks}>
+              <span aria-hidden="true">←</span> All tracks
             </button>
-          </div>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Case Simulation</SectionLabel>
+                <h2 id="case-simulation-heading">Choose a strategy case</h2>
+                <p>
+                  Your existing Case readiness score reflects this track only.
+                </p>
+              </div>
+              <span className="grid-track-status">Live voice</span>
+            </div>
+            {!configured && (
+              <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
+                Case voice is not configured for this Preview deployment.
+              </p>
+            )}
+
+            {availability.showLoading && (
+              <p role="status" aria-live="polite" style={{ margin: "0 2px", fontSize: 13, color: "var(--ink-3)" }}>
+                Loading cases…
+              </p>
+            )}
+
+            {availability.showError && (
+              <div role="alert" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: "var(--gap)" }}>
+                  The available cases could not be loaded.
+                </span>
+                <button type="button" onClick={() => void loadCatalog()} style={buttonStyle("ghost")}>
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {availability.showCases && (
+              <>
+                <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                  {catalog.map((entry) => {
+                    const selected = selectedCaseId === entry.id;
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setSelectedCaseId(entry.id)}
+                        className={`case-picker-card${selected ? " is-selected" : ""}`}
+                        style={{
+                          textAlign: "left",
+                          border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
+                          borderRadius: 12,
+                          background: selected ? "var(--surface-2)" : "var(--surface)",
+                          padding: "16px 18px",
+                          cursor: "pointer",
+                          boxShadow: "var(--shadow-sm)",
+                        }}
+                      >
+                        <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
+                        <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="case-picker-actions" style={{ marginTop: 16 }}>
+                  <button
+                    type="button"
+                    disabled={!availability.canStart}
+                    onClick={() => {
+                      if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                    }}
+                    style={buttonStyle("solid", !availability.canStart)}
+                  >
+                    Start voice interview
+                  </button>
+                </div>
+              </>
+            )}
+
+            {(notice || error) && (
+              <p role="status" style={{ margin: "12px 2px 0", fontSize: 12, color: error ? "var(--gap)" : "var(--ink-3)" }}>
+                {error ?? notice}
+              </p>
+            )}
+          </section>
         )}
 
-        {availability.showCases && (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-              {catalog.map((entry) => {
-                const selected = selectedCaseId === entry.id;
+        {selectedTrack === "technical" && (
+          <section className="technical-simulation surface-card" aria-labelledby="technical-simulation-heading">
+            <button type="button" className="grid-all-tracks" onClick={showAllTracks}>
+              <span aria-hidden="true">←</span> All tracks
+            </button>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Simulation</SectionLabel>
+                <h2 id="technical-simulation-heading">Choose your role</h2>
+                <p>
+                  Explore the shape of upcoming technical interview rounds. These previews
+                  do not contribute to Case readiness.
+                </p>
+              </div>
+              <span className="grid-track-status">Coming soon</span>
+            </div>
+            <div className="technical-role-grid">
+              {TECHNICAL_ROLE_PREVIEWS.map((role) => {
+                const selected = selectedTechnicalRole === role.id;
                 return (
                   <button
-                    key={entry.id}
+                    key={role.id}
                     type="button"
                     aria-pressed={selected}
-                    onClick={() => setSelectedCaseId(entry.id)}
-                    style={{
-                      textAlign: "left",
-                      border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
-                      borderRadius: 12,
-                      background: selected ? "var(--surface-2)" : "var(--surface)",
-                      padding: "16px 18px",
-                      cursor: "pointer",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
+                    className={`technical-role-card${selected ? " is-selected" : ""}`}
+                    onClick={() => setSelectedTechnicalRole(role.id)}
                   >
-                    <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+                    <span className="technical-role-card__top">
+                      <span className="technical-role-card__glyph" aria-hidden="true">
+                        {role.id === "data_analyst" ? "◌" : "⌘"}
+                      </span>
+                      <span>Preview</span>
+                    </span>
+                    <span className="technical-role-card__title">{role.title}</span>
+                    <span className="technical-role-card__copy">{role.description}</span>
+                    <span className="technical-role-card__focus">{role.focus}</span>
                   </button>
                 );
               })}
             </div>
-            <div style={{ marginTop: 16 }}>
-              <button
-                type="button"
-                disabled={!availability.canStart}
-                onClick={() => {
-                  if (availability.canStart && selectedCaseId) void start(selectedCaseId);
-                }}
-                style={buttonStyle("solid", !availability.canStart)}
-              >
-                Start voice interview
-              </button>
-            </div>
-          </>
-        )}
-
-        {(notice || error) && (
-          <p role="status" style={{ margin: "12px 2px 0", fontSize: 12, color: error ? "var(--gap)" : "var(--ink-3)" }}>
-            {error ?? notice}
-          </p>
+            {selectedTechnicalRole && (
+              <div className="technical-role-preview" role="status" aria-live="polite">
+                <div>
+                  <SectionLabel style={{ marginBottom: 7 }}>Selected role</SectionLabel>
+                  <h3>
+                    {TECHNICAL_ROLE_PREVIEWS.find((role) => role.id === selectedTechnicalRole)?.title}
+                  </h3>
+                </div>
+                <p>
+                  Technical interview rounds for this role will appear here when they are ready.
+                  No readiness score or application data is changed by this preview.
+                </p>
+                <span>Coming soon</span>
+              </div>
+            )}
+          </section>
         )}
       </div>
     );
   }
 
   return (
-    <div style={{ marginTop: 18 }}>
+    <div className="case-voice-session" style={{ marginTop: 18 }}>
       <div
+        className="case-voice-statusbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -1325,6 +1538,7 @@ export default function CaseVoiceInterview({
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div
             aria-label="Case interview timer"
+            className="case-voice-timer"
             style={{
               minWidth: nativeTimerWaiting ? 118 : 62,
               padding: "7px 10px",
@@ -1391,6 +1605,7 @@ export default function CaseVoiceInterview({
       {nativeLiveCapability && (
         <>
           <div
+            className="case-progress-panel"
             style={{
               marginTop: 14,
               padding: "14px 16px",
@@ -1446,6 +1661,7 @@ export default function CaseVoiceInterview({
 
           {showTranscript && (
             <div
+              className="case-transcript-panel"
               style={{
                 marginTop: 16,
                 border: "1px solid var(--line)",
@@ -1514,7 +1730,7 @@ export default function CaseVoiceInterview({
 
           <div className={showTranscript ? "case-grid" : undefined} style={{ marginTop: 16 }}>
             {showTranscript && (
-              <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
+              <div className="case-transcript-panel" style={{ border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", minWidth: 0 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <SectionLabel>Transcript</SectionLabel>
               </div>
@@ -1541,7 +1757,7 @@ export default function CaseVoiceInterview({
               </div>
             )}
 
-            <div style={{ minWidth: 0 }}>
+            <div className="case-exhibits-panel" style={{ minWidth: 0 }}>
               <SectionLabel style={{ marginBottom: 10 }}>Exhibits</SectionLabel>
               {exhibits.length === 0 ? (
                 <div style={{ border: "1.5px dashed var(--line)", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "var(--surface-2)" }}>

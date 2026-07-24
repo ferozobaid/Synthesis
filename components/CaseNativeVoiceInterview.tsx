@@ -335,7 +335,7 @@ export default function CaseNativeVoiceInterview({
   const supportingMessage = nativeCaseReportSupportingMessage(report);
 
   return (
-    <div style={{ marginTop: 18, maxWidth: 820, marginInline: "auto" }}>
+    <div className="case-native-report-shell" style={{ marginTop: 18, maxWidth: 820, marginInline: "auto" }}>
       <div
         role="status"
         aria-live="polite"
@@ -386,7 +386,7 @@ function NativeCaseReportView({
   const score100 = presentation.overall === null ? null : to100(presentation.overall);
   const band = score100 === null ? null : readinessBand(score100);
   return (
-    <div style={{ animation: "fadeUp .45s ease both", marginBottom: 18 }}>
+    <div className="case-native-report" style={{ animation: "fadeUp .45s ease both", marginBottom: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <SectionLabel color={presentation.partial ? "var(--partial)" : "var(--accent)"}>
           {presentation.label}
