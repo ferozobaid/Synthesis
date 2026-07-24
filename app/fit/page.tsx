@@ -53,6 +53,7 @@ export default function FitPage() {
   const [phase, setPhase] = useState<Phase>("empty");
   const [data, setData] = useState<FitResponse | null>(null);
   const [resume, setResume] = useState("");
+  const [roleTitle, setRoleTitle] = useState("");
   const [jd, setJd] = useState("");
 
   // The store hydrates from localStorage after mount; fill inputs from the
@@ -60,8 +61,9 @@ export default function FitPage() {
   useEffect(() => {
     if (!hydrated) return;
     setResume((r) => r || state.target.resumeText);
+    setRoleTitle((title) => title || state.target.role || "");
     setJd((j) => j || state.target.jdText);
-  }, [hydrated, state.target.resumeText, state.target.jdText]);
+  }, [hydrated, state.target.resumeText, state.target.role, state.target.jdText]);
 
   const roleName = state.target.role ?? data?.jd.role_title ?? "this role";
   const hasInputs = resume.trim().length > 0 && jd.trim().length > 0;
@@ -70,7 +72,12 @@ export default function FitPage() {
     setPhase("loading");
     // A direct Fit-page edit can materially change the target. Invalidate
     // existing module scores first, then write back the new Fit result below.
-    commitTarget({ ...state.target, resumeText: resume, jdText: jd });
+    commitTarget({
+      ...state.target,
+      role: roleTitle.trim() || state.target.role,
+      resumeText: resume,
+      jdText: jd,
+    });
     try {
       const res = await fetch("/api/fit/analyze", {
         method: "POST",
@@ -134,6 +141,8 @@ export default function FitPage() {
                 textareaLabel="Your resume text"
                 placeholder="Or paste your complete resume text here…"
                 height={180}
+                collapsibleText
+                initialTextVisible={false}
               />
             </section>
 
@@ -141,18 +150,27 @@ export default function FitPage() {
               <div className="fit-document-card__header">
                 <div className="fit-document-card__icon fit-document-card__icon--secondary" aria-hidden="true">⌘</div>
                 <div>
-                  <div className="fit-document-card__eyebrow">Paste-first</div>
-                  <h2 className="fit-document-card__title">Job description</h2>
-                  <p className="fit-document-card__help">Paste the full posting from LinkedIn or the employer site. Upload remains available as a secondary option.</p>
+                  <div className="fit-document-card__eyebrow">Role benchmark</div>
+                  <h2 className="fit-document-card__title">Target job</h2>
+                  <p className="fit-document-card__help">Name the role, then paste the job description. Upload remains available as an optional alternative.</p>
                 </div>
               </div>
+              <label htmlFor="fit-role-title" className="field-label">Role title</label>
+              <input
+                id="fit-role-title"
+                value={roleTitle}
+                onChange={(event) => setRoleTitle(event.target.value)}
+                placeholder="Role title — e.g. Associate Consultant"
+                aria-label="Target role title"
+                className="form-control fit-role-title-input"
+              />
               <DocumentInput
                 kind="job description"
                 value={jd}
                 onTextChange={setJd}
-                textareaLabel="Job description text"
-                placeholder="Paste the role responsibilities and requirements here…"
-                height={218}
+                textareaLabel="Target job description text"
+                placeholder="Paste the full job description here…"
+                height={150}
               />
             </section>
 

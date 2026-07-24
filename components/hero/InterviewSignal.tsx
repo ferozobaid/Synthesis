@@ -1,47 +1,53 @@
-"use client";
-
 import { useEffect, useRef } from "react";
 import { HERO_MODULES, type ModuleKey } from "./modules";
 
 /**
- * Decorative live-session readout shown in the hero on large screens.
- * Values drift subtly with time and mouse position; purely visual.
+ * Claude's original translucent live-session readout. It follows the active
+ * module and lets the demo values drift subtly without touching product data.
  */
 export function InterviewSignal({ active }: { active: ModuleKey }) {
-  const mod = HERO_MODULES[active];
+  const module = HERO_MODULES[active];
   const valueRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const barRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const mouse = useRef({ x: 0.5, y: 0.5 });
-  const rowsRef = useRef(mod.rows);
-  rowsRef.current = mod.rows;
+  const pointer = useRef({ x: 0.5, y: 0.5 });
+  const rowsRef = useRef(module.rows);
+  rowsRef.current = module.rows;
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (!window.matchMedia("(pointer: fine)").matches) return;
 
-    const onMove = (e: MouseEvent) => {
-      mouse.current.x = e.clientX / window.innerWidth;
-      mouse.current.y = e.clientY / window.innerHeight;
+    const onMove = (event: MouseEvent) => {
+      pointer.current.x = event.clientX / window.innerWidth;
+      pointer.current.y = event.clientY / window.innerHeight;
     };
 
-    let raf = 0;
-    const tick = (t: number) => {
-      raf = requestAnimationFrame(tick);
+    let frame = 0;
+    const tick = (time: number) => {
+      frame = window.requestAnimationFrame(tick);
       if (document.hidden) return;
-      rowsRef.current.forEach(([, base], i) => {
-        const wave = Math.sin(t / 1500 + i * 1.9) * 1.4;
-        const drift = (mouse.current.x - 0.5) * 3 + (0.5 - mouse.current.y) * 1.5;
-        const v = Math.round(Math.max(0, Math.min(99, base + wave + drift)));
-        const span = valueRefs.current[i];
-        if (span && span.textContent !== String(v)) span.textContent = String(v);
-        const bar = barRefs.current[i];
-        if (bar) bar.style.width = `${v}%`;
+
+      rowsRef.current.forEach(([, baseline], index) => {
+        const wave = Math.sin(time / 1500 + index * 1.9) * 1.4;
+        const drift =
+          (pointer.current.x - 0.5) * 3 +
+          (0.5 - pointer.current.y) * 1.5;
+        const value = Math.round(
+          Math.max(0, Math.min(99, baseline + wave + drift)),
+        );
+        const valueNode = valueRefs.current[index];
+        const barNode = barRefs.current[index];
+        if (valueNode && valueNode.textContent !== String(value)) {
+          valueNode.textContent = String(value);
+        }
+        if (barNode) barNode.style.width = `${value}%`;
       });
     };
+
     window.addEventListener("mousemove", onMove, { passive: true });
-    raf = requestAnimationFrame(tick);
+    frame = window.requestAnimationFrame(tick);
     return () => {
-      cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(frame);
       window.removeEventListener("mousemove", onMove);
     };
   }, []);
@@ -49,41 +55,43 @@ export function InterviewSignal({ active }: { active: ModuleKey }) {
   return (
     <div
       aria-hidden="true"
-      className="hidden lg:block w-[300px] rounded-[22px] border border-white/15 bg-black/25 backdrop-blur-xl px-6 py-5 select-none"
+      className="hero-signal-live w-[300px] rounded-[22px] border border-white/25 bg-black/40 backdrop-blur-xl px-6 py-5 select-none"
     >
-      <div className="flex items-center justify-between font-mono text-[9px] tracking-[0.16em] text-white/40 uppercase">
+      <div className="flex items-center justify-between font-mono text-[9px] tracking-[0.16em] text-white/60 uppercase">
         <span>Session / Synthesis</span>
-        <span>{mod.index}</span>
+        <span>{module.index}</span>
       </div>
+
       <div key={active} className="shero-fade">
         <div className="mt-4 flex items-center gap-2.5">
           <span className="h-[6px] w-[6px] rounded-full bg-white/90 shero-pulse" />
-          <span className="text-[13px] text-white/85">{mod.status}</span>
-          <span className="ml-auto font-mono text-[9px] tracking-[0.14em] text-white/35 uppercase">
-            {mod.session}
+          <span className="text-[13px] text-white/95">{module.status}</span>
+          <span className="ml-auto font-mono text-[9px] tracking-[0.14em] text-white/55 uppercase">
+            {module.session}
           </span>
         </div>
+
         <div className="mt-5 flex flex-col gap-[14px]">
-          {mod.rows.map(([label, base], i) => (
+          {module.rows.map(([label, baseline], index) => (
             <div key={label}>
               <div className="flex items-baseline justify-between">
-                <span className="text-[11px] text-white/55">{label}</span>
+                <span className="text-[11px] text-white/70">{label}</span>
                 <span
-                  ref={(el) => {
-                    valueRefs.current[i] = el;
+                  ref={(node) => {
+                    valueRefs.current[index] = node;
                   }}
-                  className="text-[12px] tabular-nums text-white/85"
+                  className="text-[12px] tabular-nums text-white/95"
                 >
-                  {base}
+                  {baseline}
                 </span>
               </div>
-              <div className="mt-[6px] h-[2px] w-full bg-white/15 overflow-hidden rounded-full">
+              <div className="mt-[6px] h-[2px] w-full overflow-hidden rounded-full bg-white/20">
                 <div
-                  ref={(el) => {
-                    barRefs.current[i] = el;
+                  ref={(node) => {
+                    barRefs.current[index] = node;
                   }}
-                  className="h-full bg-white/65 rounded-full transition-[width] duration-300 ease-linear"
-                  style={{ width: `${base}%` }}
+                  className="h-full rounded-full bg-white/80 transition-[width] duration-300 ease-linear"
+                  style={{ width: `${baseline}%` }}
                 />
               </div>
             </div>

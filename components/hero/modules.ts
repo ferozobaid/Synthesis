@@ -57,9 +57,9 @@ export const HERO_MODULES: Record<ModuleKey, HeroModule> = {
   },
   case: {
     index: "03",
-    nav: "Case",
+    nav: "GRID",
     pill: "Run a case",
-    name: "Case Interview",
+    name: "The GRID",
     session: "CASE SIMULATION",
     status: "Probing hypothesis",
     brief:

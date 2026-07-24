@@ -17,6 +17,7 @@ import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import { BehaviouralInterviewerStage } from "@/components/behavioural/BehaviouralInterviewerStage";
 
 interface StartResult {
   session: BehaviouralSession;
@@ -168,10 +169,12 @@ export default function BehaviouralPage() {
   }
 
   return (
-    <main className="page-shell page-shell--narrow" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell page-shell--narrow behavioural-page-shell" style={{ animation: "fadeIn .4s ease both" }}>
       <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
+
+      <BehaviouralInterviewerStage active={voiceActive || listening} />
 
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
       <VoiceInterview
