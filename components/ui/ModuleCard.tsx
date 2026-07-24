@@ -16,6 +16,7 @@ export function ModuleCard({
   statusLine,
   badge,
   score,
+  scoreLabel,
   ctaLabel,
   hoverBorder = "var(--accent)",
   className,
@@ -28,6 +29,7 @@ export function ModuleCard({
   statusLine: string;
   badge: { text: string; color: string; tint: string };
   score: number | null;
+  scoreLabel?: string;
   ctaLabel: string;
   hoverBorder?: string;
   className?: string;
@@ -112,14 +114,21 @@ export function ModuleCard({
       <div style={{ fontSize: 13, color: muted, lineHeight: 1.5, marginTop: 8, maxWidth: 250 }}>{statusLine}</div>
       <div style={{ flex: 1 }} />
       {score != null ? (
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginTop: 14 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
-            <span style={{ fontSize: 26, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-              {score}
-            </span>
-            <span style={{ fontSize: 11, color: muted }}>/100</span>
+        <div style={{ marginTop: 14 }}>
+          {scoreLabel && (
+            <div style={{ marginBottom: 7, color: muted, fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: ".08em", textTransform: "uppercase" }}>
+              {scoreLabel}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+              <span style={{ fontSize: 26, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+                {score}
+              </span>
+              <span style={{ fontSize: 11, color: muted }}>/100</span>
+            </div>
+            <span className="module-card__cta" style={{ fontSize: 13, fontWeight: 650, color: foreground }}>Review <span aria-hidden="true">→</span></span>
           </div>
-          <span className="module-card__cta" style={{ fontSize: 13, fontWeight: 650, color: foreground }}>Review <span aria-hidden="true">→</span></span>
         </div>
       ) : (
         <div

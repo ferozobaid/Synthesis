@@ -9,6 +9,7 @@ import {
   caseVoiceEndedNotice,
   caseVoiceEndedReason,
   formatCaseVoiceElapsed,
+  gridTrackSelectorVisible,
   caseVoiceLiveCaption,
   caseVoiceRecoveryMessage,
   caseVoiceStartAvailability,
@@ -89,6 +90,63 @@ describe("Case Voice two-case picker state", () => {
     expect(ids).toEqual(["airport_profitability", "gcc_premium_gym_market_entry"]);
     expect(ids).not.toContain("beautify");
     expect(ids).not.toContain("diconsa");
+  });
+});
+
+describe("The GRID recovery presentation gate", () => {
+  const customPending: PendingCaseVoiceCapability = {
+    sessionId: "session_1",
+    projectionToken: "projection_1",
+    caseId: "airport_profitability",
+    caseTitle: "Airport Profitability",
+    openingPrompt: "Welcome.",
+    createdAt: Date.now(),
+  };
+  const nativePending = {
+    sessionId: "native_1",
+    assistantId: "assistant_1",
+    reportToken: "report_1",
+    caseId: "gcc_premium_gym_market_entry",
+    caseTitle: "GCC Premium Gym Market Entry",
+    createdAt: Date.now(),
+  };
+
+  it("keeps the track selector hidden until synchronous recovery has completed", () => {
+    expect(
+      gridTrackSelectorVisible({
+        recoveryChecked: false,
+        callActive: false,
+        capability: null,
+        nativeCapability: null,
+        nativeLiveCapability: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the track selector only for a genuinely idle user", () => {
+    expect(
+      gridTrackSelectorVisible({
+        recoveryChecked: true,
+        callActive: false,
+        capability: null,
+        nativeCapability: null,
+        nativeLiveCapability: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("bypasses the selector for active, custom, native, and processing recovery states", () => {
+    const base = {
+      recoveryChecked: true,
+      callActive: false,
+      capability: null,
+      nativeCapability: null,
+      nativeLiveCapability: null,
+    };
+    expect(gridTrackSelectorVisible({ ...base, callActive: true })).toBe(false);
+    expect(gridTrackSelectorVisible({ ...base, capability: customPending })).toBe(false);
+    expect(gridTrackSelectorVisible({ ...base, nativeCapability: nativePending })).toBe(false);
+    expect(gridTrackSelectorVisible({ ...base, nativeLiveCapability: nativePending })).toBe(false);
   });
 });
 

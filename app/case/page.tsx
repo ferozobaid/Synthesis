@@ -45,13 +45,13 @@ export default function CasePage() {
               ◆
             </div>
             <div>
-              <h1 className="page-title">Case Coach</h1>
+              <h1 className="page-title">The GRID</h1>
               <p className="page-description case-heading__description">
-                Choose a live case, structure your thinking aloud, and receive a native performance report.
+                Choose between live Case Simulation and upcoming role-specific technical interview rounds.
               </p>
             </div>
             <span className="case-heading__meta">
-              Live voice case interview
+              Live interview simulations
             </span>
           </div>
 
@@ -72,7 +72,7 @@ function CaseReport({ score, onDone }: { score: CaseScore; onDone: () => void })
 
   return (
     <div className="case-report" style={{ maxWidth: 760, margin: "0 auto", animation: "fadeUp .5s ease both" }}>
-      <SectionLabel color="var(--ink-3)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Case performance report</SectionLabel>
+      <SectionLabel color="var(--ink-3)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Strategy readiness</SectionLabel>
       <VerdictBanner
         score={score100}
         suffix="of 100"

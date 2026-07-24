@@ -101,7 +101,7 @@ export default function Dashboard() {
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <BreakdownRow label="Resume fit" module={state.fit} color="var(--accent)" />
                 <BreakdownRow label="Behavioural" module={state.behavioural} color="var(--secondary)" />
-                <BreakdownRow label="Case" module={state.case} color="var(--ink)" />
+                <BreakdownRow label="Case readiness" module={state.case} color="var(--ink)" />
               </div>
               <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 18 }}>
                 {modulesDone} of 3 modules complete
@@ -148,11 +148,12 @@ export default function Dashboard() {
           glyph="◆"
           iconColor="var(--ink)"
           iconTint="var(--neutral-tint)"
-          title="Case Interview"
-          statusLine={statusLine(state.case, "Drill an adaptive case")}
+          title="The GRID"
+          statusLine={statusLine(state.case, "Enter Case Simulation")}
           badge={badgeFor(state.case.status)}
           score={state.case.score}
-          ctaLabel="Drill a case"
+          scoreLabel="Case Simulation readiness"
+          ctaLabel="Open The GRID"
           hoverBorder="var(--ink-3)"
         />
 
@@ -172,7 +173,7 @@ function BreakdownRow({ label, module, color }: { label: string; module: ModuleR
   const has = module.score != null;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-      <span style={{ fontSize: 12, color: "var(--ink-3)", width: 92, flex: "none" }}>{label}</span>
+      <span style={{ fontSize: 12, color: "var(--ink-3)", width: 116, flex: "none" }}>{label}</span>
       <MeterBar value={has ? (module.score as number) : 0} color={color} height={6} muted={!has} />
       <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink)", width: 22, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
         {has ? module.score : "—"}

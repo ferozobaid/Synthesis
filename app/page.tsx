@@ -30,9 +30,9 @@ const MODULES = [
     glyph: "◆",
     color: "var(--ink)",
     tint: "var(--neutral-tint)",
-    title: "Case Interview",
+    title: "The GRID",
     blurb:
-      "Work an adaptive case end to end — exhibits, pressure tests, and a scored performance report at the finish.",
+      "Enter a live Case Simulation now, with role-specific Technical Simulation previews ready for what comes next.",
   },
 ];
 
@@ -239,12 +239,12 @@ function HeroPreview() {
   const bars = [
     { label: "Fit", pct: 72, color: "var(--preview-accent)", val: 72 },
     { label: "Behavioural", pct: 79, color: "var(--secondary)", val: 79 },
-    { label: "Case", pct: 85, color: "var(--inverse-ink)", val: 85 },
+    { label: "Case readiness", pct: 85, color: "var(--inverse-ink)", val: 85 },
   ];
   const cards = [
     { glyph: "◎", color: "var(--accent-ink)", tint: "var(--accent-tint)", title: "Resume Fit", sub: "3 matched · 2 gaps", score: 72 },
     { glyph: "◈", color: "var(--secondary)", tint: "var(--secondary-tint)", title: "Behavioural", sub: "5 answers coached", score: 79 },
-    { glyph: "◆", color: "var(--inverse-ink)", tint: "var(--preview-line)", title: "Case", sub: "1 case · full report", score: 85 },
+    { glyph: "◆", color: "var(--inverse-ink)", tint: "var(--preview-line)", title: "The GRID", sub: "Case Simulation readiness", score: 85 },
   ];
   return (
     <div className="hero-preview">
@@ -281,7 +281,7 @@ function HeroPreview() {
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {bars.map((b) => (
                   <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "var(--preview-muted)", width: 64 }}>{b.label}</span>
+                    <span style={{ fontSize: 10.5, color: "var(--preview-muted)", width: 86, flex: "none" }}>{b.label}</span>
                     <div style={{ flex: 1, height: 4, background: "var(--preview-line)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{ width: `${b.pct}%`, height: "100%", background: b.color, borderRadius: 2 }} />
                     </div>
