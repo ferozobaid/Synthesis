@@ -9,7 +9,10 @@ import type {
   BehaviouralSession,
 } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
-import VoiceInterview, { type VoiceReport, type VoiceStatus } from "@/components/VoiceInterview";
+import VoiceInterview, {
+  type VoiceAvatarState,
+  type VoiceReport,
+} from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
@@ -85,9 +88,7 @@ export default function BehaviouralPage() {
   const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
   // Fine-grained Vapi call state lifted from VoiceInterview for the avatar;
   // null until the configured voice flow reports in (manual/mock mode stays null).
-  const [voiceState, setVoiceState] = useState<{ status: VoiceStatus; muted: boolean } | null>(
-    null,
-  );
+  const [voiceState, setVoiceState] = useState<VoiceAvatarState | null>(null);
 
   const handleVoiceComplete = useCallback(
     (report: VoiceReport) => {
@@ -121,7 +122,7 @@ export default function BehaviouralPage() {
   // Avatar mode: the configured Vapi flow reports fine-grained state; in
   // manual/mock mode the avatar reacts to local dictation and the report.
   const avatarMode: AvatarMode = voiceState
-    ? mapVoiceStatusToAvatarMode(voiceState.status, voiceState.muted, false)
+    ? mapVoiceStatusToAvatarMode(voiceState.status, voiceState.muted, voiceState.userSpeaking)
     : summary || voiceSummary
       ? "complete"
       : starting
@@ -197,6 +198,7 @@ export default function BehaviouralPage() {
 
       <InterviewerAvatar
         mode={avatarMode}
+        level={voiceState?.level ?? 0}
         variant="stage"
         captionKicker="Behavioural voice / cinematic interviewer"
       />

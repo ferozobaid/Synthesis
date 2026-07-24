@@ -21,6 +21,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { containment } from "@/lib/text";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import {
+  createUserSpeakingTracker,
+  quantizeLevel,
+  shouldPublishLevel,
+} from "@/components/interviewer/avatarState";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_BEHAVIOURAL_ASSISTANT_ID;
@@ -66,6 +71,19 @@ interface TranscriptLine {
   role: "assistant" | "user";
   text: string;
 }
+
+/** Fine-grained call state lifted to the page for the interviewer avatar. */
+export interface VoiceAvatarState {
+  status: VoiceStatus;
+  muted: boolean;
+  /** Mic-level-inferred candidate speech (false when levels are unavailable). */
+  userSpeaking: boolean;
+  /** Quantized 0..1 display level: assistant output while speaking, else mic. */
+  level: number;
+}
+
+/** How often lifted audio levels are sampled/published (throttled + quantized). */
+const LEVEL_PUBLISH_MS = 120;
 
 const QUESTION_MATCH_THRESHOLD = 0.6;
 const QUESTION_SKIP_THRESHOLD = 0.8;
@@ -186,7 +204,7 @@ export default function VoiceInterview({
   /** True while the configured voice flow owns the screen. */
   onActiveChange?: (active: boolean) => void;
   /** Fine-grained call state for the interviewer avatar. */
-  onVoiceStateChange?: (state: { status: VoiceStatus; muted: boolean }) => void;
+  onVoiceStateChange?: (state: VoiceAvatarState) => void;
   /** Called once the post-call report is ready. */
   onComplete?: (report: VoiceReport) => void;
 }) {
@@ -199,8 +217,17 @@ export default function VoiceInterview({
   const [muted, setMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
+  // Optional audio-level enhancement: absent Vapi level events simply leave
+  // these at their defaults, which renders as plain "listening".
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const vapiRef = useRef<VapiLike | null>(null);
+  const assistantLevelRef = useRef(0);
+  const localLevelRef = useRef(0);
+  const speakingTrackerRef = useRef(createUserSpeakingTracker());
+  const statusRef = useRef<VoiceStatus>("connecting");
+  statusRef.current = status;
   const startedRef = useRef(false);
   const initRef = useRef(false);
   const jdTextRef = useRef(jdText);
@@ -226,11 +253,29 @@ export default function VoiceInterview({
 
   useEffect(() => {
     if (!configured) return;
-    onVoiceStateChange?.({ status, muted });
-  }, [configured, status, muted, onVoiceStateChange]);
+    onVoiceStateChange?.({ status, muted, userSpeaking, level });
+  }, [configured, status, muted, userSpeaking, level, onVoiceStateChange]);
+
+  // Throttled level publisher: samples the refs the Vapi listeners write into
+  // and only re-renders when the speaking flag or quantized level moves.
+  useEffect(() => {
+    if (!configured) return;
+    const timer = window.setInterval(() => {
+      const speaking = speakingTrackerRef.current.sample(localLevelRef.current, Date.now());
+      setUserSpeaking((prev) => (prev === speaking ? prev : speaking));
+      const raw =
+        statusRef.current === "speaking" ? assistantLevelRef.current : localLevelRef.current;
+      const next = quantizeLevel(raw);
+      setLevel((prev) => (shouldPublishLevel(prev, next) ? next : prev));
+    }, LEVEL_PUBLISH_MS);
+    return () => window.clearInterval(timer);
+  }, [configured]);
 
   const teardown = useCallback(() => {
     pollCancelRef.current = true;
+    assistantLevelRef.current = 0;
+    localLevelRef.current = 0;
+    speakingTrackerRef.current.reset();
     const vapi = vapiRef.current;
     vapiRef.current = null;
     try {
@@ -393,6 +438,19 @@ export default function VoiceInterview({
         setError("Voice connection error — you can still type your answers below.");
         setStatus("error");
       });
+
+      // Optional avatar enhancement: assistant output + local mic levels.
+      // Registration failures must never block call setup.
+      try {
+        vapi.on("volume-level", (payload) => {
+          assistantLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+        vapi.on("local-volume-level", (payload) => {
+          localLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+      } catch {
+        /* level visualization is optional */
+      }
 
       // Safe UI sync + live transcript, from FINAL transcripts only. Never logs
       // transcript/answer text; never ends the call from transcript content.
