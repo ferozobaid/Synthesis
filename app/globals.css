@@ -6505,6 +6505,27 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   opacity: .55;
 }
 
+/* Idle micro-behavior: an occasional blink while waiting or listening,
+   and narrowed eyes while thinking. */
+@keyframes interviewer-blink {
+  0%, 95.5%, 100% { transform: scaleY(1); }
+  97.5% { transform: scaleY(.08); }
+}
+
+.interviewer-stage[data-mode="ready"] .interviewer-eyes i,
+.interviewer-stage[data-mode="listening"] .interviewer-eyes i {
+  animation: interviewer-blink 6.4s ease-in-out infinite;
+}
+
+.interviewer-stage[data-mode="ready"] .interviewer-eyes i:last-child,
+.interviewer-stage[data-mode="listening"] .interviewer-eyes i:last-child {
+  animation-delay: .06s;
+}
+
+.interviewer-stage[data-mode="processing"] .interviewer-eyes i {
+  transform: scaleY(.62);
+}
+
 .interviewer-wave {
   position: absolute;
   right: 13%;
@@ -6769,7 +6790,8 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
   }
 
   .interviewer-wave span,
-  .interviewer-screen__label i {
+  .interviewer-screen__label i,
+  .interviewer-eyes i {
     animation: none;
   }
 

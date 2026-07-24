@@ -47,17 +47,32 @@ export function useRevealOnScroll<T extends HTMLElement>(): {
     if (rect.top < window.innerHeight && rect.bottom > 0) return;
 
     setRevealed(false);
+    let done = false;
+    const reveal = () => {
+      if (done) return;
+      done = true;
+      setRevealed(true);
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setRevealed(true);
-          observer.disconnect();
-        }
+        if (entries.some((entry) => entry.isIntersecting)) reveal();
       },
       { rootMargin: "0px 0px -10% 0px" },
     );
+    // Belt-and-braces: a passive scroll check guarantees the reveal even if
+    // the observer misbehaves — content must never stay hidden.
+    const onScroll = () => {
+      const r = element.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) reveal();
+    };
     observer.observe(element);
-    return () => observer.disconnect();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return { ref, revealed };
