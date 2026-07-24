@@ -20,11 +20,19 @@ import CaseNativeVoiceInterview, {
   writePendingNativeCaseReport,
   type PendingNativeCaseReport,
 } from "@/components/CaseNativeVoiceInterview";
+import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
+import {
+  createUserSpeakingTracker,
+  mapCaseVoiceToAvatarMode,
+  quantizeLevel,
+  shouldPublishLevel,
+} from "@/components/interviewer/avatarState";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_CASE_ASSISTANT_ID;
 
 const POLL_INTERVAL_MS = 1_000;
+const LEVEL_PUBLISH_MS = 120;
 const ENDED_POLL_GRACE_MS = 120_000;
 const PROJECTION_404_GRACE_MS = 3_000;
 const TRANSCRIPT_CAP = 200;
@@ -659,8 +667,15 @@ export default function CaseVoiceInterview({
   const [nativeLiveProgress, setNativeLiveProgress] = useState(
     initialNativeCaseLiveProgress,
   );
+  // Optional avatar audio-level enhancement; absent Vapi level events leave
+  // these at their defaults, which renders as plain "listening".
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const vapiRef = useRef<VapiLike | null>(null);
+  const assistantLevelRef = useRef(0);
+  const localLevelRef = useRef(0);
+  const speakingTrackerRef = useRef(createUserSpeakingTracker());
   const nativeLiveCapabilityRef = useRef<PendingNativeCaseReport | null>(null);
   const projectionRef = useRef<CaseVoiceProjection | null>(null);
   const callActiveRef = useRef(false);
@@ -684,6 +699,9 @@ export default function CaseVoiceInterview({
   const teardown = useCallback(() => {
     const vapi = vapiRef.current;
     vapiRef.current = null;
+    assistantLevelRef.current = 0;
+    localLevelRef.current = 0;
+    speakingTrackerRef.current.reset();
     setSdkReady(false);
     try {
       vapi?.removeAllListeners?.();
@@ -921,6 +939,20 @@ export default function CaseVoiceInterview({
         setStatus("error");
         setError("The Vapi connection failed. Start a new voice interview.");
       });
+      // Optional avatar enhancement: assistant output + local mic levels.
+      // Registration failures must never block call setup.
+      try {
+        vapi.on("volume-level", (payload) => {
+          if (attempt !== startAttemptRef.current) return;
+          assistantLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+        vapi.on("local-volume-level", (payload) => {
+          if (attempt !== startAttemptRef.current) return;
+          localLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+      } catch {
+        /* level visualization is optional */
+      }
       vapi.on("message", (message) => {
         if (attempt !== startAttemptRef.current) return;
         const endedReason = caseVoiceEndedReason(message);
@@ -1085,6 +1117,26 @@ export default function CaseVoiceInterview({
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  // Throttled avatar level publisher: samples the refs the Vapi level
+  // listeners write into and only re-renders when the speaking flag or
+  // quantized level actually moves. Runs only while a call is live.
+  useEffect(() => {
+    if (!callActive) {
+      setUserSpeaking(false);
+      setLevel(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const speaking = speakingTrackerRef.current.sample(localLevelRef.current, Date.now());
+      setUserSpeaking((prev) => (prev === speaking ? prev : speaking));
+      const raw =
+        statusRef.current === "speaking" ? assistantLevelRef.current : localLevelRef.current;
+      const next = quantizeLevel(raw);
+      setLevel((prev) => (shouldPublishLevel(prev, next) ? next : prev));
+    }, LEVEL_PUBLISH_MS);
+    return () => window.clearInterval(timer);
+  }, [callActive]);
 
   useEffect(() => {
     if (!capability) return;
@@ -1499,8 +1551,22 @@ export default function CaseVoiceInterview({
     );
   }
 
+  const avatarMode = mapCaseVoiceToAvatarMode({
+    status,
+    muted,
+    userSpeaking,
+    conversationStatus: projection?.conversationStatus,
+    liveStatus: projection?.liveStatus,
+  });
+
   return (
     <div className="case-voice-session" style={{ marginTop: 18 }}>
+      <InterviewerAvatar
+        mode={avatarMode}
+        level={level}
+        variant="panel"
+        captionKicker="Case interviewer / The GRID"
+      />
       <div
         className="case-voice-statusbar"
         style={{
