@@ -14,7 +14,7 @@ import {
   type SynthesisCarouselHandle,
 } from "./SynthesisCarousel";
 
-const TRANSITION_MS = 800;
+const TRANSITION_MS = 560;
 
 export function SynthesisHomeExperience() {
   const [model, dispatch] = useReducer(homeExperienceReducer, INITIAL_HOME_EXPERIENCE);
@@ -22,6 +22,8 @@ export function SynthesisHomeExperience() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const carouselRef = useRef<SynthesisCarouselHandle>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement>(null);
+  const heroPanelRef = useRef<HTMLDivElement>(null);
+  const carouselPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -95,18 +97,27 @@ export function SynthesisHomeExperience() {
 
   const returnToHero = useCallback(() => {
     setMenuOpen(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("view") === "how-it-works") {
+      url.searchParams.delete("view");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
     dispatch({ type: "RETURN_TO_HERO" });
   }, []);
 
-  const showHero =
-    model.experience === "hero" ||
-    model.experience === "transitioning-to-carousel" ||
-    model.experience === "transitioning-to-hero";
-  const showCarousel =
-    model.experience === "carousel" ||
-    model.experience === "transitioning-to-carousel" ||
-    model.experience === "transitioning-to-hero";
+  const heroInteractive = model.experience === "hero" && !menuOpen;
   const carouselInteractive = model.experience === "carousel" && !menuOpen;
+
+  useEffect(() => {
+    if (heroPanelRef.current) heroPanelRef.current.inert = !heroInteractive;
+    if (carouselPanelRef.current) {
+      carouselPanelRef.current.inert = !carouselInteractive;
+    }
+  }, [carouselInteractive, heroInteractive]);
 
   return (
     <main
@@ -124,29 +135,31 @@ export function SynthesisHomeExperience() {
         onHowItWorks={() => openCarousel(1)}
       />
 
-      {showHero && (
-        <div className="home-experience__panel home-experience__panel--hero">
-          <SynthesisHero
-            headingRef={heroHeadingRef}
-            onExplore={() => openCarousel(0)}
-            scrubDisabled={menuOpen || model.experience !== "hero"}
-          />
-        </div>
-      )}
+      <div
+        ref={heroPanelRef}
+        className="home-experience__panel home-experience__panel--hero"
+        aria-hidden={!heroInteractive}
+      >
+        <SynthesisHero
+          headingRef={heroHeadingRef}
+          onExplore={() => openCarousel(0)}
+          scrubDisabled={menuOpen || model.experience !== "hero"}
+        />
+      </div>
 
-      {showCarousel && (
-        <div
-          className="home-experience__panel home-experience__panel--carousel"
-          aria-hidden={!carouselInteractive}
-        >
-          <SynthesisCarousel
-            ref={carouselRef}
-            activeSlide={model.activeSlide}
-            interactive={carouselInteractive}
-            onSlideChange={(slide) => dispatch({ type: "SET_SLIDE", slide })}
-          />
-        </div>
-      )}
+      <div
+        ref={carouselPanelRef}
+        className="home-experience__panel home-experience__panel--carousel"
+        aria-hidden={!carouselInteractive}
+      >
+        <SynthesisCarousel
+          ref={carouselRef}
+          activeSlide={model.activeSlide}
+          interactive={carouselInteractive}
+          onSlideChange={(slide) => dispatch({ type: "SET_SLIDE", slide })}
+          onReturnToHero={returnToHero}
+        />
+      </div>
     </main>
   );
 }

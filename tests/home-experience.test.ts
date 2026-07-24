@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   clampSlide,
   dragThreshold,
   hasHorizontalWheelIntent,
+  hasReturnToHeroTouchIntent,
+  hasReturnToHeroWheelIntent,
   homeExperienceReducer,
   INITIAL_HOME_EXPERIENCE,
   INITIAL_WHEEL_GESTURE,
@@ -68,6 +71,20 @@ describe("home carousel gesture decisions", () => {
     expect(hasHorizontalWheelIntent(40, 10)).toBe(true);
     expect(hasHorizontalWheelIntent(10, 40)).toBe(false);
     expect(hasHorizontalWheelIntent(12, 10)).toBe(true);
+  });
+
+  it("recognizes an upward trackpad gesture only at the top of a slide", () => {
+    expect(hasReturnToHeroWheelIntent(4, -28, 0)).toBe(true);
+    expect(hasReturnToHeroWheelIntent(4, -28, 18)).toBe(false);
+    expect(hasReturnToHeroWheelIntent(4, 28, 0)).toBe(false);
+    expect(hasReturnToHeroWheelIntent(30, -18, 0)).toBe(false);
+  });
+
+  it("recognizes a touch pull-down return only when the gesture starts at the top", () => {
+    expect(hasReturnToHeroTouchIntent(8, 70, true)).toBe(true);
+    expect(hasReturnToHeroTouchIntent(8, 70, false)).toBe(false);
+    expect(hasReturnToHeroTouchIntent(8, -70, true)).toBe(false);
+    expect(hasReturnToHeroTouchIntent(70, 24, true)).toBe(false);
   });
 
   it("unlocks only from the active slide's own transform transition", () => {
@@ -219,5 +236,35 @@ describe("home carousel gesture decisions", () => {
     expect(beforeFirst.state.totalX).toBe(0);
     expect(afterLast.nextSlide).toBeNull();
     expect(afterLast.state.totalX).toBe(0);
+  });
+});
+
+describe("home carousel interaction styling", () => {
+  it("releases card transforms after entry and restores the nested hover reactions", () => {
+    const styles = readFileSync("app/globals.css", "utf8");
+
+    expect(styles).toMatch(
+      /\.home-carousel__slide\.is-active \.home-module-card\s*\{[^}]*animation:[^;]*backwards;/s,
+    );
+    expect(styles).toContain(
+      ".home-module-card:hover .home-module-card__glyph",
+    );
+    expect(styles).toContain(".home-module-card:hover::after");
+    expect(styles).toContain(".home-module-card:hover > strong");
+  });
+
+  it("uses the quicker slide transition and wires the return gesture to the hero", () => {
+    const styles = readFileSync("app/globals.css", "utf8");
+    const carousel = readFileSync("components/home/SynthesisCarousel.tsx", "utf8");
+    const experience = readFileSync(
+      "components/home/SynthesisHomeExperience.tsx",
+      "utf8",
+    );
+
+    expect(styles).toMatch(
+      /\.home-carousel__slide\s*\{[^}]*transform 460ms cubic-bezier\(\.16, 1, \.3, 1\)/s,
+    );
+    expect(carousel).toContain("returnToHero: onReturnToHero");
+    expect(experience).toContain("onReturnToHero={returnToHero}");
   });
 });

@@ -43,10 +43,37 @@ export function hasHorizontalWheelIntent(deltaX: number, deltaY: number): boolea
   return Math.abs(deltaX) >= 1 && Math.abs(deltaX) >= Math.abs(deltaY) * 0.7;
 }
 
-export const WHEEL_GESTURE_INTENT_THRESHOLD = 10;
-export const WHEEL_GESTURE_THRESHOLD = 52;
-export const WHEEL_GESTURE_REVERSE_THRESHOLD = 28;
-export const WHEEL_GESTURE_QUIET_MS = 180;
+export function hasReturnToHeroWheelIntent(
+  deltaX: number,
+  deltaY: number,
+  scrollTop: number,
+): boolean {
+  return (
+    scrollTop <= 1 &&
+    deltaY < 0 &&
+    Math.abs(deltaY) >= 2 &&
+    Math.abs(deltaY) >= Math.abs(deltaX) * 1.15
+  );
+}
+
+export function hasReturnToHeroTouchIntent(
+  deltaX: number,
+  deltaY: number,
+  startedAtTop: boolean,
+): boolean {
+  return (
+    startedAtTop &&
+    deltaY > 0 &&
+    Math.abs(deltaY) >= Math.abs(deltaX) * 1.15
+  );
+}
+
+export const WHEEL_GESTURE_INTENT_THRESHOLD = 8;
+export const WHEEL_GESTURE_THRESHOLD = 38;
+export const WHEEL_GESTURE_REVERSE_THRESHOLD = 22;
+export const WHEEL_GESTURE_QUIET_MS = 150;
+export const RETURN_TO_HERO_WHEEL_THRESHOLD = 42;
+export const RETURN_TO_HERO_TOUCH_THRESHOLD = 64;
 
 export interface WheelGestureState {
   totalX: number;

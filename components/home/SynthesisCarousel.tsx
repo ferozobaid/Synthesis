@@ -19,7 +19,7 @@ import { ReadinessOverviewSlide } from "./slides/ReadinessOverviewSlide";
 import { HowItWorksSlide } from "./slides/HowItWorksSlide";
 import { ModulesOverviewSlide } from "./slides/ModulesOverviewSlide";
 
-const SLIDE_TRANSITION_MS = 750;
+const SLIDE_TRANSITION_MS = 460;
 
 export interface SynthesisCarouselHandle {
   goTo: (slide: CarouselSlideIndex) => void;
@@ -32,8 +32,12 @@ export const SynthesisCarousel = forwardRef<
     activeSlide: CarouselSlideIndex;
     interactive: boolean;
     onSlideChange: (slide: CarouselSlideIndex) => void;
+    onReturnToHero: () => void;
   }
->(function SynthesisCarousel({ activeSlide, interactive, onSlideChange }, ref) {
+>(function SynthesisCarousel(
+  { activeSlide, interactive, onSlideChange, onReturnToHero },
+  ref,
+) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLElement | null)[]>([]);
@@ -56,7 +60,7 @@ export const SynthesisCarousel = forwardRef<
       lockedRef.current = true;
       setLocked(true);
       onSlideChange(next);
-      unlockTimer.current = window.setTimeout(unlock, SLIDE_TRANSITION_MS + 100);
+      unlockTimer.current = window.setTimeout(unlock, SLIDE_TRANSITION_MS + 80);
     },
     [activeSlide, interactive, onSlideChange, unlock],
   );
@@ -119,6 +123,7 @@ export const SynthesisCarousel = forwardRef<
     interactive,
     locked,
     requestSlide,
+    returnToHero: onReturnToHero,
   });
 
   return (
@@ -182,7 +187,7 @@ export const SynthesisCarousel = forwardRef<
         onGoTo={requestSlide}
       />
       <p className="home-carousel__gesture-hint" aria-hidden="true">
-        Swipe or use arrow keys
+        Swipe sideways · scroll up to return
       </p>
     </section>
   );
