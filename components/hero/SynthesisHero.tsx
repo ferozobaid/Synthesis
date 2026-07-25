@@ -119,6 +119,7 @@ export function SynthesisHero({
       <button
         type="button"
         onClick={onExplore}
+        aria-label="Explore Synthesis"
         className="shero-explore absolute z-20 bottom-6 sm:bottom-8 right-5 sm:right-8 lg:right-10 flex flex-col items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-white/55 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white/80"
       >
         <span className="shero-explore__label">Explore Synthesis</span>

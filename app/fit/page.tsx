@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { useRevealOnScroll } from "@/components/ui/useRevealOnScroll";
 import Link from "next/link";
 import type { EmbeddingBackend, FitReport } from "@/lib/types";
-import { useReadiness } from "@/components/readiness-store";
+import {
+  hasCompleteTarget,
+  useReadiness,
+} from "@/components/readiness-store";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { RequirementCard } from "@/components/ui/RequirementCard";
 import { Spinner, SectionLabel } from "@/components/ui/primitives";
@@ -54,36 +57,40 @@ export default function FitPage() {
   const [phase, setPhase] = useState<Phase>("empty");
   const [data, setData] = useState<FitResponse | null>(null);
   const [resume, setResume] = useState("");
-  const [roleTitle, setRoleTitle] = useState("");
-  const [jd, setJd] = useState("");
 
   // The store hydrates from localStorage after mount; fill inputs from the
   // shared target once it's ready, without clobbering anything typed here.
   useEffect(() => {
     if (!hydrated) return;
     setResume((r) => r || state.target.resumeText);
-    setRoleTitle((title) => title || state.target.role || "");
-    setJd((j) => j || state.target.jdText);
-  }, [hydrated, state.target.resumeText, state.target.role, state.target.jdText]);
+  }, [hydrated, state.target.resumeText]);
 
   const roleName = state.target.role ?? data?.jd.role_title ?? "this role";
-  const hasInputs = resume.trim().length > 0 && jd.trim().length > 0;
+  const targetReady = hasCompleteTarget(state);
+  const hasInputs = targetReady && resume.trim().length > 0;
 
   async function run() {
+    if (!targetReady) return;
+    const committedSource =
+      state.targetSource === "sample" ? "sample" : "personalized";
     setPhase("loading");
     // A direct Fit-page edit can materially change the target. Invalidate
     // existing module scores first, then write back the new Fit result below.
-    commitTarget({
-      ...state.target,
-      role: roleTitle.trim() || state.target.role,
-      resumeText: resume,
-      jdText: jd,
-    });
+    commitTarget(
+      {
+        ...state.target,
+        resumeText: resume,
+      },
+      committedSource,
+    );
     try {
       const res = await fetch("/api/fit/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText: resume, jdText: jd }),
+        body: JSON.stringify({
+          resumeText: resume,
+          jdText: state.target.jdText,
+        }),
       });
       const d: FitResponse = await res.json();
       setData(d);
@@ -122,10 +129,67 @@ export default function FitPage() {
         Your resume measured against what <b style={{ color: "var(--ink-2)", fontWeight: 600 }}>{roleName}</b> actually demands.
       </p>
 
-      {/* EMPTY */}
-      {phase === "empty" && (
+      {phase === "empty" && !hydrated && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="surface-card fit-target-gate"
+        >
+          <Spinner />
+          <p>Loading your target role…</p>
+        </div>
+      )}
+
+      {phase === "empty" && hydrated && !targetReady && (
+        <section
+          className="surface-card fit-target-gate"
+          aria-labelledby="fit-target-gate-title"
+        >
+          <div className="fit-target-gate__icon" aria-hidden="true">◎</div>
+          <div>
+            <SectionLabel style={{ marginBottom: 10 }}>Target role required</SectionLabel>
+            <h2 id="fit-target-gate-title">Set the benchmark before adding your resume.</h2>
+            <p>
+              Your job description defines what the analyzer should measure.
+              Set it once, then return here to upload your resume.
+            </p>
+          </div>
+          <Link href="/onboard" className="app-button app-button--primary">
+            Set my target role →
+          </Link>
+        </section>
+      )}
+
+      {phase === "empty" && hydrated && targetReady && (
         <div style={{ maxWidth: 1040, margin: "20px auto 0" }}>
-          <div className="fit-document-grid" style={{ marginBottom: 18 }}>
+          <section
+            className="fit-target-context"
+            aria-label="Current target role"
+          >
+            <div>
+              <span className="fit-target-context__label">
+                {state.targetSource === "sample"
+                  ? "Sample candidate"
+                  : "Shared target role"}
+              </span>
+              <h2>{state.target.role}</h2>
+              <p>
+                {state.target.company
+                  ? `Preparing for ${state.target.company}`
+                  : "Used across Fit, Behavioural, and The GRID"}
+              </p>
+            </div>
+            <Link href="/onboard" className="app-button app-button--secondary">
+              {state.targetSource === "sample"
+                ? "Use my own role"
+                : "Change role"}
+            </Link>
+          </section>
+
+          <div
+            className="fit-document-grid fit-document-grid--resume-only"
+            style={{ marginBottom: 18 }}
+          >
             <section className="surface-card fit-document-card fit-document-card--resume">
               <div className="fit-document-card__header">
                 <div className="fit-document-card__icon" aria-hidden="true">↥</div>
@@ -146,38 +210,6 @@ export default function FitPage() {
                 initialTextVisible={false}
               />
             </section>
-
-            <section className="surface-card fit-document-card fit-document-card--jd">
-              <div className="fit-document-card__header">
-                <div className="fit-document-card__icon fit-document-card__icon--secondary" aria-hidden="true">⌘</div>
-                <div>
-                  <div className="fit-document-card__eyebrow">Role benchmark</div>
-                  <h2 className="fit-document-card__title">Target job</h2>
-                  <p className="fit-document-card__help">Name the role, then paste the job description. Upload remains available as an optional alternative.</p>
-                </div>
-              </div>
-              <label htmlFor="fit-role-title" className="field-label">Role title</label>
-              <input
-                id="fit-role-title"
-                value={roleTitle}
-                onChange={(event) => setRoleTitle(event.target.value)}
-                placeholder="Role title — e.g. Associate Consultant"
-                aria-label="Target role title"
-                className="form-control fit-role-title-input"
-              />
-              <DocumentInput
-                kind="job description"
-                value={jd}
-                onTextChange={setJd}
-                textareaLabel="Target job description text"
-                placeholder="Paste the full job description here…"
-                height={150}
-              />
-            </section>
-
-            <div className="fit-document-grid__footer">
-              Or <Link href="/onboard" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>set a target role</Link> once and reuse it everywhere.
-            </div>
           </div>
           <div
             className="surface-card fit-ready-panel"

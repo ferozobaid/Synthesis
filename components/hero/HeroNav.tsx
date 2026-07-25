@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { Logo } from "@/components/ui/Logo";
 import { useTheme } from "@/components/theme";
+import {
+  isHowItWorksActive,
+  isNavigationRouteActive,
+} from "./navigationState";
 
 const PRODUCT_LINKS = [
   { label: "Fit", mobileLabel: "Fit Analyzer", href: "/fit" },
@@ -30,7 +35,9 @@ export function HeroNav({
 }) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const firstMenuLinkRef = useRef<HTMLAnchorElement>(null);
+  const pathname = usePathname();
   const { theme, toggle } = useTheme();
+  const howItWorksActive = isHowItWorksActive(pathname, mode);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -62,16 +69,38 @@ export function HeroNav({
             {logo}
           </button>
         ) : (
-          <Link href="/" className="home-navigation__logo" aria-label="Synthesis home">
+          <Link
+            href="/"
+            className="home-navigation__logo"
+            aria-label="Synthesis home"
+            aria-current={pathname === "/" ? "page" : undefined}
+          >
             {logo}
           </Link>
         )}
 
         <div className="home-navigation__links">
-          {PRODUCT_LINKS.map((link) => (
-            <Link key={link.label} href={link.href}>{link.label}</Link>
-          ))}
-          <button type="button" onClick={onHowItWorks}>How it works</button>
+          {PRODUCT_LINKS.map((link) => {
+            const active = isNavigationRouteActive(pathname, link.href);
+            return (
+              <Link
+                key={link.label}
+                href={link.href}
+                aria-current={active ? "page" : undefined}
+                data-active={active ? "true" : undefined}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+          <button
+            type="button"
+            onClick={onHowItWorks}
+            aria-pressed={howItWorksActive}
+            data-active={howItWorksActive ? "true" : undefined}
+          >
+            How it works
+          </button>
         </div>
 
         <div className="home-navigation__actions">
@@ -88,11 +117,30 @@ export function HeroNav({
             </span>
           </button>
           {showDashboard && (
-            <Link href="/dashboard" className="home-navigation__dashboard">
+            <Link
+              href="/dashboard"
+              className="home-navigation__dashboard"
+              aria-current={
+                isNavigationRouteActive(pathname, "/dashboard")
+                  ? "page"
+                  : undefined
+              }
+              data-active={
+                isNavigationRouteActive(pathname, "/dashboard")
+                  ? "true"
+                  : undefined
+              }
+            >
               Dashboard
             </Link>
           )}
-          <Link href="/onboard" className="home-navigation__enter">
+          <Link
+            href="/onboard"
+            className="home-navigation__enter"
+            aria-current={
+              isNavigationRouteActive(pathname, "/onboard") ? "page" : undefined
+            }
+          >
             Enter Synthesis
           </Link>
         </div>
@@ -116,17 +164,22 @@ export function HeroNav({
         aria-hidden={!menuOpen}
       >
         <nav aria-label="Synthesis mobile">
-          {PRODUCT_LINKS.map((link, index) => (
-            <Link
-              key={link.label}
-              ref={index === 0 ? firstMenuLinkRef : undefined}
-              href={link.href}
-              onClick={onCloseMenu}
-              tabIndex={menuOpen ? 0 : -1}
-            >
-              {link.mobileLabel}
-            </Link>
-          ))}
+          {PRODUCT_LINKS.map((link, index) => {
+            const active = isNavigationRouteActive(pathname, link.href);
+            return (
+              <Link
+                key={link.label}
+                ref={index === 0 ? firstMenuLinkRef : undefined}
+                href={link.href}
+                onClick={onCloseMenu}
+                tabIndex={menuOpen ? 0 : -1}
+                aria-current={active ? "page" : undefined}
+                data-active={active ? "true" : undefined}
+              >
+                {link.mobileLabel}
+              </Link>
+            );
+          })}
           <button
             type="button"
             onClick={() => {
@@ -134,15 +187,38 @@ export function HeroNav({
               onHowItWorks();
             }}
             tabIndex={menuOpen ? 0 : -1}
+            aria-pressed={howItWorksActive}
+            data-active={howItWorksActive ? "true" : undefined}
           >
             How Synthesis works
           </button>
           {showDashboard && (
-            <Link href="/dashboard" onClick={onCloseMenu} tabIndex={menuOpen ? 0 : -1}>
+            <Link
+              href="/dashboard"
+              onClick={onCloseMenu}
+              tabIndex={menuOpen ? 0 : -1}
+              aria-current={
+                isNavigationRouteActive(pathname, "/dashboard")
+                  ? "page"
+                  : undefined
+              }
+              data-active={
+                isNavigationRouteActive(pathname, "/dashboard")
+                  ? "true"
+                  : undefined
+              }
+            >
               Dashboard
             </Link>
           )}
-          <Link href="/onboard" onClick={onCloseMenu} tabIndex={menuOpen ? 0 : -1}>
+          <Link
+            href="/onboard"
+            onClick={onCloseMenu}
+            tabIndex={menuOpen ? 0 : -1}
+            aria-current={
+              isNavigationRouteActive(pathname, "/onboard") ? "page" : undefined
+            }
+          >
             Enter Synthesis
           </Link>
         </nav>

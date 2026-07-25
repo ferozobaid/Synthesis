@@ -42,6 +42,11 @@ export default function Dashboard() {
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 10 }}>
             Readiness for
           </div>
+          {state.targetSource === "sample" && (
+            <div className="dashboard-sample-badge">
+              Sample readiness plan
+            </div>
+          )}
           <h1 className="page-title dashboard-role-title">
             {role}
           </h1>
@@ -56,7 +61,7 @@ export default function Dashboard() {
           className="app-button app-button--secondary"
           style={{ minHeight: 38, padding: "8px 14px" }}
         >
-          Change role
+          {state.targetSource === "sample" ? "Use my own role" : "Change role"}
         </Link>
       </div>
 

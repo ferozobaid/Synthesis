@@ -2,17 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
+import { findHorizontalScrollRegion } from "@/components/ui/productGestureGuard";
 import {
   clampSlide,
   dragThreshold,
   hasReturnToHeroTouchIntent,
-  hasReturnToHeroWheelIntent,
-  INITIAL_WHEEL_GESTURE,
-  reduceWheelGesture,
   RETURN_TO_HERO_TOUCH_THRESHOLD,
-  RETURN_TO_HERO_WHEEL_THRESHOLD,
-  WHEEL_GESTURE_QUIET_MS,
-  type WheelGestureState,
   type CarouselSlideIndex,
 } from "./homeExperienceState";
 
@@ -42,10 +37,6 @@ export function useCarouselGestures({
     horizontal: boolean;
   } | null>(null);
   const suppressClickUntil = useRef(0);
-  const wheelState = useRef<WheelGestureState>(INITIAL_WHEEL_GESTURE);
-  const wheelQuietTimer = useRef<number | null>(null);
-  const returnWheelTotal = useRef(0);
-  const returnWheelLastAt = useRef(0);
   const touchReturn = useRef<{
     startX: number;
     startY: number;
@@ -54,11 +45,9 @@ export function useCarouselGestures({
   } | null>(null);
   const activeSlideRef = useRef(activeSlide);
   const lockedRef = useRef(locked);
-  const requestSlideRef = useRef(requestSlide);
   const returnToHeroRef = useRef(returnToHero);
   activeSlideRef.current = activeSlide;
   lockedRef.current = locked;
-  requestSlideRef.current = requestSlide;
   returnToHeroRef.current = returnToHero;
 
   const setDragOffset = (offset: number) => {
@@ -86,6 +75,7 @@ export function useCarouselGestures({
     ) {
       return;
     }
+    if (findHorizontalScrollRegion(event.target, event.currentTarget)) return;
     pointer.current = {
       id: event.pointerId,
       startX: event.clientX,
@@ -139,76 +129,17 @@ export function useCarouselGestures({
     const node = viewportRef.current;
     if (!node || !interactive) return;
 
-    const onWheel = (event: WheelEvent) => {
-      const now = performance.now();
-      const activeScroll = node.querySelector<HTMLElement>(
-        ".home-carousel__slide.is-active .home-carousel__slide-scroll",
-      );
-      if (
-        !lockedRef.current &&
-        hasReturnToHeroWheelIntent(
-          event.deltaX,
-          event.deltaY,
-          activeScroll?.scrollTop ?? 0,
-        )
-      ) {
-        event.preventDefault();
-        if (now - returnWheelLastAt.current >= WHEEL_GESTURE_QUIET_MS) {
-          returnWheelTotal.current = 0;
-        }
-        returnWheelLastAt.current = now;
-        returnWheelTotal.current += event.deltaY;
-        if (wheelQuietTimer.current != null) window.clearTimeout(wheelQuietTimer.current);
-        wheelQuietTimer.current = window.setTimeout(() => {
-          wheelState.current = INITIAL_WHEEL_GESTURE;
-          returnWheelTotal.current = 0;
-        }, WHEEL_GESTURE_QUIET_MS);
-        if (returnWheelTotal.current <= -RETURN_TO_HERO_WHEEL_THRESHOLD) {
-          returnWheelTotal.current = 0;
-          returnToHeroRef.current();
-        }
-        return;
-      }
-      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-        returnWheelTotal.current = 0;
-      }
-      const decision = reduceWheelGesture(wheelState.current, {
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        now,
-        activeSlide: activeSlideRef.current,
-        locked: lockedRef.current,
-      });
-      wheelState.current = decision.state;
-      if (!decision.preventDefault) return;
-      event.preventDefault();
-      if (wheelQuietTimer.current != null) window.clearTimeout(wheelQuietTimer.current);
-      wheelQuietTimer.current = window.setTimeout(() => {
-        wheelState.current = INITIAL_WHEEL_GESTURE;
-      }, WHEEL_GESTURE_QUIET_MS);
-      if (decision.nextSlide != null) requestSlideRef.current(decision.nextSlide);
-    };
-
-    node.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      node.removeEventListener("wheel", onWheel);
-      if (wheelQuietTimer.current != null) window.clearTimeout(wheelQuietTimer.current);
-      wheelState.current = INITIAL_WHEEL_GESTURE;
-      returnWheelTotal.current = 0;
-    };
-  }, [interactive, viewportRef]);
-
-  useEffect(() => {
-    const node = viewportRef.current;
-    if (!node || !interactive) return;
-
     const activeScrollTop = () =>
       node.querySelector<HTMLElement>(
         ".home-carousel__slide.is-active .home-carousel__slide-scroll",
       )?.scrollTop ?? 0;
 
     const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1 || lockedRef.current) {
+      if (
+        event.touches.length !== 1 ||
+        lockedRef.current ||
+        activeSlideRef.current !== 0
+      ) {
         touchReturn.current = null;
         return;
       }
@@ -268,18 +199,6 @@ export function useCarouselGestures({
     setDragOffset(0);
     viewportRef.current?.removeAttribute("data-dragging");
   }, [interactive, locked, viewportRef]);
-
-  useEffect(() => {
-    // Never carry partial accumulation through a slide transition. The
-    // consumed flag remains until the stream goes quiet to suppress momentum.
-    wheelState.current = {
-      ...wheelState.current,
-      totalX: 0,
-      totalY: 0,
-      oppositeTotal: 0,
-    };
-    returnWheelTotal.current = 0;
-  }, [activeSlide, locked]);
 
   return {
     onPointerDown,

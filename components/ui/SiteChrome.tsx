@@ -25,12 +25,16 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
     const shell = shellRef.current;
     if (hideNav || !shell) return;
     const preventRouteSwipe = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
       if (!isDominantHorizontalGesture(event.deltaX, event.deltaY)) return;
       if (elementCanConsumeHorizontalDelta(event.target, shell, event.deltaX)) return;
       event.preventDefault();
     };
-    shell.addEventListener("wheel", preventRouteSwipe, { passive: false });
-    return () => shell.removeEventListener("wheel", preventRouteSwipe);
+    shell.addEventListener("wheel", preventRouteSwipe, {
+      passive: false,
+      capture: true,
+    });
+    return () => shell.removeEventListener("wheel", preventRouteSwipe, true);
   }, [hideNav]);
 
   if (hideNav) return <>{children}</>;

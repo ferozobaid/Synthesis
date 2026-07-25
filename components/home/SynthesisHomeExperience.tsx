@@ -6,35 +6,43 @@ import { SynthesisHero } from "@/components/hero/SynthesisHero";
 import {
   homeExperienceReducer,
   INITIAL_HOME_EXPERIENCE,
+  isHowItWorksLocation,
   isTransitioning,
+  removeHowItWorksLocation,
   type CarouselSlideIndex,
 } from "./homeExperienceState";
 import {
   SynthesisCarousel,
   type SynthesisCarouselHandle,
 } from "./SynthesisCarousel";
+import { useHomeExperienceGestures } from "./useHomeExperienceGestures";
 
 const TRANSITION_MS = 560;
+const SLIDE_TRANSITION_MS = 460;
 
 export function SynthesisHomeExperience() {
   const [model, dispatch] = useReducer(homeExperienceReducer, INITIAL_HOME_EXPERIENCE);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
   const carouselRef = useRef<SynthesisCarouselHandle>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement>(null);
+  const experienceRef = useRef<HTMLElement>(null);
   const heroPanelRef = useRef<HTMLDivElement>(null);
   const carouselPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReducedMotion(query.matches);
+    const update = () =>
+      dispatch({
+        type: "SET_REDUCED_MOTION",
+        reducedMotion: query.matches,
+      });
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("view") === "how-it-works") {
+    if (isHowItWorksLocation(window.location.search, window.location.hash)) {
       dispatch({ type: "OPEN_CAROUSEL", slide: 1 });
     }
   }, []);
@@ -69,11 +77,20 @@ export function SynthesisHomeExperience() {
   useEffect(() => {
     if (!isTransitioning(model.experience)) return;
     const timeout = window.setTimeout(
-      () => dispatch({ type: "FINISH_TRANSITION" }),
-      reducedMotion ? 30 : TRANSITION_MS,
+      () => dispatch({ type: "FINISH_EXPERIENCE_TRANSITION" }),
+      model.reducedMotion ? 30 : TRANSITION_MS,
     );
     return () => window.clearTimeout(timeout);
-  }, [model.experience, reducedMotion]);
+  }, [model.experience, model.reducedMotion]);
+
+  useEffect(() => {
+    if (model.transitionLock !== "slide") return;
+    const timeout = window.setTimeout(
+      () => dispatch({ type: "FINISH_SLIDE_TRANSITION" }),
+      model.reducedMotion ? 30 : SLIDE_TRANSITION_MS + 80,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [model.reducedMotion, model.transitionLock]);
 
   useEffect(() => {
     if (model.experience === "carousel") {
@@ -95,19 +112,39 @@ export function SynthesisHomeExperience() {
     [model.experience],
   );
 
+  const requestSlide = useCallback((slide: CarouselSlideIndex) => {
+    dispatch({ type: "SET_SLIDE", slide });
+  }, []);
+
   const returnToHero = useCallback(() => {
     setMenuOpen(false);
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("view") === "how-it-works") {
-      url.searchParams.delete("view");
+    const nextLocation = removeHowItWorksLocation(
+      window.location.pathname,
+      window.location.search,
+      window.location.hash,
+    );
+    const currentLocation =
+      window.location.pathname + window.location.search + window.location.hash;
+    if (nextLocation !== currentLocation) {
       window.history.replaceState(
         window.history.state,
         "",
-        `${url.pathname}${url.search}${url.hash}`,
+        nextLocation,
       );
     }
     dispatch({ type: "RETURN_TO_HERO" });
   }, []);
+
+  useHomeExperienceGestures({
+    rootRef: experienceRef,
+    experience: model.experience,
+    activeSlide: model.activeSlide,
+    transitionLocked: model.transitionLock !== null,
+    reducedMotion: model.reducedMotion,
+    openCarousel: () => openCarousel(0),
+    requestSlide,
+    returnToHero,
+  });
 
   const heroInteractive = model.experience === "hero" && !menuOpen;
   const carouselInteractive = model.experience === "carousel" && !menuOpen;
@@ -121,8 +158,9 @@ export function SynthesisHomeExperience() {
 
   return (
     <main
+      ref={experienceRef}
       className={`home-experience home-experience--${model.experience}${
-        reducedMotion ? " home-experience--reduced-motion" : ""
+        model.reducedMotion ? " home-experience--reduced-motion" : ""
       }`}
       data-experience={model.experience}
     >
@@ -131,7 +169,7 @@ export function SynthesisHomeExperience() {
         menuOpen={menuOpen}
         onToggleMenu={() => setMenuOpen((open) => !open)}
         onCloseMenu={() => setMenuOpen(false)}
-        onLogo={model.experience === "carousel" ? returnToHero : undefined}
+        onLogo={model.experience === "hero" ? undefined : returnToHero}
         onHowItWorks={() => openCarousel(1)}
       />
 
@@ -156,7 +194,11 @@ export function SynthesisHomeExperience() {
           ref={carouselRef}
           activeSlide={model.activeSlide}
           interactive={carouselInteractive}
-          onSlideChange={(slide) => dispatch({ type: "SET_SLIDE", slide })}
+          locked={model.transitionLock === "slide"}
+          onSlideChange={requestSlide}
+          onSlideTransitionEnd={() =>
+            dispatch({ type: "FINISH_SLIDE_TRANSITION" })
+          }
           onReturnToHero={returnToHero}
         />
       </div>
