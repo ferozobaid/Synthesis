@@ -144,6 +144,9 @@ export interface BehaviouralQuestion {
   dynamic: boolean;
   source?: string;
   fallback_company?: string;
+  /** Marks a question that is only asked when its context is present and non-redundant
+   *  (e.g. "industry" → dropped at generation time when no distinct industry is known). */
+  conditional?: string;
 }
 
 export interface BehaviouralScore {

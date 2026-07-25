@@ -73,6 +73,8 @@ describe("buildBehaviouralQualitativeReport", () => {
     expect(report.fallback_reason).toBe("mock_mode");
     expect(report.anthropic_error_status).toBeNull();
     expect(report.anthropic_error_type).toBeNull();
+    // (8) no model call → no measurable latency.
+    expect(report.qualitative_latency_ms).toBeNull();
   });
 
   it("records missing-key fallback without attempting the qualitative Claude call", async () => {
@@ -89,6 +91,7 @@ describe("buildBehaviouralQualitativeReport", () => {
     expect(report.qualitative_attempted).toBe(false);
     expect(report.qualitative_backend).toBe("deterministic_fallback");
     expect(report.fallback_reason).toBe("missing_key");
+    expect(report.qualitative_latency_ms).toBeNull();
   });
 
   it("falls back deterministically when the structured-output response is invalid JSON", async () => {
@@ -108,6 +111,8 @@ describe("buildBehaviouralQualitativeReport", () => {
     expect(report.fallback_reason).toBe("invalid_json");
     expect(report.anthropic_error_status).toBeNull();
     expect(report.anthropic_error_type).toBeNull();
+    // (9/where-measurable) latency populated after a returned-but-unparseable response.
+    expect(typeof report.qualitative_latency_ms).toBe("number");
     expect(report.answers[0].question_type).toBe("motivation_role_fit");
     expect(report.answers[0].assessment_confidence).toMatch(/high|medium|low/);
     expect(report.answers[0].candidate_excerpt).toContain("data analyst role");
@@ -136,12 +141,38 @@ describe("buildBehaviouralQualitativeReport", () => {
     expect(report.fallback_reason).toBe("api_error");
     expect(report.anthropic_error_status).toBe(429);
     expect(report.anthropic_error_type).toBe("rate_limit_error");
+    expect(typeof report.qualitative_latency_ms).toBe("number");
     expect(JSON.stringify(report)).not.toContain("sensitive provider response body");
   });
 
-  it("records timeout when the qualitative Claude call does not return in time", async () => {
+  it("does not time out before the 90s deadline (18s no longer trips the fallback)", async () => {
     vi.useFakeTimers();
     completeMock.mockReturnValue(new Promise(() => {}));
+    try {
+      const pending = buildBehaviouralQualitativeReport({
+        mapping: mapping("I am interested in the data analyst role because I enjoy using data to solve business problems."),
+        scores: { why_this_role: score },
+        dimensionAverages: [{ dimension: "Impact", average: 2 }],
+        totalQuestions: 1,
+      });
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      // The old 18s cap must no longer fire; the request is still in flight at 60s.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      const signal = completeMock.mock.calls[0]?.[1]?.signal as AbortSignal;
+      expect(signal.aborted).toBe(false);
+      // Drain the real deadline so the pending promise settles before the test ends.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records timeout, cancels the underlying request, and reports latency at the 90s deadline", async () => {
+    vi.useFakeTimers();
+    completeMock.mockReturnValue(new Promise(() => {})); // never resolves
 
     try {
       const pending = buildBehaviouralQualitativeReport({
@@ -150,15 +181,29 @@ describe("buildBehaviouralQualitativeReport", () => {
         dimensionAverages: [{ dimension: "Impact", average: 2 }],
         totalQuestions: 1,
       });
-      await vi.advanceTimersByTimeAsync(18_000);
+      await vi.advanceTimersByTimeAsync(90_000);
       const report = await pending;
 
       expect(completeMock).toHaveBeenCalledTimes(1);
+      // (4) the model request received the intended bounded timeout + (5) retries disabled.
+      const opts = completeMock.mock.calls[0]?.[1] as {
+        timeoutMs?: number; maxRetries?: number; signal?: AbortSignal; maxTokens?: number;
+      };
+      expect(opts.timeoutMs).toBe(90_000);
+      expect(opts.maxRetries).toBe(0);
+      expect(opts.maxTokens).toBe(6000); // output-token limit unchanged
+      // (3) the underlying request is cancelled/terminated on timeout.
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+      expect(opts.signal?.aborted).toBe(true);
+
       expect(report.qualitative_attempted).toBe(true);
       expect(report.qualitative_backend).toBe("deterministic_fallback");
       expect(report.fallback_reason).toBe("timeout");
       expect(report.anthropic_error_status).toBeNull();
       expect(report.anthropic_error_type).toBeNull();
+      // (7) latency populated on timeout.
+      expect(typeof report.qualitative_latency_ms).toBe("number");
+      expect(report.qualitative_latency_ms).toBeGreaterThanOrEqual(90_000);
     } finally {
       vi.useRealTimers();
     }
@@ -178,6 +223,7 @@ describe("buildBehaviouralQualitativeReport", () => {
     expect(report.qualitative_attempted).toBe(true);
     expect(report.qualitative_backend).toBe("deterministic_fallback");
     expect(report.fallback_reason).toBe("schema_validation");
+    expect(typeof report.qualitative_latency_ms).toBe("number");
   });
 
   it("keeps excerpts and question types server-owned and strips STAR criticism from fit questions", async () => {
@@ -214,12 +260,22 @@ describe("buildBehaviouralQualitativeReport", () => {
     const answer = report.answers[0];
 
     expect(completeMock).toHaveBeenCalledTimes(1);
-    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({ model: "claude-haiku-4-5" });
+    // (1) within-deadline completion uses the Claude backend; (4/5) bounded opts.
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      model: "claude-haiku-4-5",
+      timeoutMs: 90_000,
+      maxRetries: 0,
+      maxTokens: 6000,
+    });
+    expect(completeMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(report.qualitative_attempted).toBe(true);
     expect(report.qualitative_backend).toBe("haiku");
     expect(report.fallback_reason).toBeNull();
     expect(report.anthropic_error_status).toBeNull();
     expect(report.anthropic_error_type).toBeNull();
+    // (6) latency populated on success.
+    expect(typeof report.qualitative_latency_ms).toBe("number");
+    expect(report.qualitative_latency_ms).toBeGreaterThanOrEqual(0);
     expect(answer.question_type).toBe("motivation_role_fit");
     expect(answer.candidate_excerpt).not.toBe("Invented model excerpt.");
     expect(answer.candidate_excerpt).toContain("interested in this role");

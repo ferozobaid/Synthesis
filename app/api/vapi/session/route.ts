@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
       questionBank: MOCK_QUESTIONS,
       jdText,
       userId: MOCK_USER_ID,
+      // Explicit target (readiness store / onboarding) grounds role-aware motivation
+      // wording even when no JD is pasted; falls back to the parsed JD inside startBehavioural.
+      targetRole,
+      targetCompany: companyName,
     });
 
     const now = new Date().toISOString();

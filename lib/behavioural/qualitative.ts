@@ -66,6 +66,9 @@ export interface BehaviouralQualitativeReport {
   fallback_reason: QualitativeFallbackReason | null;
   anthropic_error_status: number | null;
   anthropic_error_type: string | null;
+  /** Wall-clock ms spent on the qualitative model attempt (request + parse/validate).
+   *  null when no model call was measurable (mock mode, missing key, no answers). */
+  qualitative_latency_ms: number | null;
   partial_warning: string | null;
   overall_patterns: string[];
   top_three_priorities: string[];
@@ -109,12 +112,14 @@ interface QualitativeObservability {
   fallback_reason: QualitativeFallbackReason | null;
   anthropic_error_status: number | null;
   anthropic_error_type: string | null;
+  qualitative_latency_ms: number | null;
 }
 
 class QualitativeFallbackError extends Error {
   reason: QualitativeFallbackReason;
   anthropic_error_status: number | null;
   anthropic_error_type: string | null;
+  latency_ms: number | null;
 
   constructor(
     reason: QualitativeFallbackReason,
@@ -122,18 +127,26 @@ class QualitativeFallbackError extends Error {
       anthropic_error_status: null,
       anthropic_error_type: null,
     },
+    latency_ms: number | null = null,
   ) {
     super(reason);
     this.reason = reason;
     this.anthropic_error_status = anthropic.anthropic_error_status;
     this.anthropic_error_type = anthropic.anthropic_error_type;
+    this.latency_ms = latency_ms;
   }
 }
 
 const EXCERPT_MAX_CHARS = 220;
 const MODEL_ANSWER_MAX_CHARS = 1200;
 const MODEL_TOTAL_ANSWER_CHARS = 18_000;
-const QUALITATIVE_TIMEOUT_MS = 18_000;
+/** Single authoritative deadline for the qualitative model attempt. Bounded well
+ *  under the 300s Vercel route budget (numeric scoring runs before this), and long
+ *  enough for a full 13–14 question report that the prior 18s cap cut short. */
+const QUALITATIVE_TIMEOUT_MS = 90_000;
+/** No SDK retries: the deterministic fallback is the retry-safe path, and stacked
+ *  90s attempts would approach the 300s route limit. */
+const QUALITATIVE_MAX_RETRIES = 0;
 const QUALITATIVE_MODEL = MODEL_IDS.default;
 
 const STAR_LABEL: Record<StarElement, string> = {
@@ -183,6 +196,7 @@ function observability(
     anthropic_error_status: null,
     anthropic_error_type: null,
   },
+  latency_ms: number | null = null,
 ): QualitativeObservability {
   return {
     qualitative_attempted: attempted,
@@ -191,6 +205,7 @@ function observability(
     fallback_reason,
     anthropic_error_status: anthropic.anthropic_error_status,
     anthropic_error_type: anthropic.anthropic_error_type,
+    qualitative_latency_ms: latency_ms,
   };
 }
 
@@ -222,10 +237,15 @@ function anthropicErrorDetails(error: unknown): Pick<QualitativeObservability, "
   };
 }
 
-function fallbackError(reason: QualitativeFallbackReason, error?: unknown): QualitativeFallbackError {
+function fallbackError(
+  reason: QualitativeFallbackReason,
+  error?: unknown,
+  latencyMs: number | null = null,
+): QualitativeFallbackError {
   return new QualitativeFallbackError(
     reason,
     reason === "api_error" ? anthropicErrorDetails(error) : undefined,
+    latencyMs,
   );
 }
 
@@ -243,6 +263,7 @@ function recordQualitativeObservability(obs: QualitativeObservability): void {
     fallback_reason: obs.fallback_reason,
     anthropic_error_status: obs.anthropic_error_status,
     anthropic_error_type: obs.anthropic_error_type,
+    qualitative_latency_ms: obs.qualitative_latency_ms,
   };
   console.info("[synthesis qualitative]", JSON.stringify(safe));
 }
@@ -289,8 +310,8 @@ function expectedQuestionCues(question: string, questionType: BehaviouralQualita
   }
   if (questionType === "motivation_role_fit") {
     return {
-      label: q.includes("consulting") ? "interest in consulting" : "interest in the role",
-      patterns: [/\brole\b/i, /\bconsult/i, /\banalyst\b/i, /\bdata\b/i, /\bskill/i, /\bcareer\b/i, /\binterested\b/i, /\bclient\b/i, /\bproblem/i],
+      label: "interest in the role or field",
+      patterns: [/\brole\b/i, /\bconsult/i, /\banalyst\b/i, /\bdata\b/i, /\bengineer/i, /\bproduct\b/i, /\bindustry\b/i, /\bfield\b/i, /\bskill/i, /\bcareer\b/i, /\binterested\b/i, /\bclient\b/i, /\bproblem/i],
     };
   }
   if (questionType === "company_fit") {
@@ -430,7 +451,7 @@ function missingElements(
     if (!/\b(data|analyst|project|experience|skill|business|technical)\b/i.test(answer)) gaps.push("A clearer link between your background and the target role.");
     if (!/\b(next|looking|interested|goal|career|target)\b/i.test(answer)) gaps.push("A concise statement of what direction you are targeting next.");
   } else if (questionType === "motivation_role_fit") {
-    if (!/\b(role|consulting|analyst|data|client|problem|career|skill)\b/i.test(answer)) gaps.push("Role-specific reasons for your interest.");
+    if (!/\b(role|consulting|analyst|analytics|data|engineer|product|design|business|industry|field|client|problem|career|skill)\b/i.test(answer)) gaps.push("Role-specific reasons for your interest.");
     if (!/\b(my|i)\b/i.test(answer) || !/\b(skill|experience|project|background|strength)\b/i.test(answer)) gaps.push("A credible link between your skills or experience and the role.");
     if (f.words < 25) gaps.push("More detail showing authentic motivation rather than a generic preference.");
   } else if (questionType === "company_fit") {
@@ -754,9 +775,22 @@ function coerceModelReport(
   }, observability("haiku", null, true));
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/**
+ * Single authoritative deadline. When it fires it runs `onDeadline` (which aborts
+ * the underlying request so it cannot keep running after the fallback) and then
+ * rejects with `qualitative_timeout` so the existing `fallback_reason: "timeout"`
+ * contract is preserved even if the aborted request never settles promptly.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, onDeadline?: () => void): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("qualitative_timeout")), ms);
+    const timer = setTimeout(() => {
+      try {
+        onDeadline?.();
+      } catch {
+        /* best-effort cancellation */
+      }
+      reject(new Error("qualitative_timeout"));
+    }, ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -768,6 +802,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
+}
+
+/** True for the abort/timeout the deadline induces, so it maps to `"timeout"`. */
+function isAbortOrTimeoutError(error: unknown, controller: AbortController): boolean {
+  if (controller.signal.aborted) return true;
+  const name = (error as { name?: unknown } | null)?.name;
+  return typeof name === "string" && /abort|timeout/i.test(name);
 }
 
 function modelInputs(baseAnswers: BaseAnswerInput[]) {
@@ -852,6 +893,14 @@ async function modelQualitativeReport(
   const system =
     "You are an interview coach generating qualitative feedback after a completed voice interview. " +
     "Be concrete and evidence-grounded. Use only observable language and effort. Return valid JSON only.";
+
+  // One shared deadline: the timer aborts the request (cancellation) AND rejects the
+  // outer guard (preserves the "timeout" reason). maxRetries: 0 keeps the worst case a
+  // single ~90s attempt, well within the 300s route budget.
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+
   let text: string;
   try {
     text = await withTimeout(
@@ -860,24 +909,38 @@ async function modelQualitativeReport(
         temperature: 0,
         maxTokens: 6000,
         model: QUALITATIVE_MODEL,
+        signal: controller.signal,
+        timeoutMs: QUALITATIVE_TIMEOUT_MS,
+        maxRetries: QUALITATIVE_MAX_RETRIES,
       }),
       QUALITATIVE_TIMEOUT_MS,
+      () => controller.abort(),
     );
   } catch (error) {
-    if (error instanceof Error && error.message === "qualitative_timeout") {
-      throw fallbackError("timeout");
-    }
-    throw fallbackError("api_error", error);
+    const isTimeout =
+      (error instanceof Error && error.message === "qualitative_timeout") ||
+      isAbortOrTimeoutError(error, controller);
+    if (isTimeout) throw fallbackError("timeout", undefined, elapsed());
+    throw fallbackError("api_error", error, elapsed());
   }
 
   let parsed: unknown;
   try {
     parsed = extractJSON(text);
   } catch {
-    throw fallbackError("invalid_json");
+    throw fallbackError("invalid_json", undefined, elapsed());
   }
 
-  return coerceModelReport(parsed, baseAnswers, fallback, dimensionAverages, totalQuestions);
+  try {
+    const report = coerceModelReport(parsed, baseAnswers, fallback, dimensionAverages, totalQuestions);
+    return { ...report, qualitative_latency_ms: elapsed() };
+  } catch (error) {
+    // coerceModelReport throws only schema_validation; re-attach measured latency.
+    if (error instanceof QualitativeFallbackError) {
+      throw fallbackError(error.reason, undefined, elapsed());
+    }
+    throw error;
+  }
 }
 
 function buildBaseAnswers(mapping: TranscriptMapping, scores: Record<string, BehaviouralScore>): BaseAnswerInput[] {
@@ -937,7 +1000,7 @@ export async function buildBehaviouralQualitativeReport(opts: {
       observability("deterministic_fallback", classified.reason, true, {
         anthropic_error_status: classified.anthropic_error_status,
         anthropic_error_type: classified.anthropic_error_type,
-      }),
+      }, classified.latency_ms),
     );
     recordQualitativeObservability(report);
     return report;
