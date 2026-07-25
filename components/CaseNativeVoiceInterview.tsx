@@ -8,6 +8,7 @@ import type { PublicCaseReportFailureCode } from "@/lib/voice/case-report-public
 // Type-only import: erased at build, so no worked-solution content is bundled.
 import type { CaseWorkedSolutionView } from "@/lib/voice/case-worked-solution-types";
 import { TECHNICAL_DIM_LABEL } from "@/lib/voice/case-technical-dimensions";
+import { questionBankTitle } from "@/lib/voice/question-bank-catalog";
 import type {
   CasePostCallDimensionScore,
   CasePostCallScore,
@@ -66,9 +67,12 @@ const DIMENSION_LABEL: Record<string, string> = {
   ...TECHNICAL_DIM_LABEL,
 };
 
-/** Falls back to a humanized dimension id for any evaluator this build doesn't know about yet. */
+/**
+ * Falls back to the question-bank title (which itself humanizes any unknown id) so
+ * technical_question_bank per-question rows render by their question title.
+ */
 function dimensionLabel(dimension: string): string {
-  return DIMENSION_LABEL[dimension] ?? dimension.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  return DIMENSION_LABEL[dimension] ?? questionBankTitle(dimension);
 }
 
 const SECTION_LABELS = {
@@ -81,6 +85,11 @@ const SECTION_LABELS = {
     framework: "Pipeline design feedback",
     recommendation: "Operations & trade-off feedback",
     quantitative: "Scale & reliability feedback",
+  },
+  technical_question_bank: {
+    framework: "Per-question feedback",
+    recommendation: "Next steps",
+    quantitative: "Overall feedback",
   },
 } as const;
 
@@ -108,7 +117,9 @@ export interface NativeCaseReportPresentation {
 }
 
 function resolveEvaluatorType(value: string | undefined): NativeCaseEvaluatorType {
-  return value === "technical_system_design" ? "technical_system_design" : "consulting";
+  if (value === "technical_system_design") return "technical_system_design";
+  if (value === "technical_question_bank") return "technical_question_bank";
+  return "consulting";
 }
 
 export function nativeCaseReportPresentation(

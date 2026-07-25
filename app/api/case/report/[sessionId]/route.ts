@@ -3,7 +3,9 @@ import { loadSession } from "@/lib/voice/session-store";
 import { storedCaseVoiceArchitecture } from "@/lib/voice/case-native-config";
 import { candidateSafeCasePostCallScore } from "@/lib/voice/case-post-call-scorer";
 import { candidateSafeTechnicalCasePostCallScore } from "@/lib/voice/case-technical-post-call-scorer";
+import { candidateSafeQuestionBankScore } from "@/lib/voice/case-question-bank-scorer";
 import { publicCaseReportFailureCode } from "@/lib/voice/case-report-public";
+import type { CasePostCallScore, CaseReportStage } from "@/lib/voice/types";
 import { verifyReportCapability } from "@/lib/voice/report-capability";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 
@@ -28,25 +30,55 @@ export async function GET(
     return notFound();
   }
 
-  const report = record.reportStatus === "done" ? record.finalReport : null;
   const caseRecord = getVoiceLlmCaseRecord(record.caseId);
+  const isQuestionBank = caseRecord?.evaluator_type === "technical_question_bank";
   const isTechnical = caseRecord?.evaluator_type === "technical_system_design";
-  const candidateSafeScore = isTechnical
-    ? candidateSafeTechnicalCasePostCallScore
-    : candidateSafeCasePostCallScore;
-  const safe = report?.score && caseRecord
-    ? candidateSafeScore(
-        report.score,
-        record.normalizedTranscript ?? [],
-        caseRecord,
-        {
-          partial: report.partial,
-          answeredStages: report.answeredStages ?? report.observedStages.filter(
-            (stage) => !report.missingStages.includes(stage),
-          ),
-        },
-      )
-    : null;
+  const evaluatorType = isQuestionBank
+    ? "technical_question_bank"
+    : isTechnical
+      ? "technical_system_design"
+      : "consulting";
+
+  let safe: CasePostCallScore | null = null;
+  let partial: boolean | null = null;
+  let observedStages: CaseReportStage[] = [];
+  let missingStages: CaseReportStage[] = [];
+
+  if (isQuestionBank) {
+    // Question-bank rounds carry no case stages; per-question detail lives in the
+    // dimension_scores rows (one row per question). Stage arrays stay empty.
+    const qbReport = record.reportStatus === "done" ? record.finalQuestionBankReport : null;
+    partial = qbReport?.partial ?? null;
+    safe = qbReport?.score && caseRecord
+      ? candidateSafeQuestionBankScore(
+          caseRecord,
+          qbReport.score,
+          record.normalizedTranscript ?? [],
+          { partial: qbReport.partial, answeredQuestions: qbReport.answeredQuestions },
+        )
+      : null;
+  } else {
+    const report = record.reportStatus === "done" ? record.finalReport : null;
+    partial = report?.partial ?? null;
+    observedStages = report?.observedStages ?? [];
+    missingStages = report?.missingStages ?? [];
+    const candidateSafeScore = isTechnical
+      ? candidateSafeTechnicalCasePostCallScore
+      : candidateSafeCasePostCallScore;
+    safe = report?.score && caseRecord
+      ? candidateSafeScore(
+          report.score,
+          record.normalizedTranscript ?? [],
+          caseRecord,
+          {
+            partial: report.partial,
+            answeredStages: report.answeredStages ?? report.observedStages.filter(
+              (stage) => !report.missingStages.includes(stage),
+            ),
+          },
+        )
+      : null;
+  }
   // Rebuild the browser projection field-by-field. Internal evidence, transcript,
   // anchors, partial-reason codes, and report-processing metadata never cross it.
   const score = safe
@@ -72,10 +104,10 @@ export async function GET(
     caseTrack: record.caseTrack ?? null,
     caseRole: record.caseRole ?? null,
     caseTitle: record.selectedCaseTitle ?? null,
-    evaluatorType: isTechnical ? "technical_system_design" : "consulting",
-    partial: report?.partial ?? null,
-    observedStages: report?.observedStages ?? [],
-    missingStages: report?.missingStages ?? [],
+    evaluatorType,
+    partial,
+    observedStages,
+    missingStages,
     score,
     failureCode: record.reportStatus === "failed"
       ? publicCaseReportFailureCode(record.reportErrorCode)

@@ -1,0 +1,39 @@
+{
+  "version": "technical-question-anchors-v1",
+  "cases": {
+    "data_analyst_technical_round": {
+      "role": "data_analyst",
+      "order": [
+        "da_monthly_revenue_sql",
+        "da_conversion_metric",
+        "da_sales_dashboard",
+        "da_active_users_drop",
+        "da_checkout_ab_test"
+      ],
+      "anchors": {
+        "da_monthly_revenue_sql": "Question one. Monthly Revenue Query.",
+        "da_conversion_metric": "Question two. Conversion Rate Definition.",
+        "da_sales_dashboard": "Question three. Weekly Sales Dashboard.",
+        "da_active_users_drop": "Question four. Regional Active-User Drop.",
+        "da_checkout_ab_test": "Question five. Checkout Experiment Result."
+      }
+    },
+    "data_engineer_technical_round": {
+      "role": "data_engineer",
+      "order": [
+        "de_sales_dimensional_model",
+        "de_multisource_pipeline",
+        "de_revenue_drop_incident",
+        "de_pipeline_runtime_regression",
+        "de_schema_drift"
+      ],
+      "anchors": {
+        "de_sales_dimensional_model": "Question one. Simple Sales Data Model.",
+        "de_multisource_pipeline": "Question two. Daily Multi-Source Pipeline.",
+        "de_revenue_drop_incident": "Question three. Revenue Drop Check.",
+        "de_pipeline_runtime_regression": "Question four. Pipeline Slowdown.",
+        "de_schema_drift": "Question five. Unexpected Schema Change."
+      }
+    }
+  }
+}

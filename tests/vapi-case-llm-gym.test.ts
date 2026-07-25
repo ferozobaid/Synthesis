@@ -97,6 +97,9 @@ const authHeader = { authorization: `Bearer ${SECRET}` };
 const GYM = "gcc_premium_gym_market_entry";
 const AIRPORT = "airport_profitability";
 const DATA_ENGINEER = "data_engineer_clickstream";
+const DE_ROUND = "data_engineer_technical_round";
+const DA_ROUND = "data_analyst_technical_round";
+const ALL_CASE_IDS = [AIRPORT, GYM, DATA_ENGINEER, DE_ROUND, DA_ROUND];
 
 interface ChatMessage { id?: string; role: "assistant" | "user"; content: string }
 
@@ -244,9 +247,9 @@ describe("Preview LLM catalog", () => {
     const response = await catalogGET();
     expect(response.status).toBe(200);
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
-    expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM, DATA_ENGINEER]);
+    expect(cases.map((entry) => entry.id)).toEqual(ALL_CASE_IDS);
     for (const entry of cases) {
-      const expectedKeys = entry.id === DATA_ENGINEER
+      const expectedKeys = entry.track === "technical"
         ? ["description", "id", "role", "title", "track"]
         : ["description", "id", "title", "track"];
       expect(Object.keys(entry).sort()).toEqual(expectedKeys);
@@ -259,11 +262,11 @@ describe("Preview LLM catalog", () => {
     });
   });
 
-  it("always presents exactly the three cases with no Beautify or Diconsa options", async () => {
+  it("always presents exactly the strategy cases and technical rounds with no Beautify or Diconsa options", async () => {
     for (const mode of ["llm", "legacy", "production"]) {
       process.env.CASE_VOICE_INTERVIEWER_MODE = mode;
       const { cases } = await (await catalogGET()).json() as { cases: Array<{ id: string }> };
-      expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM, DATA_ENGINEER]);
+      expect(cases.map((entry) => entry.id)).toEqual(ALL_CASE_IDS);
       expect(JSON.stringify(cases)).not.toContain("beautify");
       expect(JSON.stringify(cases)).not.toContain("diconsa");
     }

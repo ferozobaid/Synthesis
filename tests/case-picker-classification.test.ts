@@ -44,7 +44,10 @@ describe("picker track/role classification (data-driven, no hardcoded case-id br
     const catalog = await realCatalog();
     const byRole = technicalCatalogCasesByRole(catalog);
     expect(byRole.data_engineering).toBeDefined();
-    expect(byRole.data_engineering?.map((entry) => entry.id)).toEqual([DATA_ENGINEER]);
+    expect(byRole.data_engineering?.map((entry) => entry.id)).toEqual([
+      DATA_ENGINEER,
+      "data_engineer_technical_round",
+    ]);
     expect(byRole.data_engineering?.[0]).toMatchObject({
       id: DATA_ENGINEER,
       title: "Clickstream Data Pipeline",
@@ -53,10 +56,10 @@ describe("picker track/role classification (data-driven, no hardcoded case-id br
     });
   });
 
-  it("Data Analyst has no cases yet (stays an upcoming/disabled role)", async () => {
+  it("Data Analyst is now active with exactly its technical round", async () => {
     const catalog = await realCatalog();
     const byRole = technicalCatalogCasesByRole(catalog);
-    expect(byRole.data_analyst ?? []).toEqual([]);
+    expect(byRole.data_analyst?.map((entry) => entry.id)).toEqual(["data_analyst_technical_round"]);
   });
 
   it("no strategy case leaks into any technical role, and no technical case leaks into strategy", async () => {
