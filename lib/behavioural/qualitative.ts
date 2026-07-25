@@ -289,8 +289,8 @@ function expectedQuestionCues(question: string, questionType: BehaviouralQualita
   }
   if (questionType === "motivation_role_fit") {
     return {
-      label: q.includes("consulting") ? "interest in consulting" : "interest in the role",
-      patterns: [/\brole\b/i, /\bconsult/i, /\banalyst\b/i, /\bdata\b/i, /\bskill/i, /\bcareer\b/i, /\binterested\b/i, /\bclient\b/i, /\bproblem/i],
+      label: "interest in the role or field",
+      patterns: [/\brole\b/i, /\bconsult/i, /\banalyst\b/i, /\bdata\b/i, /\bengineer/i, /\bproduct\b/i, /\bindustry\b/i, /\bfield\b/i, /\bskill/i, /\bcareer\b/i, /\binterested\b/i, /\bclient\b/i, /\bproblem/i],
     };
   }
   if (questionType === "company_fit") {
@@ -430,7 +430,7 @@ function missingElements(
     if (!/\b(data|analyst|project|experience|skill|business|technical)\b/i.test(answer)) gaps.push("A clearer link between your background and the target role.");
     if (!/\b(next|looking|interested|goal|career|target)\b/i.test(answer)) gaps.push("A concise statement of what direction you are targeting next.");
   } else if (questionType === "motivation_role_fit") {
-    if (!/\b(role|consulting|analyst|data|client|problem|career|skill)\b/i.test(answer)) gaps.push("Role-specific reasons for your interest.");
+    if (!/\b(role|consulting|analyst|analytics|data|engineer|product|design|business|industry|field|client|problem|career|skill)\b/i.test(answer)) gaps.push("Role-specific reasons for your interest.");
     if (!/\b(my|i)\b/i.test(answer) || !/\b(skill|experience|project|background|strength)\b/i.test(answer)) gaps.push("A credible link between your skills or experience and the role.");
     if (f.words < 25) gaps.push("More detail showing authentic motivation rather than a generic preference.");
   } else if (questionType === "company_fit") {

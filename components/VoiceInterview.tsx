@@ -208,12 +208,18 @@ function nextQuestionIndex(spoken: string, questions: Question[], currentQ: numb
 
 export default function VoiceInterview({
   jdText,
+  targetRole,
+  targetCompany,
   startRequested = true,
   onActiveChange,
   onVoiceStateChange,
   onComplete,
 }: {
   jdText?: string;
+  /** Target role from the readiness store — grounds role-aware motivation wording. */
+  targetRole?: string | null;
+  /** Target company from the readiness store — grounds the "why this company" question. */
+  targetCompany?: string | null;
   /** Fresh sessions remain idle until the page's preflight CTA is activated. */
   startRequested?: boolean;
   /** True while the configured voice flow owns the screen. */
@@ -247,6 +253,10 @@ export default function VoiceInterview({
   const initRef = useRef(false);
   const jdTextRef = useRef(jdText);
   jdTextRef.current = jdText;
+  const targetRoleRef = useRef(targetRole);
+  targetRoleRef.current = targetRole;
+  const targetCompanyRef = useRef(targetCompany);
+  targetCompanyRef.current = targetCompany;
   const startRequestedRef = useRef(startRequested);
   startRequestedRef.current = startRequested;
   const questionsRef = useRef<Question[]>([]);
@@ -397,6 +407,8 @@ export default function VoiceInterview({
         body: JSON.stringify({
           module: "behavioural",
           jdText: jdTextRef.current ?? "",
+          targetRole: targetRoleRef.current ?? undefined,
+          companyName: targetCompanyRef.current ?? undefined,
         }),
       });
       if (!res.ok) throw new Error("Could not start the interview session.");

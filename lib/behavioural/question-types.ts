@@ -27,12 +27,28 @@ export function classifyBehaviouralQuestion(
 
   if (id === "tell_me_about_yourself") return "introduction";
   if (id === "why_this_company") return "company_fit";
-  if (id === "why_this_role" || id === "why_consulting") return "motivation_role_fit";
+  // role_motivation is the canonical id; why_this_role / why_consulting are legacy
+  // ids kept recognised so older sessions and fixtures classify identically. The
+  // industry-motivation question reuses the same role-fit rubric (motivation & fit).
+  if (
+    id === "role_motivation" ||
+    id === "industry_motivation" ||
+    id === "why_this_role" ||
+    id === "why_consulting"
+  ) {
+    return "motivation_role_fit";
+  }
   if (id === "greatest_strength") return "self_assessment";
 
   if (type === "intro" || type === "introduction") return "introduction";
   if (type === "company_fit") return "company_fit";
-  if (type === "motivation_role_fit") return "motivation_role_fit";
+  if (
+    type === "motivation_role_fit" ||
+    type === "role_motivation" ||
+    type === "industry_motivation"
+  ) {
+    return "motivation_role_fit";
+  }
   if (type === "self-assessment" || type === "self_assessment") return "self_assessment";
   if (type === "star" || type === "competency_star") return "competency_star";
   if (type === "motivation") {

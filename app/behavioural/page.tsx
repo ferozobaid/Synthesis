@@ -68,7 +68,9 @@ const STAR = [
 ];
 
 const DIM_COLORS = ["var(--secondary)", "var(--accent)", "var(--success)", "var(--partial)", "var(--ink)"];
-const BEHAVIOURAL_QUESTION_COUNT = 14;
+// Core questions always asked; the optional industry-motivation question adds one
+// more when a distinct industry is known, so this is shown as an approximate count.
+const BEHAVIOURAL_QUESTION_COUNT = 13;
 
 export default function BehaviouralPage() {
   const router = useRouter();
@@ -138,7 +140,12 @@ export default function BehaviouralPage() {
   const start = useCallback(async () => {
     setStarting(true);
     try {
-      const d = await postBehavioural<StartResult>({ action: "start", jdText: state.target.jdText });
+      const d = await postBehavioural<StartResult>({
+        action: "start",
+        jdText: state.target.jdText,
+        targetRole: state.target.role,
+        targetCompany: state.target.company,
+      });
       setSession(d.session);
       setQuestions(d.questions);
       setIdx(0);
@@ -148,7 +155,7 @@ export default function BehaviouralPage() {
     } finally {
       setStarting(false);
     }
-  }, [state.target.jdText]);
+  }, [state.target.jdText, state.target.role, state.target.company]);
 
   const beginInterview = useCallback(() => {
     if (!hydrated || startedRef.current) return;
@@ -219,6 +226,8 @@ export default function BehaviouralPage() {
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
       <VoiceInterview
         jdText={state.target.jdText}
+        targetRole={state.target.role}
+        targetCompany={state.target.company}
         startRequested={interviewStarted}
         onActiveChange={handleVoiceActiveChange}
         onVoiceStateChange={setVoiceState}
@@ -238,7 +247,7 @@ export default function BehaviouralPage() {
           <div className="behavioural-preflight__facts" aria-label="Interview details">
             <div>
               <span>Questions</span>
-              <strong>{BEHAVIOURAL_QUESTION_COUNT}</strong>
+              <strong>{BEHAVIOURAL_QUESTION_COUNT}–{BEHAVIOURAL_QUESTION_COUNT + 1}</strong>
             </div>
             <div>
               <span>Microphone</span>

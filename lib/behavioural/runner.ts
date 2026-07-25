@@ -13,7 +13,7 @@
 import { useMocks } from "@/lib/config";
 import { parseJD } from "@/lib/parsers/jd-parser";
 import { retrieveAnswer } from "@/lib/rag";
-import { generateQuestions } from "@/lib/behavioural/question-gen";
+import { generateQuestions, type BehaviouralContext } from "@/lib/behavioural/question-gen";
 import { evaluateBehavioural } from "@/lib/behavioural/evaluator";
 import type {
   AnswerBankEntry,
@@ -68,16 +68,27 @@ function newSessionId(): string {
 }
 
 /**
- * Start a session: parse the JD (if any), generate the question set (filling
- * "why this company / why this role" from the JD), and create a new session.
+ * Start a session: resolve the interview context (explicit target role/company
+ * take precedence over the parsed JD), generate the ordered question set
+ * (role-aware motivation, "why this company", conditional industry), and create a
+ * new session.
  */
 export function startBehavioural(opts: {
   questionBank: BehaviouralQuestion[];
   jdText?: string;
   userId?: string;
+  /** Target role from the readiness store / onboarding; overrides the parsed JD role. */
+  targetRole?: string | null;
+  /** Target company from the readiness store / onboarding; overrides the parsed JD company. */
+  targetCompany?: string | null;
 }): BehaviouralStartResult {
   const jd = opts.jdText && opts.jdText.trim() ? parseJD(opts.jdText) : null;
-  const questions = generateQuestions(opts.questionBank, jd);
+  const context: BehaviouralContext = {
+    role: opts.targetRole?.trim() || jd?.role_title || null,
+    company: opts.targetCompany?.trim() || jd?.company || null,
+    industry: jd?.domain ?? null,
+  };
+  const questions = generateQuestions(opts.questionBank, context);
 
   const session: BehaviouralSession = {
     id: newSessionId(),
