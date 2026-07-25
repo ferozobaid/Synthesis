@@ -8,7 +8,10 @@ import type {
   BehaviouralScore,
   BehaviouralSession,
 } from "@/lib/types";
-import { useReadiness } from "@/components/readiness-store";
+import {
+  hasCompleteTarget,
+  useReadiness,
+} from "@/components/readiness-store";
 import VoiceInterview, {
   type VoiceAvatarState,
   type VoiceReport,
@@ -74,8 +77,14 @@ const BEHAVIOURAL_QUESTION_COUNT = 13;
 
 export default function BehaviouralPage() {
   const router = useRouter();
-  const { state, hydrated, setModule } = useReadiness();
+  const { state, hydrated, setModule, seedSample } = useReadiness();
   const startedRef = useRef(false);
+  const targetReady = hasCompleteTarget(state);
+  const isSampleTarget =
+    targetReady && state.targetSource === "sample";
+  const targetContext = state.target.company
+    ? `${state.target.role} at ${state.target.company}`
+    : state.target.role;
 
   const [session, setSession] = useState<BehaviouralSession | null>(null);
   const [questions, setQuestions] = useState<BehaviouralQuestion[]>([]);
@@ -158,11 +167,11 @@ export default function BehaviouralPage() {
   }, [state.target.jdText, state.target.role, state.target.company]);
 
   const beginInterview = useCallback(() => {
-    if (!hydrated || startedRef.current) return;
+    if (!hydrated || !targetReady || startedRef.current) return;
     startedRef.current = true;
     setInterviewStarted(true);
     void start();
-  }, [hydrated, start]);
+  }, [hydrated, start, targetReady]);
 
   const handleVoiceActiveChange = useCallback((active: boolean) => {
     setVoiceActive(active);
@@ -240,9 +249,23 @@ export default function BehaviouralPage() {
             <SectionLabel style={{ marginBottom: 12 }}>Behavioural interview preflight</SectionLabel>
             <h1 id="behavioural-preflight-title">Turn your experience into a clear story.</h1>
             <p>
-              You&apos;ll answer a structured set of motivation and experience questions.
-              Use STAR where it helps; your interviewer will keep the conversation moving.
+              {targetReady
+                ? "You'll answer a structured set of motivation and experience questions grounded in the role shown below. Use STAR where it helps; your interviewer will keep the conversation moving."
+                : "Choose your own target role or deliberately load the sample interview before any questions or microphone session can begin."}
             </p>
+            {targetReady && (
+              <div
+                className={`behavioural-preflight__context ${
+                  isSampleTarget ? "is-sample" : "is-personalized"
+                }`}
+                aria-live="polite"
+              >
+                <span>
+                  {isSampleTarget ? "Sample interview ·" : "Personalized for"}
+                </span>
+                <strong>{targetContext}</strong>
+              </div>
+            )}
           </div>
           <div className="behavioural-preflight__facts" aria-label="Interview details">
             <div>
@@ -255,15 +278,45 @@ export default function BehaviouralPage() {
               <small>Starts only after you continue</small>
             </div>
           </div>
-          <button
-            type="button"
-            className="behavioural-preflight__start"
-            onClick={beginInterview}
-            disabled={!hydrated}
-          >
-            Start behavioural interview
-            <span aria-hidden="true">→</span>
-          </button>
+          {targetReady ? (
+            <div className="behavioural-preflight__actions">
+              <button
+                type="button"
+                className="behavioural-preflight__start"
+                onClick={beginInterview}
+                disabled={!hydrated}
+              >
+                {isSampleTarget
+                  ? "Start sample interview"
+                  : "Start behavioural interview"}
+                <span aria-hidden="true">→</span>
+              </button>
+              <Link
+                href="/onboard"
+                className="behavioural-preflight__secondary"
+              >
+                {isSampleTarget ? "Use my role" : "Change role"}
+              </Link>
+            </div>
+          ) : (
+            <div className="behavioural-preflight__actions">
+              <Link
+                href="/onboard"
+                className="behavioural-preflight__start"
+              >
+                Set my role
+                <span aria-hidden="true">→</span>
+              </Link>
+              <button
+                type="button"
+                className="behavioural-preflight__secondary"
+                onClick={seedSample}
+                disabled={!hydrated}
+              >
+                Load sample interview
+              </button>
+            </div>
+          )}
         </section>
       ) : starting ? (
         <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>

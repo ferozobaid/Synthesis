@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   canConsumeHorizontalDelta,
@@ -56,5 +57,20 @@ describe("product page horizontal gesture guard", () => {
         deltaX: 30,
       }),
     ).toBe(false);
+  });
+
+  it("uses one scoped non-passive capture listener and cleans it up", () => {
+    const chrome = readFileSync("components/ui/SiteChrome.tsx", "utf8");
+    const styles = readFileSync("app/globals.css", "utf8");
+
+    expect(chrome).toContain("elementCanConsumeHorizontalDelta");
+    expect(chrome).toContain("passive: false");
+    expect(chrome).toContain("capture: true");
+    expect(chrome).toContain(
+      'removeEventListener("wheel", preventRouteSwipe, true)',
+    );
+    expect(styles).toMatch(
+      /\.product-experience\s*\{[^}]*overscroll-behavior-x: none;/s,
+    );
   });
 });

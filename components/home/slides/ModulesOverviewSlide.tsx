@@ -56,7 +56,7 @@ export function ModulesOverviewSlide() {
         ))}
       </div>
       <div className="home-modules-cta">
-        <Link href="/fit" className="app-button app-button--primary">
+        <Link href="/onboard" className="app-button app-button--primary">
           Start with your role →
         </Link>
         <span>One role. One readiness plan.</span>

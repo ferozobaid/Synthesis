@@ -13,11 +13,19 @@ describe("document upload UI integration", () => {
     );
   });
 
-  it("uses the shared upload component for both resume and JD on both entry screens", () => {
-    for (const path of ["app/onboard/page.tsx", "app/fit/page.tsx"]) {
-      const source = readFileSync(path, "utf8");
-      expect(source).toContain('kind="resume"');
-      expect(source).toContain('kind="job description"');
-    }
+  it("separates shared role setup from resume evidence", () => {
+    const onboard = readFileSync("app/onboard/page.tsx", "utf8");
+    const fit = readFileSync("app/fit/page.tsx", "utf8");
+
+    expect(onboard).toContain('kind="job description"');
+    expect(onboard).not.toContain('kind="resume"');
+    expect(onboard).toContain('router.push("/fit")');
+    expect(onboard).toContain("Continue to resume analysis");
+
+    expect(fit).toContain('kind="resume"');
+    expect(fit).not.toContain('kind="job description"');
+    expect(fit).toContain("fit-target-gate");
+    expect(fit).toContain('href="/onboard"');
+    expect(fit).not.toContain("set a target role</Link> once");
   });
 });

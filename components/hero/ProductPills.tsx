@@ -14,7 +14,7 @@ export function ProductPills({
 }) {
   return (
     <div className="hero-product-actions">
-      <Link href="/fit" className="hero-product-pill hero-product-pill--primary">
+      <Link href="/onboard" className="hero-product-pill hero-product-pill--primary">
         Start preparing <Arrow />
       </Link>
       {HERO_MODULE_ORDER.map((key) => {

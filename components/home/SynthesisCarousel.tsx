@@ -6,7 +6,6 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState,
 } from "react";
 import { CarouselControls } from "./CarouselControls";
 import {
@@ -19,8 +18,6 @@ import { ReadinessOverviewSlide } from "./slides/ReadinessOverviewSlide";
 import { HowItWorksSlide } from "./slides/HowItWorksSlide";
 import { ModulesOverviewSlide } from "./slides/ModulesOverviewSlide";
 
-const SLIDE_TRANSITION_MS = 460;
-
 export interface SynthesisCarouselHandle {
   goTo: (slide: CarouselSlideIndex) => void;
   focusActiveHeading: () => void;
@@ -31,38 +28,34 @@ export const SynthesisCarousel = forwardRef<
   {
     activeSlide: CarouselSlideIndex;
     interactive: boolean;
+    locked: boolean;
     onSlideChange: (slide: CarouselSlideIndex) => void;
+    onSlideTransitionEnd: () => void;
     onReturnToHero: () => void;
   }
 >(function SynthesisCarousel(
-  { activeSlide, interactive, onSlideChange, onReturnToHero },
+  {
+    activeSlide,
+    interactive,
+    locked,
+    onSlideChange,
+    onSlideTransitionEnd,
+    onReturnToHero,
+  },
   ref,
 ) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLElement | null)[]>([]);
-  const unlockTimer = useRef<number | null>(null);
-  const lockedRef = useRef(false);
-  const [locked, setLocked] = useState(false);
-
-  const unlock = useCallback(() => {
-    if (unlockTimer.current != null) window.clearTimeout(unlockTimer.current);
-    unlockTimer.current = null;
-    lockedRef.current = false;
-    setLocked(false);
-  }, []);
 
   const requestSlide = useCallback(
     (requested: CarouselSlideIndex) => {
-      if (!interactive || lockedRef.current) return;
+      if (!interactive || locked) return;
       const next = clampSlide(requested);
       if (next === activeSlide) return;
-      lockedRef.current = true;
-      setLocked(true);
       onSlideChange(next);
-      unlockTimer.current = window.setTimeout(unlock, SLIDE_TRANSITION_MS + 80);
     },
-    [activeSlide, interactive, onSlideChange, unlock],
+    [activeSlide, interactive, locked, onSlideChange],
   );
 
   const focusActiveHeading = useCallback(() => {
@@ -84,13 +77,6 @@ export const SynthesisCarousel = forwardRef<
   useEffect(() => {
     if (interactive && !locked) focusActiveHeading();
   }, [activeSlide, focusActiveHeading, interactive, locked]);
-
-  useEffect(
-    () => () => {
-      if (unlockTimer.current != null) window.clearTimeout(unlockTimer.current);
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!interactive) return;
@@ -167,7 +153,7 @@ export const SynthesisCarousel = forwardRef<
                     event.propertyName,
                     event.target === event.currentTarget,
                   )) {
-                    unlock();
+                    onSlideTransitionEnd();
                   }
                 }}
                 aria-label={`Slide ${index + 1} of 3`}
@@ -186,8 +172,21 @@ export const SynthesisCarousel = forwardRef<
         locked={locked || !interactive}
         onGoTo={requestSlide}
       />
+      {activeSlide === 0 && (
+        <button
+          type="button"
+          className="home-carousel__back"
+          onClick={onReturnToHero}
+          aria-label="Back to landing"
+        >
+          <span aria-hidden="true" className="home-carousel__back-line">
+            <span />
+          </span>
+          <span className="home-carousel__back-label">Back to landing</span>
+        </button>
+      )}
       <p className="home-carousel__gesture-hint" aria-hidden="true">
-        Swipe sideways · scroll up to return
+        Swipe sideways · scroll up on Slide 1 to return
       </p>
     </section>
   );

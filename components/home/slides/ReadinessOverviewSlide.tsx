@@ -15,6 +15,11 @@ export function ReadinessOverviewSlide() {
 
   return (
     <div className="home-slide home-slide--readiness">
+      <ReadinessStage
+        className="home-readiness-stage--mobile"
+        onOpenSample={goSample}
+      />
+
       <div className="home-slide__copy">
         <div className="editorial-kicker">Interview readiness / 01</div>
         <h1 data-slide-heading tabIndex={-1} className="home-slide__headline">
@@ -27,7 +32,7 @@ export function ReadinessOverviewSlide() {
           readiness score that tells you exactly what to improve next.
         </p>
         <div className="home-slide__actions">
-          <Link href="/fit" className="app-button app-button--primary">
+          <Link href="/onboard" className="app-button app-button--primary">
             Start with your role →
           </Link>
           <button type="button" onClick={goSample} className="app-button app-button--secondary">
@@ -41,17 +46,32 @@ export function ReadinessOverviewSlide() {
         </div>
       </div>
 
-      <div className="home-readiness-stage">
-        <span className="home-readiness-stage__label">Readiness plan / live</span>
-        <button
-          type="button"
-          onClick={goSample}
-          className="home-readiness-preview-button"
-          aria-label="See a sample readiness dashboard"
-        >
-          <ReadinessPreview />
-        </button>
-      </div>
+      <ReadinessStage
+        className="home-readiness-stage--desktop"
+        onOpenSample={goSample}
+      />
+    </div>
+  );
+}
+
+function ReadinessStage({
+  className,
+  onOpenSample,
+}: {
+  className: string;
+  onOpenSample: () => void;
+}) {
+  return (
+    <div className={`home-readiness-stage ${className}`}>
+      <span className="home-readiness-stage__label">Readiness plan / live</span>
+      <button
+        type="button"
+        onClick={onOpenSample}
+        className="home-readiness-preview-button"
+        aria-label="See a sample readiness dashboard"
+      >
+        <ReadinessPreview />
+      </button>
     </div>
   );
 }

@@ -22,6 +22,27 @@ export function canConsumeHorizontalDelta({
   return false;
 }
 
+export function findHorizontalScrollRegion(
+  target: EventTarget | null,
+  root: HTMLElement,
+): HTMLElement | null {
+  let element = target instanceof Element ? target : null;
+  while (element && root.contains(element)) {
+    if (element instanceof HTMLElement) {
+      const overflowX = window.getComputedStyle(element).overflowX;
+      if (
+        (overflowX === "auto" || overflowX === "scroll") &&
+        element.scrollWidth - element.clientWidth > 1
+      ) {
+        return element;
+      }
+    }
+    if (element === root) break;
+    element = element.parentElement;
+  }
+  return null;
+}
+
 export function elementCanConsumeHorizontalDelta(
   target: EventTarget | null,
   root: HTMLElement,
