@@ -1,0 +1,15 @@
+{
+  "id": "data_engineer_technical_round",
+  "title": "Data Engineer Technical Round",
+  "firm": "Synthesis",
+  "type": "data engineer / technical round",
+  "content": "A five-question spoken technical round covering dimensional modeling, batch pipeline architecture, data-quality debugging, performance optimization, and schema evolution. Questions, order, and scoring live in context/technical/data_engineer.json; this record only routes the native assistant and the shared question-bank evaluator. Separate from the Clickstream system-design case.",
+  "stages": [],
+  "exhibits": [],
+  "scoring_rubric": {
+    "scale": "1-5",
+    "dimensions": []
+  },
+  "evaluator_type": "technical_question_bank",
+  "question_bank_role": "data_engineer"
+}

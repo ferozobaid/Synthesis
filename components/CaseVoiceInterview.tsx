@@ -1521,10 +1521,10 @@ export default function CaseVoiceInterview({
                 </span>
                 <span className="grid-track-card__title">Technical Interviews</span>
                 <span className="grid-track-card__copy">
-                  Live voice interviews by data role — start with Data Engineering.
+                  Live voice interviews by data role.
                 </span>
                 <span className="grid-track-card__meta">
-                  Data Engineering · Data Analyst coming soon <span aria-hidden="true">→</span>
+                  Data Engineering · Data Analyst <span aria-hidden="true">→</span>
                 </span>
               </button>
             </div>
@@ -1599,7 +1599,7 @@ export default function CaseVoiceInterview({
                 <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews</SectionLabel>
                 <h2 id="technical-simulation-heading">Choose your role</h2>
                 <p>
-                  Data Engineering is live. Other roles are still being built.
+                  Data Engineering and Data Analyst are live.
                 </p>
               </div>
               <span className="grid-track-status">{anyTechnicalRoleActive ? "Live voice" : "Coming soon"}</span>

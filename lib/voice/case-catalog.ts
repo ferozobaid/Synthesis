@@ -48,6 +48,22 @@ export const PREVIEW_LLM_CASES: readonly PreviewLlmCaseCatalogEntry[] = [
     track: "technical",
     role: "data_engineering",
   },
+  {
+    id: "data_engineer_technical_round",
+    title: "Data Engineer Technical Round",
+    description:
+      "Five short scenario questions on data modeling, batch pipelines, debugging, performance, and schema evolution.",
+    track: "technical",
+    role: "data_engineering",
+  },
+  {
+    id: "data_analyst_technical_round",
+    title: "Data Analyst Technical Round",
+    description:
+      "Five short scenario questions on SQL analysis, metric definition, dashboards, diagnostics, and experimentation.",
+    track: "technical",
+    role: "data_analyst",
+  },
 ] as const;
 
 const CATALOG_BY_ID = new Map(PREVIEW_LLM_CASES.map((entry) => [entry.id, entry]));

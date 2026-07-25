@@ -85,12 +85,14 @@ describe("Case Voice two-case picker state", () => {
     expect(await fetchPreviewCatalog(network as unknown as typeof fetch)).toMatchObject({ status: "error", cases: [] });
   });
 
-  it("offers exactly the three cases and no Beautify or Diconsa options", () => {
+  it("offers exactly the strategy cases and technical rounds, no Beautify or Diconsa options", () => {
     const ids = PREVIEW_LLM_CASES.map((entry) => entry.id);
     expect(ids).toEqual([
       "airport_profitability",
       "gcc_premium_gym_market_entry",
       "data_engineer_clickstream",
+      "data_engineer_technical_round",
+      "data_analyst_technical_round",
     ]);
     expect(ids).not.toContain("beautify");
     expect(ids).not.toContain("diconsa");

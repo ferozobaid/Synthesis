@@ -94,6 +94,27 @@ export interface CasePostCallReport {
   score: CasePostCallScore;
 }
 
+/**
+ * Post-call report for a technical question-bank round (Data Analyst / Data
+ * Engineer). Reuses the CasePostCallScore presentation shape — each bank question
+ * is one dimension_scores row whose `dimension` holds the question id (a string, so
+ * no consulting-dimension union is involved) — with question-level observed/answered
+ * sets in place of the case stage sets.
+ */
+export interface QuestionBankPostCallReport {
+  partial: boolean;
+  observedQuestions: string[];
+  answeredQuestions: string[];
+  missingQuestions: string[];
+  partialReasons: Array<
+    | "missing_anchor"
+    | "missing_candidate_response"
+    | "transcript_truncated"
+    | "unusable_transcript"
+  >;
+  score: CasePostCallScore;
+}
+
 /** A behavioural voice session: the existing session plus the server-owned cursor. */
 export interface BehaviouralVoiceSession {
   module: "behavioural";
@@ -228,6 +249,8 @@ export interface CaseVoiceSession {
   authoritativeCallId?: string | null;
   normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
   finalReport?: CasePostCallReport | null;
+  /** Populated instead of finalReport for technical_question_bank rounds. */
+  finalQuestionBankReport?: QuestionBankPostCallReport | null;
   reportErrorCode?: string | null;
   /** Architecture is frozen at bootstrap; absent means legacy. */
   interviewerMode?: CaseVoiceInterviewerMode;

@@ -1,6 +1,8 @@
 import airportProfitability from "@/context/cases/airport-profitability.json";
 import gccPremiumGym from "@/context/cases/gcc-premium-gym.json";
 import dataEngineerClickstream from "@/context/cases/data-engineer-clickstream.json";
+import dataAnalystTechnicalRound from "@/context/cases/data-analyst-technical-round.json";
+import dataEngineerTechnicalRound from "@/context/cases/data-engineer-technical-round.json";
 import { mockCase } from "@/lib/__mocks__/fixtures";
 import type { CaseRecord } from "@/lib/types";
 
@@ -16,6 +18,8 @@ const VOICE_LLM_CASE_RECORDS: Readonly<Record<string, CaseRecord>> = {
   airport_profitability: airportProfitability as unknown as CaseRecord,
   gcc_premium_gym_market_entry: gccPremiumGym as unknown as CaseRecord,
   data_engineer_clickstream: dataEngineerClickstream as unknown as CaseRecord,
+  data_analyst_technical_round: dataAnalystTechnicalRound as unknown as CaseRecord,
+  data_engineer_technical_round: dataEngineerTechnicalRound as unknown as CaseRecord,
 };
 
 /** Resolve one of the LLM-only voice cases. Unknown ids fail closed. */
