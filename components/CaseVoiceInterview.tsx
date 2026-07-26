@@ -14,6 +14,13 @@ import {
   initialNativeCaseLiveProgress,
   nativeCaseLiveElapsedMilliseconds,
 } from "@/lib/voice/case-native-live";
+import { isTechnicalNativeCase, nativeProgressDefinition } from "@/lib/voice/native-progress";
+import {
+  advanceNativeCurrentQuestion,
+  initialNativeCurrentQuestion,
+  type NativeCurrentQuestionState,
+} from "@/lib/voice/native-current-question";
+import { nativeCaseBrief } from "@/lib/voice/native-case-brief";
 import CaseNativeVoiceInterview, {
   clearPendingNativeCaseReport,
   readPendingNativeCaseReport,
@@ -766,6 +773,7 @@ export default function CaseVoiceInterview({
   const [nativeLiveProgress, setNativeLiveProgress] = useState(
     initialNativeCaseLiveProgress,
   );
+  const [currentQuestion, setCurrentQuestion] = useState<NativeCurrentQuestionState | null>(null);
   // Optional avatar audio-level enhancement; absent Vapi level events leave
   // these at their defaults, which renders as plain "listening".
   const [userSpeaking, setUserSpeaking] = useState(false);
@@ -912,6 +920,7 @@ export default function CaseVoiceInterview({
     setTimerEndedAt(null);
     setTimerNow(Date.now());
     setNativeLiveProgress(initialNativeCaseLiveProgress());
+    setCurrentQuestion(null);
     lastFinalTranscriptAtRef.current = null;
     endedReasonRef.current = null;
     setError(null);
@@ -1082,6 +1091,13 @@ export default function CaseVoiceInterview({
                 pending.caseId,
                 finalizedLine,
                 Date.now(),
+              )
+            );
+            setCurrentQuestion((current) =>
+              advanceNativeCurrentQuestion(
+                current ?? initialNativeCurrentQuestion(pending.caseId),
+                pending.caseId,
+                finalizedLine,
               )
             );
           }
@@ -1399,6 +1415,7 @@ export default function CaseVoiceInterview({
     setNativeLiveCapability(null);
     setNativeTranscript([]);
     setNativeLiveProgress(initialNativeCaseLiveProgress());
+    setCurrentQuestion(null);
     setProjection(null);
     projectionRef.current = null;
     endedAtRef.current = null;
@@ -1824,39 +1841,23 @@ export default function CaseVoiceInterview({
 
       {nativeLiveCapability && (
         <>
-          <div
-            className="case-progress-panel"
-            style={{
-              marginTop: 14,
-              padding: "14px 16px",
-              border: "1px solid var(--line)",
-              borderRadius: 10,
-              background: "var(--surface)",
-              overflowX: "auto",
-            }}
-            aria-label="Live case stage progress"
-          >
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              marginBottom: 12,
-            }}>
-              <SectionLabel>Case progress</SectionLabel>
-              <span style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                color: "var(--ink-3)",
-              }}>
-                {Math.max(0, nativeLiveProgress.stageIndex + 1)} of {NATIVE_CASE_LIVE_STAGE_LABELS.length}
-              </span>
-            </div>
-            <StageTracker
-              stages={[...NATIVE_CASE_LIVE_STAGE_LABELS]}
-              currentIdx={nativeLiveProgress.stageIndex}
+          <NativeLiveProgressPanel
+            caseId={nativeLiveCapability.caseId}
+            stageIndex={nativeLiveProgress.stageIndex}
+          />
+
+          {/* The three technical native experiences only; the strategy cases
+              keep their existing live surface unchanged. */}
+          {isTechnicalNativeCase(nativeLiveCapability.caseId) && (
+            <NativeCurrentQuestionPanel
+              state={currentQuestion ?? initialNativeCurrentQuestion(nativeLiveCapability.caseId)}
             />
-          </div>
+          )}
+
+          <NativeCaseBriefPanel
+            caseId={nativeLiveCapability.caseId}
+            stageIndex={nativeLiveProgress.stageIndex}
+          />
 
           {liveCaption && (
             <div
@@ -2008,6 +2009,198 @@ export default function CaseVoiceInterview({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Evaluator-aware live progress. The step vocabulary and count come from the
+ * case's progress definition, so the strategy cases keep their consulting stages
+ * while the technical experiences show their own steps and their own "n of N".
+ */
+function NativeLiveProgressPanel({
+  caseId,
+  stageIndex,
+}: {
+  caseId: string;
+  stageIndex: number;
+}) {
+  const definition = nativeProgressDefinition(caseId);
+  if (!definition) return null;
+  return (
+    <div
+      className="case-progress-panel"
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+        overflowX: "auto",
+      }}
+      aria-label={definition.ariaLabel}
+    >
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 12,
+      }}>
+        <SectionLabel>{definition.panelLabel}</SectionLabel>
+        <span style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--ink-3)",
+        }}>
+          {Math.max(0, stageIndex + 1)} of {definition.steps.length}
+        </span>
+      </div>
+      <StageTracker
+        stages={definition.steps.map((step) => step.label)}
+        currentIdx={stageIndex}
+      />
+    </div>
+  );
+}
+
+/**
+ * The question the candidate is currently being asked. Shows the configured
+ * readiness line until the first canonical anchor is spoken, then the complete
+ * spoken question, then any substantive follow-up probe. Acknowledgements never
+ * clear it. Body text is always verbatim assistant speech the candidate already
+ * heard — no prompt, guidance, rubric, or metadata can reach this panel.
+ */
+function NativeCurrentQuestionPanel({ state }: { state: NativeCurrentQuestionState }) {
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+      aria-label="Current question"
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+        <SectionLabel>Current question</SectionLabel>
+        {state.title && (
+          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{state.title}</span>
+        )}
+        {state.kind === "probe" && (
+          <span style={{
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--accent)",
+          }}>
+            Follow-up
+          </span>
+        )}
+      </div>
+      <p
+        aria-live="polite"
+        style={{
+          margin: 0,
+          fontSize: 14,
+          lineHeight: 1.6,
+          color: state.kind === "readiness" ? "var(--ink-3)" : "var(--ink)",
+        }}
+      >
+        {state.text}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Persistent brief for the system-design case and a collapsed round overview for
+ * the two question-bank rounds. Airport and GCC Gym resolve to null and show
+ * nothing.
+ *
+ * The Clickstream brief reveals progressively: it is derived purely from the
+ * current progress step, so it renders nothing before the interview starts and
+ * reconstructs identically after a refresh without any separate reveal state.
+ * Only the open/closed disclosure is local.
+ */
+function NativeCaseBriefPanel({
+  caseId,
+  stageIndex,
+}: {
+  caseId: string;
+  stageIndex: number;
+}) {
+  const brief = nativeCaseBrief(caseId, stageIndex);
+  const [open, setOpen] = useState(brief?.defaultOpen ?? false);
+  if (!brief) return null;
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="case-brief-panel"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          gap: 12,
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          cursor: "pointer",
+          color: "var(--ink)",
+        }}
+      >
+        <SectionLabel>{brief.title}</SectionLabel>
+        <span aria-hidden style={{ color: "var(--ink-3)", fontSize: 12 }}>
+          {open ? "\u25b2" : "\u25bc"}
+        </span>
+      </button>
+      <div id="case-brief-panel" hidden={!open}>
+        {open && (
+          <>
+            <p style={{ margin: "8px 0 12px", fontSize: 12, color: "var(--ink-3)" }}>
+              {brief.intro}
+            </p>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+              gap: 16,
+            }}>
+              {brief.sections.map((section) => (
+                <div key={section.heading}>
+                  <div style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--ink)",
+                    marginBottom: 7,
+                  }}>
+                    {section.heading}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {section.items.map((item) => (
+                      <li key={item} style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

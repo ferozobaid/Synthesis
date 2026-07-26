@@ -147,8 +147,11 @@ describe("worked-solution disclosure state", () => {
     const solution = await fetchCaseWorkedSolution(pending, fetcher as unknown as typeof fetch);
     expect(solution.framework.heading).toBe("Strong framework");
     expect(solution.analysisApproach.heading).toBe("Analysis approach");
-    expect(solution.calculations.steps[0].result).toBe("SAR 4,240,000");
-    expect(solution.pressureTest.steps[0].result).toBe("SAR 450,000");
+    // Consulting cases still carry both calculation sections.
+    expect(solution.calculations).toBeDefined();
+    expect(solution.pressureTest).toBeDefined();
+    expect(solution.calculations!.steps[0].result).toBe("SAR 4,240,000");
+    expect(solution.pressureTest!.steps[0].result).toBe("SAR 450,000");
     expect(solution.exampleRecommendation.heading).toBe("Example recommendation");
     expect(solution.disclaimer).toBe("This is one strong approach, not the only valid answer.");
   });

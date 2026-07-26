@@ -34,6 +34,10 @@ import {
   type CasePostCallModelDiagnostic,
   type CasePostCallScorerOutcome,
 } from "@/lib/voice/case-post-call-scorer";
+import {
+  TECHNICAL_QUESTION_BANK_MAX_TOKENS,
+  logTechnicalScorerCall,
+} from "@/lib/voice/technical-scorer-budget";
 import type { MappedCaseTranscript } from "@/lib/voice/case-transcript";
 import type { MappedQuestionBankTranscript } from "@/lib/voice/question-bank-transcript";
 import { getQuestionBank, orderedQuestions, questionBankRoleForCase } from "@/lib/voice/question-bank";
@@ -47,6 +51,8 @@ import type {
 } from "@/lib/voice/types";
 
 export const QUESTION_BANK_POST_CALL_MODEL = CASE_POST_CALL_MODEL;
+/** Evaluator-specific output budget; see lib/voice/technical-scorer-budget.ts. */
+export const QUESTION_BANK_POST_CALL_MAX_TOKENS = TECHNICAL_QUESTION_BANK_MAX_TOKENS;
 
 const JUSTIFICATION_MAX_LENGTH = 320;
 const SUMMARY_MAX_LENGTH = 480;
@@ -443,13 +449,29 @@ export async function scoreQuestionBankPostCall(
       ].join(" "),
       model: QUESTION_BANK_POST_CALL_MODEL,
       temperature: 0,
-      maxTokens: 1_600,
+      maxTokens: QUESTION_BANK_POST_CALL_MAX_TOKENS,
       outputSchema: outputSchema(bank),
       maxRetries: 0,
       timeoutMs: 60_000,
     });
     const diagnostic = responseDiagnostic(completion);
+    const logCall = (
+      result: "model" | "deterministic_fallback",
+      failureCategory: string | null,
+    ) =>
+      logTechnicalScorerCall({
+        evaluatorType: "technical_question_bank",
+        caseId: caseRecord.id,
+        model: QUESTION_BANK_POST_CALL_MODEL,
+        maxTokenBudget: QUESTION_BANK_POST_CALL_MAX_TOKENS,
+        stopReason: completion.stopReason,
+        inputTokens: completion.inputTokens,
+        outputTokens: completion.outputTokens,
+        result,
+        failureCategory,
+      });
     if (completion.stopReason === "max_tokens" || completion.stopReason === "refusal") {
+      logCall("deterministic_fallback", completion.stopReason);
       return {
         ok: true,
         report: buildReport(caseRecord, bank, mapped, answers, supplied, null),
@@ -462,6 +484,7 @@ export async function scoreQuestionBankPostCall(
     try {
       raw = extractJSON(completion.text);
     } catch {
+      logCall("deterministic_fallback", "malformed_json");
       return {
         ok: true,
         report: buildReport(caseRecord, bank, mapped, answers, supplied, null),
@@ -472,6 +495,7 @@ export async function scoreQuestionBankPostCall(
     }
     const validated = validateModelScores(raw, bank);
     if (!validated) {
+      logCall("deterministic_fallback", "schema_validation_error");
       return {
         ok: true,
         report: buildReport(caseRecord, bank, mapped, answers, supplied, null),
@@ -489,6 +513,7 @@ export async function scoreQuestionBankPostCall(
       modelSupplied.set(row.questionId, answeredIds.has(row.questionId) ? row.score : null);
       modelJustifications.set(row.questionId, row.justification);
     }
+    logCall("model", null);
     return {
       ok: true,
       report: buildReport(caseRecord, bank, mapped, answers, modelSupplied, modelJustifications),
@@ -497,11 +522,23 @@ export async function scoreQuestionBankPostCall(
       modelDiagnostic: diagnostic,
     };
   } catch (error) {
+    const failureCategory = classifyCasePostCallModelError(error);
+    logTechnicalScorerCall({
+      evaluatorType: "technical_question_bank",
+      caseId: caseRecord.id,
+      model: QUESTION_BANK_POST_CALL_MODEL,
+      maxTokenBudget: QUESTION_BANK_POST_CALL_MAX_TOKENS,
+      stopReason: null,
+      inputTokens: null,
+      outputTokens: null,
+      result: "deterministic_fallback",
+      failureCategory,
+    });
     return {
       ok: true,
       report: buildReport(caseRecord, bank, mapped, answers, supplied, null),
       scorerOutcome: "deterministic_fallback",
-      failureCategory: classifyCasePostCallModelError(error),
+      failureCategory,
       modelDiagnostic: errorDiagnostic(error),
     };
   }

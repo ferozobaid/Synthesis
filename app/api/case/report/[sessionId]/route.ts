@@ -5,6 +5,7 @@ import { candidateSafeCasePostCallScore } from "@/lib/voice/case-post-call-score
 import { candidateSafeTechnicalCasePostCallScore } from "@/lib/voice/case-technical-post-call-scorer";
 import { candidateSafeQuestionBankScore } from "@/lib/voice/case-question-bank-scorer";
 import { publicCaseReportFailureCode } from "@/lib/voice/case-report-public";
+import { candidateAnswerProjection } from "@/lib/voice/case-answer-projection";
 import type { CasePostCallScore, CaseReportStage } from "@/lib/voice/types";
 import { verifyReportCapability } from "@/lib/voice/report-capability";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
@@ -98,6 +99,17 @@ export async function GET(
         quantitative_assessment: safe.quantitative_assessment,
       }
     : null;
+  // Candidate-safe answer review, re-derived from the persisted normalized
+  // transcript with the same deterministic mappers the evaluators used. It needs
+  // no active call, survives refresh, and is empty for legacy sessions that
+  // stored no transcript. Bounded in lib/voice/case-answer-projection.ts.
+  const answers = candidateAnswerProjection({
+    caseId: record.caseId,
+    evaluatorType,
+    anchorVersion: record.stageAnchorVersion,
+    transcript: record.normalizedTranscript,
+  });
+
   return NextResponse.json({
     status: record.reportStatus ?? "pending",
     caseId: record.caseId,
@@ -109,6 +121,7 @@ export async function GET(
     observedStages,
     missingStages,
     score,
+    answers,
     failureCode: record.reportStatus === "failed"
       ? publicCaseReportFailureCode(record.reportErrorCode)
       : null,

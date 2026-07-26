@@ -33,9 +33,30 @@ export interface WorkedSolutionCalculationSection {
 }
 
 /**
+ * One question's candidate-facing worked answer, used by the fixed-question
+ * technical rounds where a single narrative would not map onto five independent
+ * questions.
+ *
+ * `questionId` is the same public question id the report's per-question score
+ * rows use, so the UI can align them. It carries authored candidate prose only —
+ * never a target element, rubric dimension, scoring anchor, acceptable
+ * alternative, or red flag.
+ */
+export interface WorkedSolutionQuestionSection {
+  questionId: string;
+  title: string;
+  points: string[];
+}
+
+/**
  * The strict, versioned candidate-facing worked-solution projection. This is the
- * only shape the protected solution endpoint ever returns. It carries exactly the
- * five required sections plus the identifying and disclaimer metadata.
+ * only shape the protected solution endpoint ever returns.
+ *
+ * The three prose sections and the disclaimer are always present. The two
+ * calculation sections are optional because the fixed-question technical rounds
+ * have no single case-wide arithmetic to narrate; `questions` is the optional
+ * per-question form those rounds use instead. Consulting cases continue to carry
+ * all five sections exactly as before.
  */
 export interface CaseWorkedSolutionView {
   /** Deterministic content version for this authored solution. */
@@ -48,12 +69,20 @@ export interface CaseWorkedSolutionView {
   framework: WorkedSolutionProseSection;
   /** 2. Analysis approach. */
   analysisApproach: WorkedSolutionProseSection;
-  /** 3. Step-by-step calculations. */
-  calculations: WorkedSolutionCalculationSection;
-  /** 4. Pressure-test calculation. */
-  pressureTest: WorkedSolutionCalculationSection;
+  /** 3. Step-by-step calculations. Omitted when the case has none. */
+  calculations?: WorkedSolutionCalculationSection;
+  /** 4. Pressure-test calculation. Omitted when the case has none. */
+  pressureTest?: WorkedSolutionCalculationSection;
+  /**
+   * Extra prose sections, rendered after the analysis approach. Used by cases
+   * whose strong answer is narrative rather than arithmetic (for example the
+   * system-design case's reliability and correctness discussion).
+   */
+  additionalSections?: WorkedSolutionProseSection[];
   /** 5. Example recommendation. */
   exampleRecommendation: WorkedSolutionProseSection;
+  /** Per-question answers, present only for the fixed-question rounds. */
+  questions?: WorkedSolutionQuestionSection[];
 }
 
 /** Shared disclaimer string for every candidate-facing worked solution. */
