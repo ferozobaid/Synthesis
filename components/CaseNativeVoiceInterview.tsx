@@ -6,7 +6,11 @@ import { readinessBand, to100 } from "@/components/ui/verdict";
 import type { CaseScore } from "@/lib/types";
 import type { PublicCaseReportFailureCode } from "@/lib/voice/case-report-public";
 // Type-only import: erased at build, so no worked-solution content is bundled.
-import type { CaseWorkedSolutionView } from "@/lib/voice/case-worked-solution-types";
+import type {
+  CaseWorkedSolutionView,
+  WorkedSolutionCalculationSection,
+  WorkedSolutionProseSection,
+} from "@/lib/voice/case-worked-solution-types";
 import { TECHNICAL_DIM_LABEL } from "@/lib/voice/case-technical-dimensions";
 import { questionBankTitle } from "@/lib/voice/question-bank-catalog";
 // Type-only: the projection is built server-side and arrives over the
@@ -789,13 +793,27 @@ function WorkedSolutionDisclosure({
   );
 }
 
+/**
+ * Renders whichever sections the case authored. Consulting cases carry all five;
+ * the technical experiences omit the calculation blocks and instead supply extra
+ * prose and/or per-question answers.
+ */
 function WorkedSolutionContent({ solution }: { solution: CaseWorkedSolutionView }) {
   return (
     <div style={{ animation: "fadeUp .35s ease both", display: "flex", flexDirection: "column", gap: 16 }}>
       <WorkedSolutionProse section={solution.framework} />
       <WorkedSolutionProse section={solution.analysisApproach} />
-      <WorkedSolutionCalc section={solution.calculations} />
-      <WorkedSolutionCalc section={solution.pressureTest} />
+      {solution.additionalSections?.map((section) => (
+        <WorkedSolutionProse key={section.heading} section={section} />
+      ))}
+      {solution.calculations && <WorkedSolutionCalc section={solution.calculations} />}
+      {solution.pressureTest && <WorkedSolutionCalc section={solution.pressureTest} />}
+      {solution.questions?.map((question) => (
+        <WorkedSolutionProse
+          key={question.questionId}
+          section={{ heading: question.title, points: question.points }}
+        />
+      ))}
       <WorkedSolutionProse section={solution.exampleRecommendation} />
     </div>
   );
@@ -804,7 +822,7 @@ function WorkedSolutionContent({ solution }: { solution: CaseWorkedSolutionView 
 function WorkedSolutionProse({
   section,
 }: {
-  section: CaseWorkedSolutionView["framework"];
+  section: WorkedSolutionProseSection;
 }) {
   return (
     <div>
@@ -824,7 +842,7 @@ function WorkedSolutionProse({
 function WorkedSolutionCalc({
   section,
 }: {
-  section: CaseWorkedSolutionView["calculations"];
+  section: WorkedSolutionCalculationSection;
 }) {
   return (
     <div>
