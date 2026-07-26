@@ -49,9 +49,9 @@ describe("Clickstream prompt fixture — anchor contract", () => {
   });
 });
 
-describe("Clickstream prompt fixture — candidate brief upfront", () => {
+describe("Clickstream prompt fixture — opening candidate brief", () => {
   const briefStart = text.indexOf("## Candidate brief");
-  const briefEnd = text.indexOf("## Stage 1");
+  const briefEnd = text.indexOf("### Progressive reveal policy");
   const brief = text.slice(briefStart, briefEnd);
 
   it("has a candidate-brief section between readiness and stage one", () => {
@@ -66,7 +66,23 @@ describe("Clickstream prompt fixture — candidate brief upfront", () => {
     expect(brief).toContain("approximately every minute");
   });
 
-  it("states every scale and constraint input upfront", () => {
+  // Progressive reveal replaced the original upfront-everything brief; the
+  // stage-by-stage assertions live in tests/clickstream-progressive-reveal.test.ts.
+  it("withholds the later-stage constraints from the opening brief", () => {
+    for (const fact of [
+      "100 million daily active users",
+      "10 billion events per day",
+      "500,000 events per second",
+      "under 60 seconds",
+      "99.99%",
+      "eventually consistent",
+      "exactly-once",
+    ]) {
+      expect(brief.includes(fact)).toBe(false);
+    }
+  });
+
+  it("states every withheld constraint later in the prompt", () => {
     for (const fact of [
       "100 million daily active users",
       "10 billion events per day",
@@ -77,7 +93,7 @@ describe("Clickstream prompt fixture — candidate brief upfront", () => {
       "eventually consistent",
       "exactly-once",
     ]) {
-      expect(brief.includes(fact)).toBe(true);
+      expect(text.includes(fact)).toBe(true);
     }
   });
 
@@ -89,9 +105,11 @@ describe("Clickstream prompt fixture — candidate brief upfront", () => {
     );
   });
 
-  it("explicitly revises the withhold-until-asked instruction", () => {
-    expect(text).toContain("These baseline facts are given upfront, not withheld.");
-    expect(text).toContain("Do **not** hold\nthem back until the candidate asks");
+  it("declares an explicit stage-by-stage reveal policy", () => {
+    expect(text).toContain("### Progressive reveal policy");
+    expect(text).toContain("Do **not** state a fact before the stage listed for it.");
+    // A direct question is still answered rather than deflected.
+    expect(text).toContain("If the candidate asks for one of these figures **before** its stage, give it");
   });
 
   it("keeps clarification available for genuinely unspecified assumptions", () => {
@@ -146,13 +164,16 @@ describe("Clickstream prompt fixture — hardening parity with the technical rou
   });
 });
 
-describe("the on-screen brief panel matches the spoken brief", () => {
-  const panel = nativeCaseBrief(CASE_ID)!;
+describe("the on-screen brief panel matches the spoken prompt", () => {
+  // At the final step every fact has been revealed, so the panel's full fact set
+  // must be exactly what the prompt instructs the assistant to say.
+  const panel = nativeCaseBrief(CASE_ID, 5)!;
   const items = panel.sections.flatMap((section) => section.items);
 
-  it("every panel fact is stated in the spoken brief", () => {
-    const spoken = text.slice(text.indexOf("## Candidate brief"), text.indexOf("## Stage 1"));
+  it("every panel fact is stated somewhere in the prompt", () => {
     const expectations: Record<string, string> = {
+      "Process and aggregate user clickstream data in near real-time": "near real-time",
+      "Events arrive from Web, iOS, and Android as semi-structured JSON": "Web, iOS, and Android",
       "Sessionization": "sessionization",
       "Daily Active Users": "Daily Active Users",
       "Top 10 trending pages": "top ten trending pages",
@@ -162,12 +183,14 @@ describe("the on-screen brief panel matches the spoken brief", () => {
       "500,000 events per second peak": "500,000 events per second",
       "Under 60-second end-to-end latency": "under 60 seconds",
       "99.99% availability": "99.99%",
-      "No loss of raw events": "cannot be lost",
+      "No loss of raw events": "raw events cannot be lost",
       "Eventual consistency for dashboards": "eventually consistent",
       "Exactly-once Gold reporting": "exactly-once",
+      "Avoid double-counting": "double-counting",
     };
     for (const item of items) {
-      expect(spoken.includes(expectations[item])).toBe(true);
+      expect(expectations[item]).toBeDefined();
+      expect(text.includes(expectations[item])).toBe(true);
     }
   });
 });

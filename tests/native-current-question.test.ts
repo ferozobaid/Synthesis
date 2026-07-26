@@ -208,7 +208,7 @@ describe("live Current question — private-content exclusion", () => {
   it("no brief or readiness string leaks private vocabulary", () => {
     for (const caseId of [CLICKSTREAM, DA_ROUND, DE_ROUND]) {
       const serialized = JSON.stringify([
-        nativeCaseBrief(caseId),
+        nativeCaseBrief(caseId, 5),
         nativeReadinessMessage(caseId),
       ]);
       for (const term of PRIVATE_VOCABULARY) {
@@ -219,28 +219,36 @@ describe("live Current question — private-content exclusion", () => {
 });
 
 describe("Clickstream case brief panel", () => {
-  it("lists the required outputs and the scale and constraint inputs", () => {
-    const brief = nativeCaseBrief(CLICKSTREAM)!;
+  // Progressive reveal itself is covered in tests/clickstream-progressive-reveal.test.ts.
+  it("shows nothing before the interview starts", () => {
+    expect(nativeCaseBrief(CLICKSTREAM)).toBeNull();
+  });
+
+  it("is persistent and shows the problem and outputs once clarification begins", () => {
+    const brief = nativeCaseBrief(CLICKSTREAM, 0)!;
     expect(brief.defaultOpen).toBe(true);
-    const [outputs, scale] = brief.sections;
-    expect(outputs.heading).toBe("Required outputs");
-    expect(outputs.items).toEqual([
-      "Sessionization",
-      "Daily Active Users",
-      "Top 10 trending pages",
-      "Approximately one-minute refresh",
-    ]);
-    expect(scale.heading).toBe("Scale and constraints");
-    expect(scale.items).toEqual([
+    const items = brief.sections.flatMap((section) => section.items);
+    expect(items).toContain("Sessionization");
+    expect(items).toContain("Daily Active Users");
+    expect(items).toContain("Top 10 trending pages");
+    expect(items).toContain("Approximately one-minute refresh");
+  });
+
+  it("shows every stated constraint by the final stage", () => {
+    const items = nativeCaseBrief(CLICKSTREAM, 5)!.sections.flatMap((s) => s.items);
+    for (const fact of [
       "100 million DAU",
       "10 billion events per day",
       "500,000 events per second peak",
+      "No loss of raw events",
       "Under 60-second end-to-end latency",
       "99.99% availability",
-      "No loss of raw events",
       "Eventual consistency for dashboards",
       "Exactly-once Gold reporting",
-    ]);
+      "Avoid double-counting",
+    ]) {
+      expect(items).toContain(fact);
+    }
   });
 
   it("is not shown for Airport or GCC Gym", () => {
@@ -250,7 +258,7 @@ describe("Clickstream case brief panel", () => {
 
   it("the two rounds show a collapsed overview with no grading content", () => {
     for (const caseId of [DA_ROUND, DE_ROUND]) {
-      const brief = nativeCaseBrief(caseId)!;
+      const brief = nativeCaseBrief(caseId, 0)!;
       expect(brief.defaultOpen).toBe(false);
       expect(brief.title).toBe("Round overview");
     }

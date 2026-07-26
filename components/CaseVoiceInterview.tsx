@@ -1854,7 +1854,10 @@ export default function CaseVoiceInterview({
             />
           )}
 
-          <NativeCaseBriefPanel caseId={nativeLiveCapability.caseId} />
+          <NativeCaseBriefPanel
+            caseId={nativeLiveCapability.caseId}
+            stageIndex={nativeLiveProgress.stageIndex}
+          />
 
           {liveCaption && (
             <div
@@ -2112,12 +2115,23 @@ function NativeCurrentQuestionPanel({ state }: { state: NativeCurrentQuestionSta
 }
 
 /**
- * Persistent brief for the system-design case (required outputs, scale, and
- * constraints stay on screen) and a collapsed round overview for the two
- * question-bank rounds. Airport and GCC Gym resolve to null and show nothing.
+ * Persistent brief for the system-design case and a collapsed round overview for
+ * the two question-bank rounds. Airport and GCC Gym resolve to null and show
+ * nothing.
+ *
+ * The Clickstream brief reveals progressively: it is derived purely from the
+ * current progress step, so it renders nothing before the interview starts and
+ * reconstructs identically after a refresh without any separate reveal state.
+ * Only the open/closed disclosure is local.
  */
-function NativeCaseBriefPanel({ caseId }: { caseId: string }) {
-  const brief = nativeCaseBrief(caseId);
+function NativeCaseBriefPanel({
+  caseId,
+  stageIndex,
+}: {
+  caseId: string;
+  stageIndex: number;
+}) {
+  const brief = nativeCaseBrief(caseId, stageIndex);
   const [open, setOpen] = useState(brief?.defaultOpen ?? false);
   if (!brief) return null;
   return (

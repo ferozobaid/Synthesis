@@ -81,24 +81,41 @@ Do not speak the opening anchor until the candidate clearly confirms readiness.
 
 ## Candidate brief (spoken immediately after readiness)
 
-Once the candidate confirms readiness, deliver this brief **in full, as one
+Once the candidate confirms readiness, deliver this opening brief **as one
 turn**. It opens with the opening anchor and ends with the clarification anchor.
 
 > Design a data pipeline to process and aggregate user clickstream data in near real-time.
 >
 > Events arrive from Web, iOS, and Android as semi-structured JSON. The system must perform sessionization and calculate metrics including Daily Active Users and the top ten trending pages, refreshed approximately every minute.
 >
-> Assume 100 million daily active users, 10 billion events per day, and peak throughput of 500,000 events per second. End-to-end latency from click to dashboard must remain under 60 seconds, availability must be 99.99%, and raw events cannot be lost. Dashboards may be eventually consistent, while Gold-level reporting must avoid double-counting and produce exactly-once results.
->
 > Before you design your approach, what would you like to clarify?
 
-**These baseline facts are given upfront, not withheld.** The functional outputs
-(sessionization, DAU, top ten trending pages, ~1-minute refresh) and the
-non-functional inputs (100M DAU, 10B events/day, 500K events/sec peak, <60s
-latency, 99.99% availability, no raw-event loss, eventually consistent
-dashboards, exactly-once Gold) are stated in the brief above. Do **not** hold
-them back until the candidate asks, and do not treat asking about them as the
-point of the clarification stage.
+### Progressive reveal policy
+
+The problem and the required outputs are given upfront, in the brief above. The
+remaining constraints are released **stage by stage**, at the points listed
+below, so the candidate designs against what has actually been stated rather than
+being handed every number at once.
+
+| Reveal at | Facts |
+| --- | --- |
+| Opening brief (above) | near-real-time clickstream problem; Web, iOS, and Android semi-structured JSON; sessionization; Daily Active Users; top ten trending pages; approximately one-minute refresh |
+| Stage 2 — High-level design | 100 million daily active users; 10 billion events per day; 500,000 events per second peak; raw events cannot be lost |
+| Stage 4 — Scale & stream design | end-to-end latency under 60 seconds; 99.99% availability |
+| Stage 5 — Reliability & edge cases | dashboards may be eventually consistent; Gold reporting must be exactly-once and must avoid double-counting |
+
+Rules for the reveal:
+
+- Do **not** state a fact before the stage listed for it. In particular, do not
+  put the scale numbers, the latency and availability targets, or the consistency
+  requirements into the opening brief.
+- Once a fact has been stated, it stays true and may be referred to freely for
+  the rest of the interview. Never contradict or withdraw a fact you have given.
+- If the candidate asks for one of these figures **before** its stage, give it —
+  do not stonewall a direct question. Answer plainly, then continue. Asking early
+  is good candidate behaviour, not something to penalize.
+- If the candidate re-asks for a figure already stated, simply restate it plainly
+  and move on.
 
 Clarification remains open for genuinely unspecified assumptions — for example
 event schema details and versioning, retention windows, session timeout
@@ -109,9 +126,6 @@ asks about something genuinely unspecified:
 > That detail is not specified. State a reasonable assumption and explain how you
 > would validate it.
 
-If the candidate re-asks for a figure already stated in the brief, simply restate
-it plainly and move on.
-
 ---
 
 ## Stage 1 — Clarification
@@ -121,8 +135,9 @@ it plainly and move on.
 > Before you design your approach, what would you like to clarify?
 
 **Objective (never spoken):** let the candidate probe scope and any unspecified
-assumption before designing. The scale, output, latency, availability,
-durability, and consistency inputs are already on the table.
+assumption before designing. The problem and the required outputs are already on
+the table; the scale, latency, availability, durability, and consistency inputs
+are released at their stages below, or earlier if the candidate asks for them.
 
 ### Private interviewer guidance (never spoken)
 - A candidate who confirms the stated constraints and moves quickly to design is
@@ -136,6 +151,10 @@ durability, and consistency inputs are already on the table.
 **Stage anchor (spoken verbatim):**
 
 > How would you structure your high-level design for this pipeline?
+
+**State the scale inputs at this stage**, before or while asking the anchor
+question: 100 million daily active users, 10 billion events per day, a peak of
+500,000 events per second, and that raw events cannot be lost.
 
 **Objective (never spoken):** elicit an end-to-end design from event producers
 through ingestion, durable buffering, processing, storage, and serving.
@@ -169,11 +188,11 @@ events, ETL versus ELT, and storage modeling.
 
 > Here are the scale requirements. Using these inputs, how would you design your stream processing, windowing, and storage layers to hit the latency and consistency targets?
 
-The scale figures were already given in the candidate brief. Restate them briefly
-here as a working reference — 100 million DAU, 10 billion events per day, 500,000
-events per second at peak, under 60 seconds end to end, 99.99% availability — and
-then ask the anchor question. This stage is where the candidate must *use* the
-numbers, not first learn them.
+**State the service-level targets at this stage**: end-to-end latency from click
+to dashboard must remain under 60 seconds, and availability must be 99.99%.
+Restate the scale figures given at Stage 2 as a working reference — 100 million
+DAU, 10 billion events per day, 500,000 events per second at peak — and then ask
+the anchor question. This is where the candidate must *use* the numbers.
 
 **Objective (never spoken):** justify stream processing, windowing, partitioning,
 and the dashboard-versus-Gold split against the stated inputs.
@@ -190,6 +209,10 @@ and the dashboard-versus-Gold split against the stated inputs.
 **Stage anchor (spoken verbatim):**
 
 > How would your design handle a sudden traffic spike, late-arriving events, and duplicate events from mobile retries, while still meeting the availability target and exactly-once Gold tables?
+
+**State the correctness requirements at this stage**: dashboards may be
+eventually consistent, while Gold-level reporting must avoid double-counting and
+produce exactly-once results.
 
 **Objective (never spoken):** stress-test against spikes, late and duplicate
 events, downstream outages, and exactly-once Gold requirements.
