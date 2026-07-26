@@ -110,7 +110,7 @@ const NON_STAR_PROFILES: Record<NonStarQuestionType, readonly NonStarDimensionSp
   motivation_role_fit: [
     {
       label: "Role-specific motivation",
-      rubric: "specific reasons for interest in this role or consulting path",
+      rubric: "specific reasons for interest in this role, function, or field",
       high: "Gives role-specific reasons for the interest.",
       mid: "Shows some interest, but the role-specific reason needs sharpening.",
       low: "Motivation sounds generic or unclear.",
@@ -414,7 +414,7 @@ function nonStarDimensionScores(
   const company = companyNameFromQuestion(question);
   const hasFirstPerson = has(/\b(i|my|me)\b/i, answer);
   const hasBecause = has(/\b(because|drawn to|interested in|excited by|motivated by|appeals to|aligns? with|value)\b/i, answer);
-  const roleTerms = has(/\b(role|consulting|consultant|analyst|data|client|business|problem|stakeholder|project|career)\b/i, answer);
+  const roleTerms = has(/\b(role|consulting|consultant|analyst|analytics|data|engineer|product|design|marketing|sales|finance|client|business|industry|field|problem|stakeholder|project|career)\b/i, answer);
   const companyTerms =
     has(/\b(company|team|mission|product|client|culture|industry|market|values|technology|talent)\b/i, answer) ||
     (!!company && a.includes(company));

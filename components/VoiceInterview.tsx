@@ -21,6 +21,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { containment } from "@/lib/text";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import {
+  createUserSpeakingTracker,
+  quantizeLevel,
+  shouldPublishLevel,
+} from "@/components/interviewer/avatarState";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_BEHAVIOURAL_ASSISTANT_ID;
@@ -67,6 +72,19 @@ interface TranscriptLine {
   text: string;
 }
 
+/** Fine-grained call state lifted to the page for the interviewer avatar. */
+export interface VoiceAvatarState {
+  status: VoiceStatus;
+  muted: boolean;
+  /** Mic-level-inferred candidate speech (false when levels are unavailable). */
+  userSpeaking: boolean;
+  /** Quantized 0..1 display level: assistant output while speaking, else mic. */
+  level: number;
+}
+
+/** How often lifted audio levels are sampled/published (throttled + quantized). */
+const LEVEL_PUBLISH_MS = 120;
+
 const QUESTION_MATCH_THRESHOLD = 0.6;
 const QUESTION_SKIP_THRESHOLD = 0.8;
 // Post-call scoring can be many sequential model calls; poll a realistic window.
@@ -91,6 +109,18 @@ export interface PendingCapability {
 export interface PendingReadResult {
   pending: PendingCapability | null;
   expired: boolean;
+}
+
+export type InitialVoiceAction = "resume" | "expire" | "start" | "idle";
+
+export function resolveInitialVoiceAction(
+  pending: PendingCapability | null,
+  expired: boolean,
+  startRequested: boolean,
+): InitialVoiceAction {
+  if (pending) return "resume";
+  if (expired) return "expire";
+  return startRequested ? "start" : "idle";
 }
 
 export function isPendingExpired(p: Partial<PendingCapability> | null, now = Date.now()): boolean {
@@ -178,30 +208,57 @@ function nextQuestionIndex(spoken: string, questions: Question[], currentQ: numb
 
 export default function VoiceInterview({
   jdText,
+  targetRole,
+  targetCompany,
+  startRequested = true,
   onActiveChange,
+  onVoiceStateChange,
   onComplete,
 }: {
   jdText?: string;
+  /** Target role from the readiness store — grounds role-aware motivation wording. */
+  targetRole?: string | null;
+  /** Target company from the readiness store — grounds the "why this company" question. */
+  targetCompany?: string | null;
+  /** Fresh sessions remain idle until the page's preflight CTA is activated. */
+  startRequested?: boolean;
   /** True while the configured voice flow owns the screen. */
   onActiveChange?: (active: boolean) => void;
+  /** Fine-grained call state for the interviewer avatar. */
+  onVoiceStateChange?: (state: VoiceAvatarState) => void;
   /** Called once the post-call report is ready. */
   onComplete?: (report: VoiceReport) => void;
 }) {
   const configured = !!(WEB_KEY && ASSISTANT_ID);
 
-  const [status, setStatus] = useState<VoiceStatus>("connecting");
+  const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [muted, setMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
+  // Optional audio-level enhancement: absent Vapi level events simply leave
+  // these at their defaults, which renders as plain "listening".
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const vapiRef = useRef<VapiLike | null>(null);
+  const assistantLevelRef = useRef(0);
+  const localLevelRef = useRef(0);
+  const speakingTrackerRef = useRef(createUserSpeakingTracker());
+  const statusRef = useRef<VoiceStatus>("connecting");
+  statusRef.current = status;
   const startedRef = useRef(false);
   const initRef = useRef(false);
   const jdTextRef = useRef(jdText);
   jdTextRef.current = jdText;
+  const targetRoleRef = useRef(targetRole);
+  targetRoleRef.current = targetRole;
+  const targetCompanyRef = useRef(targetCompany);
+  targetCompanyRef.current = targetCompany;
+  const startRequestedRef = useRef(startRequested);
+  startRequestedRef.current = startRequested;
   const questionsRef = useRef<Question[]>([]);
   const currentIndexRef = useRef(-1);
   const sessionIdRef = useRef<string | null>(null);
@@ -221,8 +278,31 @@ export default function VoiceInterview({
     onActiveChange?.(voiceOwnsManualMode(configured, status));
   }, [configured, status, onActiveChange]);
 
+  useEffect(() => {
+    if (!configured) return;
+    onVoiceStateChange?.({ status, muted, userSpeaking, level });
+  }, [configured, status, muted, userSpeaking, level, onVoiceStateChange]);
+
+  // Throttled level publisher: samples the refs the Vapi listeners write into
+  // and only re-renders when the speaking flag or quantized level moves.
+  useEffect(() => {
+    if (!configured) return;
+    const timer = window.setInterval(() => {
+      const speaking = speakingTrackerRef.current.sample(localLevelRef.current, Date.now());
+      setUserSpeaking((prev) => (prev === speaking ? prev : speaking));
+      const raw =
+        statusRef.current === "speaking" ? assistantLevelRef.current : localLevelRef.current;
+      const next = quantizeLevel(raw);
+      setLevel((prev) => (shouldPublishLevel(prev, next) ? next : prev));
+    }, LEVEL_PUBLISH_MS);
+    return () => window.clearInterval(timer);
+  }, [configured]);
+
   const teardown = useCallback(() => {
     pollCancelRef.current = true;
+    assistantLevelRef.current = 0;
+    localLevelRef.current = 0;
+    speakingTrackerRef.current.reset();
     const vapi = vapiRef.current;
     vapiRef.current = null;
     try {
@@ -327,6 +407,8 @@ export default function VoiceInterview({
         body: JSON.stringify({
           module: "behavioural",
           jdText: jdTextRef.current ?? "",
+          targetRole: targetRoleRef.current ?? undefined,
+          companyName: targetCompanyRef.current ?? undefined,
         }),
       });
       if (!res.ok) throw new Error("Could not start the interview session.");
@@ -385,6 +467,19 @@ export default function VoiceInterview({
         setError("Voice connection error — you can still type your answers below.");
         setStatus("error");
       });
+
+      // Optional avatar enhancement: assistant output + local mic levels.
+      // Registration failures must never block call setup.
+      try {
+        vapi.on("volume-level", (payload) => {
+          assistantLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+        vapi.on("local-volume-level", (payload) => {
+          localLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+      } catch {
+        /* level visualization is optional */
+      }
 
       // Safe UI sync + live transcript, from FINAL transcripts only. Never logs
       // transcript/answer text; never ends the call from transcript content.
@@ -460,25 +555,60 @@ export default function VoiceInterview({
     void start();
   }, [start]);
 
-  // Init once: resume polling a pending report (refresh recovery), else auto-start.
+  // Init once: pending report recovery always wins. Fresh sessions only start
+  // after the page explicitly clears its preflight gate.
   useEffect(() => {
     if (!configured || initRef.current) return;
     initRef.current = true;
     const { pending, expired } = readPending();
-    if (pending) {
-      sessionIdRef.current = pending.sessionId;
-      reportTokenRef.current = pending.reportToken;
-      setStatus("processing");
-      void pollReport();
-    } else if (expired) {
-      expireReportSession();
-    } else {
-      void start();
+    const action = resolveInitialVoiceAction(
+      pending,
+      expired,
+      startRequestedRef.current,
+    );
+    switch (action) {
+      case "resume":
+        sessionIdRef.current = pending!.sessionId;
+        reportTokenRef.current = pending!.reportToken;
+        setStatus("processing");
+        void pollReport();
+        break;
+      case "expire":
+        expireReportSession();
+        break;
+      case "start":
+        void start();
+        break;
+      case "idle":
+        setStatus("idle");
+        break;
     }
     return teardown;
-  }, [configured, start, teardown, pollReport, expireReportSession]);
+  }, [
+    configured,
+    start,
+    teardown,
+    pollReport,
+    expireReportSession,
+  ]);
+
+  // The initial pass may deliberately leave the component idle. Start when the
+  // preflight button is clicked without remounting or changing routes.
+  useEffect(() => {
+    if (
+      !configured ||
+      !startRequested ||
+      !initRef.current ||
+      statusRef.current !== "idle" ||
+      startedRef.current
+    ) {
+      return;
+    }
+    void start();
+  }, [configured, startRequested, start]);
 
   if (!configured) return null;
+  if (!startRequested && status === "idle") return null;
 
   const active = status === "listening" || status === "speaking";
   const label =

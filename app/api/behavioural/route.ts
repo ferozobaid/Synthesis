@@ -26,8 +26,18 @@ export async function POST(req: NextRequest) {
     // without the user pasting one.
     const jdText: string =
       body.jdText && body.jdText.trim() ? body.jdText : useMocks() ? MOCK_JD_TEXT : "";
+    // Explicit target from the readiness store / onboarding grounds role-aware
+    // motivation wording; startBehavioural falls back to the parsed JD when absent.
+    const targetRole = typeof body.targetRole === "string" ? body.targetRole : null;
+    const targetCompany = typeof body.targetCompany === "string" ? body.targetCompany : null;
     return NextResponse.json(
-      startBehavioural({ questionBank: MOCK_QUESTIONS, jdText, userId: MOCK_USER_ID }),
+      startBehavioural({
+        questionBank: MOCK_QUESTIONS,
+        jdText,
+        userId: MOCK_USER_ID,
+        targetRole,
+        targetCompany,
+      }),
     );
   }
 

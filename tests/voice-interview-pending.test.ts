@@ -6,6 +6,7 @@ import {
   POLL_404_GRACE_MS,
   isPendingExpired,
   readPending,
+  resolveInitialVoiceAction,
   shouldExpireRepeated404,
   voiceOwnsManualMode,
 } from "@/components/VoiceInterview";
@@ -78,5 +79,18 @@ describe("VoiceInterview pending report capability", () => {
     expect(voiceOwnsManualMode(true, "failed")).toBe(false);
     expect(EXPIRED_REPORT_MESSAGE).toContain("expired");
     expect(EXPIRED_REPORT_MESSAGE).toContain("text mode");
+  });
+
+  it("keeps a fresh interview idle until preflight while preserving refresh recovery", () => {
+    const pending = {
+      sessionId: "session-recent",
+      reportToken: "token-recent",
+      createdAt: 1_000_000,
+    };
+
+    expect(resolveInitialVoiceAction(null, false, false)).toBe("idle");
+    expect(resolveInitialVoiceAction(null, false, true)).toBe("start");
+    expect(resolveInitialVoiceAction(pending, false, false)).toBe("resume");
+    expect(resolveInitialVoiceAction(null, true, false)).toBe("expire");
   });
 });

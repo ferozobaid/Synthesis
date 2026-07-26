@@ -6,11 +6,20 @@ import { readinessBand, to100 } from "@/components/ui/verdict";
 import type { CaseScore } from "@/lib/types";
 import type { PublicCaseReportFailureCode } from "@/lib/voice/case-report-public";
 // Type-only import: erased at build, so no worked-solution content is bundled.
-import type { CaseWorkedSolutionView } from "@/lib/voice/case-worked-solution-types";
+import type {
+  CaseWorkedSolutionView,
+  WorkedSolutionCalculationSection,
+  WorkedSolutionProseSection,
+} from "@/lib/voice/case-worked-solution-types";
+import { TECHNICAL_DIM_LABEL } from "@/lib/voice/case-technical-dimensions";
+import { questionBankTitle } from "@/lib/voice/question-bank-catalog";
+// Type-only: the projection is built server-side and arrives over the
+// report-token-authorized status route. No mapper or transcript is bundled here.
+import type { CandidateAnswerGroup } from "@/lib/voice/case-answer-projection";
+import { nativeProgressDefinition } from "@/lib/voice/native-progress";
 import type {
   CasePostCallDimensionScore,
   CasePostCallScore,
-  CaseReportDimension,
   CaseReportStage,
   ReportStatus,
 } from "@/lib/voice/types";
@@ -22,6 +31,8 @@ export interface PendingNativeCaseReport {
   sessionId: string;
   reportToken: string;
   caseId: string;
+  caseTrack?: "strategy" | "technical";
+  caseRole?: "data_engineering" | "data_analyst";
   caseTitle: string;
   assistantId: string;
   createdAt: number;
@@ -30,14 +41,20 @@ export interface PendingNativeCaseReport {
 export interface NativeCaseReportProjection {
   status: ReportStatus;
   caseId: string;
+  caseTrack?: "strategy" | "technical" | null;
+  caseRole?: "data_engineering" | "data_analyst" | null;
   caseTitle: string | null;
+  evaluatorType?: string;
   partial: boolean | null;
   observedStages: CaseReportStage[];
   missingStages: CaseReportStage[];
   score: CasePostCallScore | null;
+  /** Candidate-safe answer review. Absent on legacy reports. */
+  answers?: CandidateAnswerGroup[] | null;
   failureCode: PublicCaseReportFailureCode | null;
 }
 
+/** Consulting stage labels — the fallback when a case has no progress definition. */
 const STAGE_LABEL: Record<CaseReportStage, string> = {
   clarification: "Clarification",
   framework: "Framework",
@@ -47,13 +64,61 @@ const STAGE_LABEL: Record<CaseReportStage, string> = {
   recommendation: "Recommendation",
 };
 
-const DIMENSION_LABEL: Record<CaseReportDimension, string> = {
+/**
+ * Report stage labels come from the same evaluator-aware definition the live
+ * tracker uses, so a technical case never shows consulting stage names in its
+ * report either. Internal stage ids are unchanged.
+ */
+function stageLabeller(caseId: string): (stage: CaseReportStage) => string {
+  const definition = nativeProgressDefinition(caseId);
+  if (!definition || definition.kind === "question_bank") {
+    return (stage) => STAGE_LABEL[stage];
+  }
+  const byId = new Map(definition.steps.map((step) => [step.id, step.label]));
+  return (stage) => byId.get(stage) ?? STAGE_LABEL[stage];
+}
+
+const CONSULTING_DIMENSION_LABEL: Record<string, string> = {
   structure: "Structure",
   hypothesis_driven_thinking: "Hypothesis-driven thinking",
   quantitative_reasoning: "Quantitative reasoning",
   synthesis: "Synthesis",
   communication: "Communication",
 };
+
+/** Every dimension label this build knows about, keyed by dimension id. */
+const DIMENSION_LABEL: Record<string, string> = {
+  ...CONSULTING_DIMENSION_LABEL,
+  ...TECHNICAL_DIM_LABEL,
+};
+
+/**
+ * Falls back to the question-bank title (which itself humanizes any unknown id) so
+ * technical_question_bank per-question rows render by their question title.
+ */
+function dimensionLabel(dimension: string): string {
+  return DIMENSION_LABEL[dimension] ?? questionBankTitle(dimension);
+}
+
+const SECTION_LABELS = {
+  consulting: {
+    framework: "Framework feedback",
+    recommendation: "Recommendation feedback",
+    quantitative: "Quantitative reasoning feedback",
+  },
+  technical_system_design: {
+    framework: "Pipeline design feedback",
+    recommendation: "Operations & trade-off feedback",
+    quantitative: "Scale & reliability feedback",
+  },
+  technical_question_bank: {
+    framework: "Per-question feedback",
+    recommendation: "Next steps",
+    quantitative: "Overall feedback",
+  },
+} as const;
+
+export type NativeCaseEvaluatorType = keyof typeof SECTION_LABELS;
 
 export interface NativeCaseReportPresentation {
   label: "Case Report" | "Partial Report";
@@ -68,9 +133,29 @@ export interface NativeCaseReportPresentation {
   strengths: string[];
   improvements: string[];
   frameworkFeedback: string[] | null;
+  frameworkFeedbackLabel: string;
   quantitativeFeedback: string | null;
+  quantitativeFeedbackLabel: string;
   recommendationFeedback: string[] | null;
+  recommendationFeedbackLabel: string;
   nextPracticePriorities: string[];
+  /** Per-step candidate answers, keyed by backend step id. Empty when unavailable. */
+  answersByStepId: Record<string, CandidateAnswerGroup>;
+  /** Ordered groups, used for the Clickstream per-stage review. */
+  answerGroups: CandidateAnswerGroup[];
+  /**
+   * Where the answer review attaches. Question-bank rounds key answers by
+   * question id — the same id as their per-question score rows — so the
+   * disclosure sits inline on each row. The system-design case keys answers by
+   * stage, which no dimension row matches, so it gets its own stage section.
+   */
+  answerReviewMode: "per_dimension" | "per_stage" | "none";
+}
+
+function resolveEvaluatorType(value: string | undefined): NativeCaseEvaluatorType {
+  if (value === "technical_system_design") return "technical_system_design";
+  if (value === "technical_question_bank") return "technical_question_bank";
+  return "consulting";
 }
 
 export function nativeCaseReportPresentation(
@@ -78,23 +163,44 @@ export function nativeCaseReportPresentation(
 ): NativeCaseReportPresentation | null {
   if (report.status !== "done" || !report.score || report.partial === null) return null;
   const partial = report.partial;
+  const sectionLabels = SECTION_LABELS[resolveEvaluatorType(report.evaluatorType)];
+  // Legacy reports predate the answer projection and simply have none.
+  const answerGroups = Array.isArray(report.answers) ? report.answers : [];
+  const evaluatorType = resolveEvaluatorType(report.evaluatorType);
+  const stageLabel = stageLabeller(report.caseId);
   return {
+    answerGroups,
+    answerReviewMode:
+      answerGroups.length === 0
+        ? "none"
+        : evaluatorType === "technical_question_bank"
+          ? "per_dimension"
+          : evaluatorType === "technical_system_design"
+            ? "per_stage"
+            : "none",
+    answersByStepId: Object.fromEntries(answerGroups.map((group) => [group.id, group])),
     label: partial ? "Partial Report" : "Case Report",
     caseTitle: report.caseTitle ?? "Case interview",
     partial,
-    readinessUpdated: !partial && report.score.overall !== null,
+    readinessUpdated:
+      report.caseTrack !== "technical" &&
+      !partial &&
+      report.score.overall !== null,
     overall: partial ? null : report.score.overall,
     summary: report.score.summary,
     dimensions: partial
       ? report.score.dimension_scores.filter((dimension) => dimension.score !== null)
       : report.score.dimension_scores,
-    observedStages: report.observedStages.map((stage) => STAGE_LABEL[stage]),
-    missingStages: report.missingStages.map((stage) => STAGE_LABEL[stage]),
+    observedStages: report.observedStages.map(stageLabel),
+    missingStages: report.missingStages.map(stageLabel),
     strengths: report.score.strengths,
     improvements: report.score.improvements,
     frameworkFeedback: report.score.improved_framework_outline,
+    frameworkFeedbackLabel: sectionLabels.framework,
     quantitativeFeedback: report.score.quantitative_assessment,
+    quantitativeFeedbackLabel: sectionLabels.quantitative,
     recommendationFeedback: report.score.improved_recommendation_outline,
+    recommendationFeedbackLabel: sectionLabels.recommendation,
     nextPracticePriorities: report.score.next_focus,
   };
 }
@@ -422,7 +528,7 @@ function NativeCaseReportView({
             <div key={dimension.dimension}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ width: 190, fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
-                  {DIMENSION_LABEL[dimension.dimension]}
+                  {dimensionLabel(dimension.dimension)}
                 </span>
                 {dimension.score !== null && (
                   <>
@@ -434,6 +540,15 @@ function NativeCaseReportView({
                 )}
               </div>
               <p style={{ ...bodyStyle, fontSize: 12, margin: "5px 0 0" }}>{dimension.justification}</p>
+              {/* Question-bank rounds key answers by question id, which is the
+                  dimension id on these rows. Consulting/system-design dimensions
+                  never match a step id, so nothing renders for them here. */}
+              {presentation.answerReviewMode === "per_dimension" && (
+                <AnswerDisclosure
+                  group={presentation.answersByStepId[dimension.dimension]}
+                  idPrefix={`dimension-${dimension.dimension}`}
+                />
+              )}
             </div>
           ))}
           {presentation.dimensions.length === 0 && (
@@ -449,6 +564,22 @@ function NativeCaseReportView({
         </div>
       </section>
 
+      {presentation.answerReviewMode === "per_stage" && (
+        <section style={cardStyle}>
+          <SectionLabel style={{ marginBottom: 14 }}>Your answers</SectionLabel>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {presentation.answerGroups.map((group) => (
+              <div key={group.id}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                  {group.label}
+                </span>
+                <AnswerDisclosure group={group} idPrefix={`stage-${group.id}`} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginBottom: 16 }}>
         <FeedbackList title="Strengths" values={presentation.strengths} color="var(--success)" />
         <FeedbackList title="Improvements" values={presentation.improvements} color="var(--partial)" />
@@ -457,17 +588,17 @@ function NativeCaseReportView({
       {(presentation.frameworkFeedback || presentation.recommendationFeedback) && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginBottom: 16 }}>
           {presentation.frameworkFeedback && (
-            <FeedbackList title="Framework feedback" values={presentation.frameworkFeedback} color="var(--accent)" />
+            <FeedbackList title={presentation.frameworkFeedbackLabel} values={presentation.frameworkFeedback} color="var(--accent)" />
           )}
           {presentation.recommendationFeedback && (
-            <FeedbackList title="Recommendation feedback" values={presentation.recommendationFeedback} color="var(--accent)" />
+            <FeedbackList title={presentation.recommendationFeedbackLabel} values={presentation.recommendationFeedback} color="var(--accent)" />
           )}
         </div>
       )}
 
       {presentation.quantitativeFeedback && (
         <section style={cardStyle}>
-          <SectionLabel style={{ marginBottom: 9 }}>Quantitative reasoning feedback</SectionLabel>
+          <SectionLabel style={{ marginBottom: 9 }}>{presentation.quantitativeFeedbackLabel}</SectionLabel>
           <p style={{ ...bodyStyle, margin: 0 }}>{presentation.quantitativeFeedback}</p>
         </section>
       )}
@@ -477,6 +608,87 @@ function NativeCaseReportView({
         values={presentation.nextPracticePriorities}
         color="var(--accent)"
       />
+    </div>
+  );
+}
+
+/**
+ * One reusable candidate-safe answer review, shared by the Clickstream per-stage
+ * rows and the two rounds' per-question rows.
+ *
+ * It renders only what the report route projected: the candidate's own turns and
+ * the spoken question for context. It holds local disclosure state only, needs no
+ * Vapi connection, and re-renders identically after a refresh because the data
+ * comes from the report-token-authorized status route.
+ */
+function AnswerDisclosure({
+  group,
+  idPrefix,
+}: {
+  group: CandidateAnswerGroup | undefined;
+  idPrefix: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!group) return null;
+  const buttonId = `${idPrefix}-answer-toggle`;
+  const panelId = `${idPrefix}-answer-panel`;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        type="button"
+        id={buttonId}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((current) => !current)}
+        style={answerToggleStyle}
+      >
+        <span>Your answer</span>
+        <span aria-hidden style={{ color: "var(--ink-3)", fontSize: 11 }}>
+          {open ? "▲" : "▼"}
+        </span>
+      </button>
+      <div
+        id={panelId}
+        role="region"
+        aria-labelledby={buttonId}
+        hidden={!open}
+        style={{ marginTop: open ? 10 : 0 }}
+      >
+        {open && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {group.question && (
+              <p style={{ ...bodyStyle, margin: 0, fontStyle: "italic", color: "var(--ink-3)" }}>
+                {group.question}
+              </p>
+            )}
+            {group.turns.length > 0 ? (
+              group.turns.map((turn) => (
+                <p
+                  key={turn.ordinal}
+                  style={{
+                    ...bodyStyle,
+                    margin: 0,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: "var(--surface-2)",
+                  }}
+                >
+                  {turn.text}
+                </p>
+              ))
+            ) : (
+              <p style={{ ...bodyStyle, margin: 0, color: "var(--ink-4)" }}>
+                No answer was captured for this part of the interview.
+              </p>
+            )}
+            {group.truncated && (
+              <p style={{ margin: 0, fontSize: 11, color: "var(--ink-4)" }}>
+                Shortened for display.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -581,13 +793,27 @@ function WorkedSolutionDisclosure({
   );
 }
 
+/**
+ * Renders whichever sections the case authored. Consulting cases carry all five;
+ * the technical experiences omit the calculation blocks and instead supply extra
+ * prose and/or per-question answers.
+ */
 function WorkedSolutionContent({ solution }: { solution: CaseWorkedSolutionView }) {
   return (
     <div style={{ animation: "fadeUp .35s ease both", display: "flex", flexDirection: "column", gap: 16 }}>
       <WorkedSolutionProse section={solution.framework} />
       <WorkedSolutionProse section={solution.analysisApproach} />
-      <WorkedSolutionCalc section={solution.calculations} />
-      <WorkedSolutionCalc section={solution.pressureTest} />
+      {solution.additionalSections?.map((section) => (
+        <WorkedSolutionProse key={section.heading} section={section} />
+      ))}
+      {solution.calculations && <WorkedSolutionCalc section={solution.calculations} />}
+      {solution.pressureTest && <WorkedSolutionCalc section={solution.pressureTest} />}
+      {solution.questions?.map((question) => (
+        <WorkedSolutionProse
+          key={question.questionId}
+          section={{ heading: question.title, points: question.points }}
+        />
+      ))}
       <WorkedSolutionProse section={solution.exampleRecommendation} />
     </div>
   );
@@ -596,7 +822,7 @@ function WorkedSolutionContent({ solution }: { solution: CaseWorkedSolutionView 
 function WorkedSolutionProse({
   section,
 }: {
-  section: CaseWorkedSolutionView["framework"];
+  section: WorkedSolutionProseSection;
 }) {
   return (
     <div>
@@ -616,7 +842,7 @@ function WorkedSolutionProse({
 function WorkedSolutionCalc({
   section,
 }: {
-  section: CaseWorkedSolutionView["calculations"];
+  section: WorkedSolutionCalculationSection;
 }) {
   return (
     <div>
@@ -653,6 +879,20 @@ const workedSolutionToggleStyle = {
   fontWeight: 600,
   padding: "11px 14px",
   borderRadius: 10,
+  cursor: "pointer",
+} as const;
+
+const answerToggleStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  border: "1px solid var(--line)",
+  background: "var(--surface-2)",
+  color: "var(--ink-2)",
+  fontSize: 12,
+  fontWeight: 600,
+  padding: "6px 10px",
+  borderRadius: 8,
   cursor: "pointer",
 } as const;
 

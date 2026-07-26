@@ -1,0 +1,117 @@
+{
+  "id": "data_engineer_clickstream",
+  "title": "Clickstream Data Pipeline",
+  "firm": "Data & AI Consulting",
+  "type": "data engineering / system design",
+  "evaluator_type": "technical_system_design",
+  "prompt": "Design a data pipeline to process and aggregate user clickstream data in near real-time. Events arrive from Web, iOS, and Android as semi-structured JSON. The product needs sessionization plus near-real-time metrics such as Daily Active Users and the top ten trending pages, refreshed roughly every minute. The system must support 100 million daily active users, 10 billion events per day, and a peak throughput of 500,000 events per second, with high variance driven by marketing spikes. End-to-end latency from click to dashboard must stay under 60 seconds, availability must be 99.99%, and raw events must never be lost even if downstream processing is down. Dashboards can be eventually consistent, but the Gold-level reporting tables must be exactly-once to avoid double-counting.",
+  "content": "A candidate designs an end-to-end pipeline for high-volume clickstream ingestion, stream processing, and OLAP-ready serving under tight latency, durability, and correctness constraints. Backend-only record: the reference architecture, deduplication and backfill strategy, and observability approach live in quant and target_solution_notes; the scale exhibit exposes only candidate-facing inputs (DAU, event volume, throughput, latency, availability, consistency requirements).",
+  "stages": [
+    {
+      "id": "intro",
+      "objective": "Candidate restates the problem and the decision to be made in their own words.",
+      "interviewer_prompt": "Walk me through how you understand this problem and what we're being asked to design.",
+      "advance_criteria": "Frames the goal: a near-real-time pipeline that ingests, processes, and serves clickstream data at scale with defined latency and correctness guarantees.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "clarification",
+      "objective": "Let the candidate ask focused questions about scope, functional requirements, and non-functional requirements before designing.",
+      "interviewer_prompt": "Before you design your approach, what would you like to clarify?",
+      "advance_criteria": "Asks targeted questions about platform scope (web/iOS/Android), what 'near real-time' covers, functional needs (sessionization, DAU, trending pages), and non-functional constraints (scale, latency, availability, consistency).",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "framework",
+      "objective": "Elicit a high-level, end-to-end architecture before drilling into any one component.",
+      "interviewer_prompt": "How would you structure your high-level design for this pipeline?",
+      "advance_criteria": "Covers the full data lifecycle: ingestion, a durable stream buffer, stream processing, raw/bronze storage, and a serving/gold layer, with entities and rough API shape.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "analysis",
+      "objective": "Drill into ingestion, schema handling, and the ETL/ELT and storage-modeling choices.",
+      "interviewer_prompt": "Let's drill into your design. How would you handle ingestion and schema for these events, and would you transform data before loading it or after, and why?",
+      "advance_criteria": "Reasons about a schema registry, malformed-event handling, ETL versus ELT trade-offs, and warehouse, lake, or lakehouse storage modeling appropriate to this workload; accepts other valid ideas.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "data_reveal",
+      "objective": "Design the stream-processing layer against the revealed scale inputs.",
+      "interviewer_prompt": "Here are the scale requirements. Using these inputs, how would you design your stream processing, windowing, and storage layers to hit the latency and consistency targets?",
+      "advance_criteria": "Uses the revealed scale, latency, and consistency figures to justify a stream-processing engine, windowing strategy (e.g. tumbling for metrics, session windows for sessionization), and a batch-versus-streaming split between the dashboard and Gold paths.",
+      "data_drops": ["exhibit_clickstream_scale_inputs"],
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "pressure_test",
+      "objective": "Stress-test the design against traffic spikes, late data, deduplication, and failure scenarios.",
+      "interviewer_prompt": "How would your design handle a sudden traffic spike, late-arriving events, and duplicate events from mobile retries, while still hitting 99.99% availability and exactly-once Gold tables?",
+      "advance_criteria": "Reasons about watermarking and a late-data buffer, an idempotent-write or dedup strategy (e.g. event id plus a bounded window), disk-buffering or backpressure handling for spikes, and how raw-event durability is preserved even if processing is unavailable.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "recommendation",
+      "objective": "Bring the design together with operational excellence and a clear final recommendation.",
+      "interviewer_prompt": "Let's bring it together. What is your final recommendation for this pipeline, including how you'd operate and evolve it over time?",
+      "advance_criteria": "Synthesizes the architecture into a clear recommendation, addresses backfill strategy for logic changes, observability (consumer lag, data drift, completeness), partitioning and compaction for cost and query performance, and names the key trade-offs made.",
+      "probe_bank": [],
+      "hint_ladder": []
+    },
+    {
+      "id": "scoring",
+      "objective": "Terminal stage. The live interview concludes unscored.",
+      "interviewer_prompt": "Thank you. That concludes the live case interview.",
+      "advance_criteria": "n/a",
+      "probe_bank": [],
+      "hint_ladder": []
+    }
+  ],
+  "exhibits": [
+    {
+      "id": "exhibit_clickstream_scale_inputs",
+      "title": "Clickstream Scale & Reliability Inputs",
+      "stage": "data_reveal",
+      "synthesized": true,
+      "data": {
+        "daily_active_users": 100000000,
+        "events_per_day": 10000000000,
+        "peak_events_per_second": 500000,
+        "max_end_to_end_latency_seconds": 60,
+        "availability_target_pct": 99.99,
+        "raw_event_durability": "no loss of raw events, even if processing is down",
+        "dashboard_consistency": "eventual consistency",
+        "gold_table_consistency": "exactly-once processing",
+        "event_format": "semi-structured JSON",
+        "traffic_pattern": "high variance with marketing-driven spikes"
+      },
+      "insights": [
+        "500,000 events/sec peak throughput means the ingestion tier and stream buffer must absorb bursty write load without dropping raw events.",
+        "A sub-60-second end-to-end latency budget rules out a pure batch path for the dashboard, but leaves room for a batch reconciliation path into Gold.",
+        "Exactly-once only applies to Gold reporting tables; the dashboard path can trade strict correctness for latency."
+      ]
+    }
+  ],
+  "scoring_rubric": {
+    "scale": "1-5 per dimension",
+    "dimensions": [
+      { "name": "requirements_clarification", "weight": 0.1, "description": "Asks targeted questions to scope functional and non-functional requirements before designing.", "anchors": { "1": "Designs without clarifying scope or requirements.", "3": "Asks some relevant questions but misses key constraints.", "5": "Systematically scopes platforms, functional needs, and non-functional constraints (scale, latency, availability, consistency)." } },
+      { "name": "pipeline_design", "weight": 0.1, "description": "Architects the full data flow from source systems to end-user consumption.", "anchors": { "1": "No coherent end-to-end flow.", "3": "Covers most stages but with gaps or unclear boundaries.", "5": "Clear ingestion, buffering, processing, storage, and serving layers with sensible component choices." } },
+      { "name": "etl_elt_strategy", "weight": 0.1, "description": "Reasons about transforming data before loading (ETL) versus within the storage layer (ELT), and justifies the choice for this workload.", "anchors": { "1": "No ETL/ELT reasoning.", "3": "Names ETL or ELT without justifying the trade-off.", "5": "Clearly justifies the transform strategy against latency, schema evolution, and cost." } },
+      { "name": "batch_streaming_tradeoffs", "weight": 0.1, "description": "Distinguishes when to process in scheduled batches versus real-time streams, and applies the right mode to each path.", "anchors": { "1": "Treats everything as batch or everything as streaming without justification.", "3": "Identifies a streaming need but reasoning is shallow.", "5": "Splits dashboard (streaming) and Gold/backfill (batch or hybrid) paths with clear justification." } },
+      { "name": "storage_modeling", "weight": 0.1, "description": "Chooses appropriate warehouse, lake, or lakehouse storage and schema design (e.g. SQL/NoSQL, star schema, partitioning) for the workload.", "anchors": { "1": "No storage or schema reasoning.", "3": "Names a storage layer without modeling or partitioning detail.", "5": "Justifies warehouse/lake/lakehouse choice, schema shape, and partitioning strategy tied to access patterns." } },
+      { "name": "scalability_performance", "weight": 0.1, "description": "Demonstrates how the design scales to the given throughput and stays cost- and query-efficient.", "anchors": { "1": "No discussion of scale or cost.", "3": "Acknowledges scale but no concrete mechanism.", "5": "Addresses partitioning, clustering/compaction, and cost-performance trade-offs concretely tied to the given throughput." } },
+      { "name": "reliability_fault_tolerance", "weight": 0.1, "description": "Ensures the pipeline meets the availability target and never loses raw events, including under component failure.", "anchors": { "1": "No fault-tolerance or availability reasoning.", "3": "Mentions redundancy generically without mechanism.", "5": "Concrete durability and failover mechanisms (e.g. disk-buffered stream, replication, dead-letter handling) tied to the 99.99% and no-data-loss targets." } },
+      { "name": "data_quality_deduplication", "weight": 0.1, "description": "Handles malformed events, late-arriving data, and duplicate events to protect downstream correctness.", "anchors": { "1": "No data-quality or dedup reasoning.", "3": "Names deduplication or late data without a concrete mechanism.", "5": "Concrete schema validation, dead-letter handling, watermarking for late data, and an idempotent or windowed dedup strategy." } },
+      { "name": "observability_operations", "weight": 0.1, "description": "Plans for backfills, monitoring, and operating the pipeline over time.", "anchors": { "1": "No operational plan.", "3": "Mentions monitoring generically.", "5": "Concrete backfill strategy plus monitoring of lag, data drift, and completeness." } },
+      { "name": "tradeoff_communication", "weight": 0.1, "description": "Communicates design trade-offs clearly and drives to a defensible recommendation.", "anchors": { "1": "Rambling, no clear position.", "3": "Clear but doesn't surface the key trade-offs.", "5": "Concise, structured, and explicit about the trade-offs made and why." } }
+    ]
+  },
+  "target_solution_notes": "A defensible reference design ingests events via Web/iOS/Android SDKs through a load balancer into an ingestion service, validated against a schema registry with malformed events routed to a dead-letter store. Events land in a durable, partitioned stream buffer (e.g. Kafka or Kinesis) sized for the peak throughput. A stream processor (e.g. Flink or Spark Structured Streaming) performs tumbling-window aggregation for near-real-time metrics and session-window sessionization, using watermarking to absorb a bounded amount of late-arriving data and an idempotent or bloom-filter based dedup strategy keyed on event id to guard against mobile-retry duplicates. Raw events persist immutably in a bronze object-storage layer, partitioned by event date, hour, and type, for durability and batch backfills; small streaming files are periodically compacted into larger columnar files. A specialized real-time OLAP store serves the sub-minute dashboard with eventual consistency, while a batch or micro-batch job lands exactly-once Gold tables in a warehouse or lakehouse for historical BI, using transactional writes or idempotent upserts keyed on event id to avoid double-counting. Traffic spikes are absorbed by the stream buffer's disk-backed retention rather than by scaling the processing tier synchronously. When aggregation logic changes, a batch job reprocesses the bronze raw data to repopulate the Gold tables. Operations track consumer lag, data-completeness (raw versus aggregated counts), and data drift, with alerting on each. This is one strong, defensible design; equivalent substitutions (e.g. Kinesis for Kafka, Spark Streaming for Flink, Snowflake/BigQuery/Databricks for the warehouse layer, Druid for ClickHouse) are equally valid when the candidate's reasoning is sound."
+}

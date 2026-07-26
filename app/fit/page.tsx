@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRevealOnScroll } from "@/components/ui/useRevealOnScroll";
 import Link from "next/link";
 import type { EmbeddingBackend, FitReport } from "@/lib/types";
-import { useReadiness } from "@/components/readiness-store";
+import {
+  hasCompleteTarget,
+  useReadiness,
+} from "@/components/readiness-store";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { RequirementCard } from "@/components/ui/RequirementCard";
 import { Spinner, SectionLabel } from "@/components/ui/primitives";
@@ -53,29 +57,40 @@ export default function FitPage() {
   const [phase, setPhase] = useState<Phase>("empty");
   const [data, setData] = useState<FitResponse | null>(null);
   const [resume, setResume] = useState("");
-  const [jd, setJd] = useState("");
 
   // The store hydrates from localStorage after mount; fill inputs from the
   // shared target once it's ready, without clobbering anything typed here.
   useEffect(() => {
     if (!hydrated) return;
     setResume((r) => r || state.target.resumeText);
-    setJd((j) => j || state.target.jdText);
-  }, [hydrated, state.target.resumeText, state.target.jdText]);
+  }, [hydrated, state.target.resumeText]);
 
   const roleName = state.target.role ?? data?.jd.role_title ?? "this role";
-  const hasInputs = resume.trim().length > 0 && jd.trim().length > 0;
+  const targetReady = hasCompleteTarget(state);
+  const hasInputs = targetReady && resume.trim().length > 0;
 
   async function run() {
+    if (!targetReady) return;
+    const committedSource =
+      state.targetSource === "sample" ? "sample" : "personalized";
     setPhase("loading");
     // A direct Fit-page edit can materially change the target. Invalidate
     // existing module scores first, then write back the new Fit result below.
-    commitTarget({ ...state.target, resumeText: resume, jdText: jd });
+    commitTarget(
+      {
+        ...state.target,
+        resumeText: resume,
+      },
+      committedSource,
+    );
     try {
       const res = await fetch("/api/fit/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText: resume, jdText: jd }),
+        body: JSON.stringify({
+          resumeText: resume,
+          jdText: state.target.jdText,
+        }),
       });
       const d: FitResponse = await res.json();
       setData(d);
@@ -100,7 +115,7 @@ export default function FitPage() {
   const report = data?.report;
 
   return (
-    <main className="page-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell page-enter">
       <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
@@ -114,10 +129,67 @@ export default function FitPage() {
         Your resume measured against what <b style={{ color: "var(--ink-2)", fontWeight: 600 }}>{roleName}</b> actually demands.
       </p>
 
-      {/* EMPTY */}
-      {phase === "empty" && (
+      {phase === "empty" && !hydrated && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="surface-card fit-target-gate"
+        >
+          <Spinner />
+          <p>Loading your target role…</p>
+        </div>
+      )}
+
+      {phase === "empty" && hydrated && !targetReady && (
+        <section
+          className="surface-card fit-target-gate"
+          aria-labelledby="fit-target-gate-title"
+        >
+          <div className="fit-target-gate__icon" aria-hidden="true">◎</div>
+          <div>
+            <SectionLabel style={{ marginBottom: 10 }}>Target role required</SectionLabel>
+            <h2 id="fit-target-gate-title">Set the benchmark before adding your resume.</h2>
+            <p>
+              Your job description defines what the analyzer should measure.
+              Set it once, then return here to upload your resume.
+            </p>
+          </div>
+          <Link href="/onboard" className="app-button app-button--primary">
+            Set my target role →
+          </Link>
+        </section>
+      )}
+
+      {phase === "empty" && hydrated && targetReady && (
         <div style={{ maxWidth: 1040, margin: "20px auto 0" }}>
-          <div className="fit-document-grid" style={{ marginBottom: 18 }}>
+          <section
+            className="fit-target-context"
+            aria-label="Current target role"
+          >
+            <div>
+              <span className="fit-target-context__label">
+                {state.targetSource === "sample"
+                  ? "Sample candidate"
+                  : "Shared target role"}
+              </span>
+              <h2>{state.target.role}</h2>
+              <p>
+                {state.target.company
+                  ? `Preparing for ${state.target.company}`
+                  : "Used across Fit, Behavioural, and The GRID"}
+              </p>
+            </div>
+            <Link href="/onboard" className="app-button app-button--secondary">
+              {state.targetSource === "sample"
+                ? "Use my own role"
+                : "Change role"}
+            </Link>
+          </section>
+
+          <div
+            className="fit-document-grid fit-document-grid--resume-only"
+            style={{ marginBottom: 18 }}
+          >
             <section className="surface-card fit-document-card fit-document-card--resume">
               <div className="fit-document-card__header">
                 <div className="fit-document-card__icon" aria-hidden="true">↥</div>
@@ -134,31 +206,10 @@ export default function FitPage() {
                 textareaLabel="Your resume text"
                 placeholder="Or paste your complete resume text here…"
                 height={180}
+                collapsibleText
+                initialTextVisible={false}
               />
             </section>
-
-            <section className="surface-card fit-document-card fit-document-card--jd">
-              <div className="fit-document-card__header">
-                <div className="fit-document-card__icon fit-document-card__icon--secondary" aria-hidden="true">⌘</div>
-                <div>
-                  <div className="fit-document-card__eyebrow">Paste-first</div>
-                  <h2 className="fit-document-card__title">Job description</h2>
-                  <p className="fit-document-card__help">Paste the full posting from LinkedIn or the employer site. Upload remains available as a secondary option.</p>
-                </div>
-              </div>
-              <DocumentInput
-                kind="job description"
-                value={jd}
-                onTextChange={setJd}
-                textareaLabel="Job description text"
-                placeholder="Paste the role responsibilities and requirements here…"
-                height={218}
-              />
-            </section>
-
-            <div className="fit-document-grid__footer">
-              Or <Link href="/onboard" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>set a target role</Link> once and reuse it everywhere.
-            </div>
           </div>
           <div
             className="surface-card fit-ready-panel"
@@ -200,7 +251,7 @@ export default function FitPage() {
           <h2 style={{ fontSize: 17, fontWeight: 600, margin: "0 0 20px", color: "var(--ink)" }}>Analyzing your fit…</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 11, maxWidth: 360, margin: "0 auto", textAlign: "left" }}>
             {LOADING_STEPS.map((s, i) => (
-              <div key={s} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: i < 2 ? "var(--ink-2)" : "var(--ink-4)" }}>
+              <div key={s} className="reveal-item" style={{ "--reveal-index": i, display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: i < 2 ? "var(--ink-2)" : "var(--ink-4)" } as React.CSSProperties}>
                 {i < 2 ? (
                   <span style={{ color: "var(--success)" }}>✓</span>
                 ) : i === 2 ? (
@@ -224,6 +275,7 @@ export default function FitPage() {
 }
 
 function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScoring }) {
+  const practiceCta = useRevealOnScroll<HTMLDivElement>();
   const reqs = report.per_requirement;
   const matched = reqs.filter((r) => r.status === "matched").length;
   const partial = reqs.filter((r) => r.status === "partial").length;
@@ -236,14 +288,16 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
 
   return (
     <>
-      <VerdictBanner
-        score={report.overall_score}
-        suffix="fit score"
-        bandLabel={band.label}
-        bandColor={band.color}
-        bandTint={band.tintBg}
-        verdict={verdict}
-      />
+      <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
+        <VerdictBanner
+          score={report.overall_score}
+          suffix="fit score"
+          bandLabel={band.label}
+          bandColor={band.color}
+          bandTint={band.tintBg}
+          verdict={verdict}
+        />
+      </div>
 
       {scoreLine && (
         <div
@@ -275,7 +329,13 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             {reqs.map((r, i) => (
-              <RequirementCard key={i} requirement={r.requirement} status={r.status} evidence={r.evidence} mustHave={r.weight >= 1} />
+              <div
+                key={i}
+                className="reveal-item"
+                style={{ "--reveal-index": Math.min(1 + i, 8) } as React.CSSProperties}
+              >
+                <RequirementCard requirement={r.requirement} status={r.status} evidence={r.evidence} mustHave={r.weight >= 1} />
+              </div>
             ))}
           </div>
           <div style={{ marginTop: 16, display: "flex", gap: 9, alignItems: "flex-start", padding: "12px 14px", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 11 }}>
@@ -290,7 +350,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
         {/* right rail */}
         <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
           {fixes.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 2, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel color="var(--accent-ink)" style={{ marginBottom: 14 }}>Fix these next</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {fixes.map((f, i) => (
@@ -304,7 +364,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           )}
 
           {report.top_strengths.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel color="var(--success)" style={{ marginBottom: 12 }}>Your strengths</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {report.top_strengths.map((st, i) => (
@@ -318,7 +378,7 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
           )}
 
           {report.missing_keywords.length > 0 && (
-            <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" }}>
+            <div className="reveal-item" style={{ "--reveal-index": 4, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 20, boxShadow: "var(--shadow-sm)" } as React.CSSProperties}>
               <SectionLabel style={{ marginBottom: 12 }}>Keywords to weave in</SectionLabel>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                 {report.missing_keywords.map((k, i) => (
@@ -330,12 +390,12 @@ function FitResult({ report, scoring }: { report: FitReport; scoring?: FitScorin
         </div>
       </div>
 
-      <div style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div ref={practiceCta.ref} className={`scroll-reveal${practiceCta.revealed ? "" : " is-pre-reveal"}`} style={{ marginTop: 24, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "20px 24px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>Turn these gaps into practice</div>
           <div style={{ fontSize: 13, color: "var(--ink-3)" }}>Your fit report set the agenda — now rehearse the stories and drills that close the gaps.</div>
         </div>
-        <Link href="/behavioural" style={{ flex: "none", border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 10, cursor: "pointer", textDecoration: "none" }}>
+        <Link href="/behavioural" className="lift-hover" style={{ flex: "none", border: "none", background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, padding: "12px 20px", borderRadius: 10, cursor: "pointer", textDecoration: "none" }}>
           Start rehearsing →
         </Link>
       </div>

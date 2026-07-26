@@ -18,13 +18,40 @@ import {
   CASE_POST_CALL_VALIDATION_RECEIVED_TYPES,
   scoreCasePostCall,
   type CasePostCallAnthropicErrorType,
+  type CasePostCallScoringResult,
   type CasePostCallStopReason,
   type CasePostCallValidationPath,
   type CasePostCallValidationReason,
   type CasePostCallValidationReceivedType,
 } from "@/lib/voice/case-post-call-scorer";
+import { scoreTechnicalCasePostCall } from "@/lib/voice/case-technical-post-call-scorer";
+import { scoreQuestionBankPostCall } from "@/lib/voice/case-question-bank-scorer";
+import { mapQuestionBankTranscript } from "@/lib/voice/question-bank-transcript";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
+import {
+  CASE_POST_CALL_MODEL,
+} from "@/lib/voice/case-post-call-scorer";
+import {
+  TECHNICAL_SCORER_MAX_TOKENS,
+  type TechnicalEvaluatorType,
+} from "@/lib/voice/technical-scorer-budget";
+import type { CaseRecord } from "@/lib/types";
 import type { CaseVoiceSession } from "@/lib/voice/types";
+import type { MappedCaseTranscript } from "@/lib/voice/case-transcript";
+
+/**
+ * Evaluator dispatch. Selected by CaseRecord.evaluator_type — set explicitly on
+ * each case record — never inferred from a case id. Absent/"consulting" keeps
+ * the existing 5-dimension case evaluator unchanged for Airport and GCC.
+ */
+function scoreForCase(
+  caseRecord: CaseRecord,
+  mapped: MappedCaseTranscript,
+): Promise<CasePostCallScoringResult> {
+  return caseRecord.evaluator_type === "technical_system_design"
+    ? scoreTechnicalCasePostCall(caseRecord, mapped)
+    : scoreCasePostCall(caseRecord, mapped);
+}
 
 export const maxDuration = 300;
 
@@ -149,6 +176,11 @@ function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
 
 function recordCasePostCallScoringDiagnostic(input: {
   selectedCaseId: string;
+  /** Evaluator that produced this report — the dispatch key, never inferred. */
+  evaluatorType: string;
+  model: string;
+  /** Effective output-token budget, or null for the untouched consulting path. */
+  maxTokenBudget: number | null;
   observedStageCount: number;
   missingStageCount: number;
   partial: boolean;
@@ -166,6 +198,13 @@ function recordCasePostCallScoringDiagnostic(input: {
   validationReceivedType: CasePostCallValidationReceivedType | null;
 }): void {
   console.info("[case-native-report] scoring", input);
+}
+
+/** Effective technical budget, or null for the unchanged consulting scorer. */
+function scorerMaxTokenBudget(evaluatorType: string): number | null {
+  return Object.prototype.hasOwnProperty.call(TECHNICAL_SCORER_MAX_TOKENS, evaluatorType)
+    ? TECHNICAL_SCORER_MAX_TOKENS[evaluatorType as TechnicalEvaluatorType]
+    : null;
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -213,6 +252,140 @@ function isFreshProcessing(record: CaseVoiceSession): boolean {
   return Number.isFinite(age) && age >= 0 && age < STALE_PROCESSING_MS;
 }
 
+/**
+ * Question-bank report handler. Reuses the same claim / fenced-persist / diagnostic
+ * scaffolding as the stage-scoring path but maps the transcript by question anchor
+ * and scores with the shared technical_question_bank evaluator. The lock is already
+ * held by POST and released in its finally; returning here is safe.
+ */
+async function processQuestionBankReport(
+  sessionId: string,
+  callId: string,
+  record: CaseVoiceSession,
+  caseRecord: CaseRecord,
+  anchorVersion: string,
+  message: Record<string, unknown>,
+): Promise<NextResponse> {
+  const normalized = normalizeVoiceTranscript((message as any)?.artifact?.messages);
+  const mapped = mapQuestionBankTranscript(record.caseId, anchorVersion, normalized.turns, {
+    truncated: normalized.truncated,
+  });
+
+  const attempt = (record.reportAttempt ?? 0) + 1;
+  const fencingToken = randomBytes(24).toString("hex");
+  const now = new Date().toISOString();
+  const claimed: CaseVoiceSession = {
+    ...record,
+    authoritativeCallId: record.authoritativeCallId ?? callId,
+    reportStatus: "processing",
+    reportAttempt: attempt,
+    reportFencingToken: fencingToken,
+    reportProcessingStartedAt: now,
+    normalizedTranscript: normalized.turns,
+    finalReport: null,
+    finalQuestionBankReport: null,
+    reportErrorCode: null,
+    updatedAt: now,
+  };
+  try {
+    await saveSession(sessionId, claimed);
+  } catch {
+    return retry();
+  }
+
+  let final: CaseVoiceSession;
+  let scorerOutcome: SafeScorerOutcome = "failed";
+  let failureCategory: SafeScorerFailureCategory = null;
+  let modelDiagnostic: {
+    httpStatus?: unknown;
+    anthropicErrorType?: unknown;
+    stopReason?: unknown;
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+    validationPath?: unknown;
+    validationReason?: unknown;
+    validationReceivedType?: unknown;
+  } | null = null;
+  const scorerStartedAt = Date.now();
+  if (!mapped) {
+    failureCategory = "stage_anchor_unavailable";
+    final = {
+      ...claimed,
+      reportStatus: "failed",
+      reportProcessingStartedAt: null,
+      finalQuestionBankReport: null,
+      reportErrorCode: "stage_anchor_unavailable",
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    try {
+      const scoring = await scoreQuestionBankPostCall(caseRecord, mapped);
+      scorerOutcome = scoring.ok ? scoring.scorerOutcome ?? "deterministic_fallback" : "failed";
+      failureCategory = scoring.ok
+        ? safeFailureCategory(scoring.failureCategory)
+        : safeFailureCategory(scoring.failureCode);
+      modelDiagnostic = scoring.ok ? scoring.modelDiagnostic ?? null : null;
+      final = scoring.ok
+        ? {
+            ...claimed,
+            reportStatus: "done",
+            reportProcessingStartedAt: null,
+            finalQuestionBankReport: scoring.report,
+            reportErrorCode: null,
+            updatedAt: new Date().toISOString(),
+          }
+        : {
+            ...claimed,
+            reportStatus: "failed",
+            reportProcessingStartedAt: null,
+            finalQuestionBankReport: null,
+            reportErrorCode: scoring.failureCode,
+            updatedAt: new Date().toISOString(),
+          };
+    } catch {
+      scorerOutcome = "failed";
+      failureCategory = "scoring_failed";
+      final = {
+        ...claimed,
+        reportStatus: "failed",
+        reportProcessingStartedAt: null,
+        finalQuestionBankReport: null,
+        reportErrorCode: "scoring_failed",
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  recordCasePostCallScoringDiagnostic({
+    selectedCaseId: record.caseId,
+    evaluatorType: "technical_question_bank",
+    model: CASE_POST_CALL_MODEL,
+    maxTokenBudget: scorerMaxTokenBudget("technical_question_bank"),
+    observedStageCount: mapped?.observedQuestions.length ?? 0,
+    missingStageCount: mapped?.missingQuestions.length ?? 5,
+    partial: mapped?.partial ?? true,
+    scorerOutcome,
+    scorerDurationMs: Math.max(0, Date.now() - scorerStartedAt),
+    reportStatus: final.reportStatus === "done" ? "done" : "failed",
+    failureCategory,
+    httpStatus: safeHttpStatus(modelDiagnostic?.httpStatus),
+    anthropicErrorType: safeAnthropicErrorType(modelDiagnostic?.anthropicErrorType),
+    stopReason: safeStopReason(modelDiagnostic?.stopReason),
+    inputTokens: safeTokenCount(modelDiagnostic?.inputTokens),
+    outputTokens: safeTokenCount(modelDiagnostic?.outputTokens),
+    validationPath: safeValidationPath(modelDiagnostic?.validationPath),
+    validationReason: safeValidationReason(modelDiagnostic?.validationReason),
+    validationReceivedType: safeValidationReceivedType(modelDiagnostic?.validationReceivedType),
+  });
+
+  try {
+    await saveCaseSessionIfReportFence(sessionId, attempt, fencingToken, final);
+  } catch {
+    return retry();
+  }
+  return ack();
+}
+
 export async function POST(req: NextRequest) {
   const unauthorized = authorizeVapi(req);
   if (unauthorized) return unauthorized;
@@ -256,6 +429,20 @@ export async function POST(req: NextRequest) {
     const caseRecord = getVoiceLlmCaseRecord(record.caseId);
     const stageAnchorVersion = record.stageAnchorVersion;
     if (!caseRecord || !stageAnchorVersion) return ack();
+
+    // Question-bank rounds use question-level anchor mapping and the shared
+    // technical_question_bank evaluator. Handled in a separate branch so the
+    // Clickstream/Airport/GCC stage-scoring path below stays byte-identical.
+    if (caseRecord.evaluator_type === "technical_question_bank") {
+      return await processQuestionBankReport(
+        sessionId,
+        callId,
+        record,
+        caseRecord,
+        stageAnchorVersion,
+        message,
+      );
+    }
 
     // artifact.messages is the sole transcript input; raw webhook material is
     // neither logged nor persisted.
@@ -314,7 +501,7 @@ export async function POST(req: NextRequest) {
       };
     } else {
       try {
-        const scoring = await scoreCasePostCall(caseRecord, mapped);
+        const scoring = await scoreForCase(caseRecord, mapped);
         scorerOutcome = scoring.ok
           ? scoring.scorerOutcome ?? "deterministic_fallback"
           : "failed";
@@ -355,6 +542,9 @@ export async function POST(req: NextRequest) {
 
     recordCasePostCallScoringDiagnostic({
       selectedCaseId: record.caseId,
+      evaluatorType: caseRecord.evaluator_type ?? "consulting",
+      model: CASE_POST_CALL_MODEL,
+      maxTokenBudget: scorerMaxTokenBudget(caseRecord.evaluator_type ?? "consulting"),
       observedStageCount: mapped?.observedStages.length ?? 0,
       missingStageCount: mapped?.missingStages.length ?? 6,
       partial: mapped?.partial ?? true,

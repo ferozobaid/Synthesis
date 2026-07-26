@@ -144,6 +144,9 @@ export interface BehaviouralQuestion {
   dynamic: boolean;
   source?: string;
   fallback_company?: string;
+  /** Marks a question that is only asked when its context is present and non-redundant
+   *  (e.g. "industry" → dropped at generation time when no distinct industry is known). */
+  conditional?: string;
 }
 
 export interface BehaviouralScore {
@@ -248,6 +251,20 @@ export interface CaseRecord {
   quant?: CaseQuant;
   scoring_rubric: ScoringRubric;
   target_solution_notes?: string;
+  /**
+   * Selects the post-call evaluator for native Case Voice scoring. Absent (or
+   * "consulting") keeps the existing 5-dimension case evaluator; "technical_system_design"
+   * routes to the dedicated technical evaluator; "technical_question_bank" routes to
+   * the shared per-question scenario evaluator (Data Analyst / Data Engineer
+   * technical rounds). Never inferred from case id.
+   */
+  evaluator_type?: "consulting" | "technical_system_design" | "technical_question_bank";
+  /**
+   * Present only on "technical_question_bank" records. Selects which committed
+   * bank (context/technical/*.json) the shared evaluator loads. Never used by the
+   * consulting or system-design evaluators.
+   */
+  question_bank_role?: "data_analyst" | "data_engineer";
 }
 
 export interface CaseTurn {

@@ -14,17 +14,32 @@ import {
   initialNativeCaseLiveProgress,
   nativeCaseLiveElapsedMilliseconds,
 } from "@/lib/voice/case-native-live";
+import { isTechnicalNativeCase, nativeProgressDefinition } from "@/lib/voice/native-progress";
+import {
+  advanceNativeCurrentQuestion,
+  initialNativeCurrentQuestion,
+  type NativeCurrentQuestionState,
+} from "@/lib/voice/native-current-question";
+import { nativeCaseBrief } from "@/lib/voice/native-case-brief";
 import CaseNativeVoiceInterview, {
   clearPendingNativeCaseReport,
   readPendingNativeCaseReport,
   writePendingNativeCaseReport,
   type PendingNativeCaseReport,
 } from "@/components/CaseNativeVoiceInterview";
+import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
+import {
+  createUserSpeakingTracker,
+  mapCaseVoiceToAvatarMode,
+  quantizeLevel,
+  shouldPublishLevel,
+} from "@/components/interviewer/avatarState";
 
 const WEB_KEY = process.env.NEXT_PUBLIC_VAPI_WEB_KEY;
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_CASE_ASSISTANT_ID;
 
 const POLL_INTERVAL_MS = 1_000;
+const LEVEL_PUBLISH_MS = 120;
 const ENDED_POLL_GRACE_MS = 120_000;
 const PROJECTION_404_GRACE_MS = 3_000;
 const TRANSCRIPT_CAP = 200;
@@ -91,6 +106,8 @@ export interface CaseVoiceProjectedTurn {
 
 export interface CaseVoiceProjection {
   caseId: string;
+  caseTrack?: PreviewCaseTrack | null;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
   openingText: string;
   readinessStatus: "awaiting" | "confirmed";
@@ -114,6 +131,8 @@ export interface PendingCaseVoiceCapability {
   sessionId: string;
   projectionToken: string;
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole;
   caseTitle: string;
   openingPrompt: string;
   createdAt: number;
@@ -130,6 +149,8 @@ export interface CaseBootstrap {
   projectionToken: string;
   openingPrompt: string;
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
   caseDescription?: string | null;
 }
@@ -141,6 +162,8 @@ export interface NativeCaseBootstrap {
   reportToken: string;
   reportStatus: "pending";
   caseId: string;
+  caseTrack?: PreviewCaseTrack;
+  caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
 }
 
@@ -150,21 +173,35 @@ export interface NativeCaseVoiceTranscriptLine {
   sequence: number;
 }
 
+export type PreviewCaseTrack = "strategy" | "technical";
+export type PreviewCaseTechnicalRole = "data_engineering" | "data_analyst";
+
 export interface PreviewCaseChoice {
   id: string;
   title: string;
   description: string;
+  track: PreviewCaseTrack;
+  /** Present only for track: "technical" entries. */
+  role?: PreviewCaseTechnicalRole;
 }
 
 type GridTrack = "case" | "technical";
-type TechnicalRoleId = "data_analyst" | "data_engineer";
+type TechnicalRoleId = PreviewCaseTechnicalRole;
 
-const TECHNICAL_ROLE_PREVIEWS: Array<{
+/** Presentational metadata for every technical role card, active or upcoming. */
+const TECHNICAL_ROLE_META: Array<{
   id: TechnicalRoleId;
   title: string;
   description: string;
   focus: string;
 }> = [
+  {
+    id: "data_engineering",
+    title: "Data Engineering",
+    description:
+      "Prepare for data modeling, pipeline design, reliability, and production trade-offs.",
+    focus: "Pipelines · modeling · reliability",
+  },
   {
     id: "data_analyst",
     title: "Data Analyst",
@@ -172,14 +209,23 @@ const TECHNICAL_ROLE_PREVIEWS: Array<{
       "Practice the judgment behind SQL, metrics, experimentation, and analytical storytelling.",
     focus: "SQL · metrics · experimentation",
   },
-  {
-    id: "data_engineer",
-    title: "Data Engineer",
-    description:
-      "Prepare for data modeling, pipeline design, reliability, and production trade-offs.",
-    focus: "Pipelines · modeling · reliability",
-  },
 ];
+
+/** Catalog-driven classification helpers. No case id is ever hardcoded here. */
+export function strategyCatalogCases(catalog: PreviewCaseChoice[]): PreviewCaseChoice[] {
+  return catalog.filter((entry) => entry.track === "strategy");
+}
+
+export function technicalCatalogCasesByRole(
+  catalog: PreviewCaseChoice[],
+): Partial<Record<PreviewCaseTechnicalRole, PreviewCaseChoice[]>> {
+  const out: Partial<Record<PreviewCaseTechnicalRole, PreviewCaseChoice[]>> = {};
+  for (const entry of catalog) {
+    if (entry.track !== "technical" || !entry.role) continue;
+    (out[entry.role] ??= []).push(entry);
+  }
+  return out;
+}
 
 export class CaseProjectionUnavailableError extends Error {
   constructor() {
@@ -381,7 +427,10 @@ export function caseVoiceControls(
 
 export type CaseCatalogStatus = "loading" | "loaded" | "error";
 
-/** Load the two selectable Preview LLM cases. Any failure (or empty list) is an error state. */
+const VALID_TRACKS: readonly PreviewCaseTrack[] = ["strategy", "technical"];
+const VALID_TECHNICAL_ROLES: readonly PreviewCaseTechnicalRole[] = ["data_engineering", "data_analyst"];
+
+/** Load the selectable Preview LLM cases. Any failure (or empty list) is an error state. */
 export async function fetchPreviewCatalog(
   fetcher: typeof fetch = fetch,
 ): Promise<{ status: "loaded" | "error"; cases: PreviewCaseChoice[] }> {
@@ -395,7 +444,10 @@ export async function fetchPreviewCatalog(
             Boolean(entry) &&
             typeof (entry as PreviewCaseChoice).id === "string" &&
             typeof (entry as PreviewCaseChoice).title === "string" &&
-            typeof (entry as PreviewCaseChoice).description === "string",
+            typeof (entry as PreviewCaseChoice).description === "string" &&
+            VALID_TRACKS.includes((entry as PreviewCaseChoice).track) &&
+            ((entry as PreviewCaseChoice).role === undefined ||
+              VALID_TECHNICAL_ROLES.includes((entry as PreviewCaseChoice).role as PreviewCaseTechnicalRole)),
         )
       : [];
     return cases.length > 0 ? { status: "loaded", cases } : { status: "error", cases: [] };
@@ -613,6 +665,62 @@ export async function fetchCaseVoiceProjection(
   return parseProjection(await response.json());
 }
 
+/** Shared card grid for any track/role's case list — Strategy and Technical alike. */
+function CaseCardGrid({
+  cases,
+  selectedCaseId,
+  onSelect,
+}: {
+  cases: PreviewCaseChoice[];
+  selectedCaseId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+      {cases.map((entry) => {
+        const selected = selectedCaseId === entry.id;
+        return (
+          <button
+            key={entry.id}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(entry.id)}
+            className={`case-picker-card${selected ? " is-selected" : ""}`}
+            style={{
+              textAlign: "left",
+              border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
+              borderRadius: 12,
+              background: selected ? "var(--surface-2)" : "var(--surface)",
+              padding: "16px 18px",
+              cursor: "pointer",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Shared "Start voice interview" action for any track/role's case list. */
+function StartVoiceInterviewButton({ canStart, onStart }: { canStart: boolean; onStart: () => void }) {
+  return (
+    <div className="case-picker-actions" style={{ marginTop: 16 }}>
+      <button
+        type="button"
+        disabled={!canStart}
+        onClick={onStart}
+        style={buttonStyle("solid", !canStart)}
+      >
+        Start voice interview
+      </button>
+    </div>
+  );
+}
+
 function statusLabel(status: CaseVoiceStatus): string {
   if (status === "connecting") return "Connecting to your interviewer...";
   if (status === "listening") return "Listening - go ahead";
@@ -628,7 +736,13 @@ function statusLabel(status: CaseVoiceStatus): string {
 export default function CaseVoiceInterview({
   onComplete,
 }: {
-  onComplete?: (score: CaseScore, context?: { preserveNativeReport?: boolean }) => void;
+  onComplete?: (
+    score: CaseScore,
+    context?: {
+      preserveNativeReport?: boolean;
+      contributesToCaseReadiness?: boolean;
+    },
+  ) => void;
 }) {
   // Native sessions receive their closed-mapped assistant id from bootstrap;
   // only the public Web SDK key is needed before the architecture is known.
@@ -659,8 +773,16 @@ export default function CaseVoiceInterview({
   const [nativeLiveProgress, setNativeLiveProgress] = useState(
     initialNativeCaseLiveProgress,
   );
+  const [currentQuestion, setCurrentQuestion] = useState<NativeCurrentQuestionState | null>(null);
+  // Optional avatar audio-level enhancement; absent Vapi level events leave
+  // these at their defaults, which renders as plain "listening".
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const vapiRef = useRef<VapiLike | null>(null);
+  const assistantLevelRef = useRef(0);
+  const localLevelRef = useRef(0);
+  const speakingTrackerRef = useRef(createUserSpeakingTracker());
   const nativeLiveCapabilityRef = useRef<PendingNativeCaseReport | null>(null);
   const projectionRef = useRef<CaseVoiceProjection | null>(null);
   const callActiveRef = useRef(false);
@@ -684,6 +806,9 @@ export default function CaseVoiceInterview({
   const teardown = useCallback(() => {
     const vapi = vapiRef.current;
     vapiRef.current = null;
+    assistantLevelRef.current = 0;
+    localLevelRef.current = 0;
+    speakingTrackerRef.current.reset();
     setSdkReady(false);
     try {
       vapi?.removeAllListeners?.();
@@ -712,8 +837,11 @@ export default function CaseVoiceInterview({
     completionReportedRef.current = true;
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
-    onCompleteRef.current?.(score, { preserveNativeReport: true });
-  }, []);
+    onCompleteRef.current?.(score, {
+      preserveNativeReport: true,
+      contributesToCaseReadiness: nativeCapability?.caseTrack !== "technical",
+    });
+  }, [nativeCapability?.caseTrack]);
 
   const expireSession = useCallback(() => {
     startAttemptRef.current += 1;
@@ -792,6 +920,7 @@ export default function CaseVoiceInterview({
     setTimerEndedAt(null);
     setTimerNow(Date.now());
     setNativeLiveProgress(initialNativeCaseLiveProgress());
+    setCurrentQuestion(null);
     lastFinalTranscriptAtRef.current = null;
     endedReasonRef.current = null;
     setError(null);
@@ -827,6 +956,8 @@ export default function CaseVoiceInterview({
           assistantId: bootstrap.assistantId,
           reportToken: bootstrap.reportToken,
           caseId: bootstrap.caseId,
+          caseTrack: bootstrap.caseTrack,
+          caseRole: bootstrap.caseRole ?? undefined,
           caseTitle: bootstrap.caseTitle,
           createdAt: Date.now(),
         };
@@ -850,6 +981,8 @@ export default function CaseVoiceInterview({
           sessionId: customBootstrap.sessionId,
           projectionToken: customBootstrap.projectionToken,
           caseId: customBootstrap.caseId,
+          caseTrack: customBootstrap.caseTrack,
+          caseRole: customBootstrap.caseRole ?? undefined,
           caseTitle: customBootstrap.caseTitle,
           openingPrompt: customBootstrap.openingPrompt,
           createdAt: Date.now(),
@@ -921,6 +1054,20 @@ export default function CaseVoiceInterview({
         setStatus("error");
         setError("The Vapi connection failed. Start a new voice interview.");
       });
+      // Optional avatar enhancement: assistant output + local mic levels.
+      // Registration failures must never block call setup.
+      try {
+        vapi.on("volume-level", (payload) => {
+          if (attempt !== startAttemptRef.current) return;
+          assistantLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+        vapi.on("local-volume-level", (payload) => {
+          if (attempt !== startAttemptRef.current) return;
+          localLevelRef.current = typeof payload === "number" ? payload : 0;
+        });
+      } catch {
+        /* level visualization is optional */
+      }
       vapi.on("message", (message) => {
         if (attempt !== startAttemptRef.current) return;
         const endedReason = caseVoiceEndedReason(message);
@@ -944,6 +1091,13 @@ export default function CaseVoiceInterview({
                 pending.caseId,
                 finalizedLine,
                 Date.now(),
+              )
+            );
+            setCurrentQuestion((current) =>
+              advanceNativeCurrentQuestion(
+                current ?? initialNativeCurrentQuestion(pending.caseId),
+                pending.caseId,
+                finalizedLine,
               )
             );
           }
@@ -1085,6 +1239,26 @@ export default function CaseVoiceInterview({
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  // Throttled avatar level publisher: samples the refs the Vapi level
+  // listeners write into and only re-renders when the speaking flag or
+  // quantized level actually moves. Runs only while a call is live.
+  useEffect(() => {
+    if (!callActive) {
+      setUserSpeaking(false);
+      setLevel(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const speaking = speakingTrackerRef.current.sample(localLevelRef.current, Date.now());
+      setUserSpeaking((prev) => (prev === speaking ? prev : speaking));
+      const raw =
+        statusRef.current === "speaking" ? assistantLevelRef.current : localLevelRef.current;
+      const next = quantizeLevel(raw);
+      setLevel((prev) => (shouldPublishLevel(prev, next) ? next : prev));
+    }, LEVEL_PUBLISH_MS);
+    return () => window.clearInterval(timer);
+  }, [callActive]);
 
   useEffect(() => {
     if (!capability) return;
@@ -1241,6 +1415,7 @@ export default function CaseVoiceInterview({
     setNativeLiveCapability(null);
     setNativeTranscript([]);
     setNativeLiveProgress(initialNativeCaseLiveProgress());
+    setCurrentQuestion(null);
     setProjection(null);
     projectionRef.current = null;
     endedAtRef.current = null;
@@ -1255,6 +1430,23 @@ export default function CaseVoiceInterview({
   const showAllTracks = () => {
     setSelectedTrack(null);
     setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
+  };
+
+  const chooseTrack = (track: GridTrack) => {
+    setSelectedTrack(track);
+    setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
+  };
+
+  const chooseTechnicalRole = (role: TechnicalRoleId) => {
+    setSelectedTechnicalRole(role);
+    setSelectedCaseId(null);
+  };
+
+  const backToTechnicalRoles = () => {
+    setSelectedTechnicalRole(null);
+    setSelectedCaseId(null);
   };
 
   if (!recoveryChecked) {
@@ -1287,6 +1479,14 @@ export default function CaseVoiceInterview({
   }
 
   if (showPicker) {
+    const strategyCases = strategyCatalogCases(catalog);
+    const technicalByRole = technicalCatalogCasesByRole(catalog);
+    const activeRoleCases = selectedTechnicalRole ? technicalByRole[selectedTechnicalRole] ?? [] : [];
+    const selectedRoleMeta = TECHNICAL_ROLE_META.find((role) => role.id === selectedTechnicalRole);
+    const anyTechnicalRoleActive = TECHNICAL_ROLE_META.some(
+      (role) => (technicalByRole[role.id] ?? []).length > 0,
+    );
+
     return (
       <div className="grid-hub" style={{ marginTop: 18 }}>
         {selectedTrack === null && (
@@ -1295,8 +1495,8 @@ export default function CaseVoiceInterview({
               <SectionLabel style={{ marginBottom: 11 }}>Choose your simulation</SectionLabel>
               <h2 id="grid-track-heading">Where do you want to train?</h2>
               <p>
-                Enter a live strategy case now, or preview the technical interview rounds
-                being built for data roles.
+                Enter a live strategy case, or start a technical interview for a specific
+                data role.
               </p>
               {(notice || error) && (
                 <p
@@ -1312,7 +1512,7 @@ export default function CaseVoiceInterview({
               <button
                 type="button"
                 className="grid-track-card grid-track-card--case"
-                onClick={() => setSelectedTrack("case")}
+                onClick={() => chooseTrack("case")}
               >
                 <span className="grid-track-card__top">
                   <span className="grid-track-card__icon" aria-hidden="true">◆</span>
@@ -1330,19 +1530,18 @@ export default function CaseVoiceInterview({
               <button
                 type="button"
                 className="grid-track-card grid-track-card--technical"
-                onClick={() => setSelectedTrack("technical")}
+                onClick={() => chooseTrack("technical")}
               >
                 <span className="grid-track-card__top">
                   <span className="grid-track-card__icon" aria-hidden="true">⌁</span>
                   <span className="grid-track-card__index">02</span>
                 </span>
-                <span className="grid-track-card__title">Technical Simulation</span>
+                <span className="grid-track-card__title">Technical Interviews</span>
                 <span className="grid-track-card__copy">
-                  Preview role-specific technical interview rounds for Data Analyst and
-                  Data Engineer paths.
+                  Live voice interviews by data role.
                 </span>
                 <span className="grid-track-card__meta">
-                  Role previews · Coming soon <span aria-hidden="true">→</span>
+                  Data Engineering · Data Analyst <span aria-hidden="true">→</span>
                 </span>
               </button>
             </div>
@@ -1389,44 +1588,13 @@ export default function CaseVoiceInterview({
 
             {availability.showCases && (
               <>
-                <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                  {catalog.map((entry) => {
-                    const selected = selectedCaseId === entry.id;
-                    return (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setSelectedCaseId(entry.id)}
-                        className={`case-picker-card${selected ? " is-selected" : ""}`}
-                        style={{
-                          textAlign: "left",
-                          border: `1.5px solid ${selected ? "var(--secondary)" : "var(--line)"}`,
-                          borderRadius: 12,
-                          background: selected ? "var(--surface-2)" : "var(--surface)",
-                          padding: "16px 18px",
-                          cursor: "pointer",
-                          boxShadow: "var(--shadow-sm)",
-                        }}
-                      >
-                        <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
-                        <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="case-picker-actions" style={{ marginTop: 16 }}>
-                  <button
-                    type="button"
-                    disabled={!availability.canStart}
-                    onClick={() => {
-                      if (availability.canStart && selectedCaseId) void start(selectedCaseId);
-                    }}
-                    style={buttonStyle("solid", !availability.canStart)}
-                  >
-                    Start voice interview
-                  </button>
-                </div>
+                <CaseCardGrid cases={strategyCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <StartVoiceInterviewButton
+                  canStart={availability.canStart}
+                  onStart={() => {
+                    if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                  }}
+                />
               </>
             )}
 
@@ -1438,38 +1606,38 @@ export default function CaseVoiceInterview({
           </section>
         )}
 
-        {selectedTrack === "technical" && (
+        {selectedTrack === "technical" && selectedTechnicalRole === null && (
           <section className="technical-simulation surface-card" aria-labelledby="technical-simulation-heading">
             <button type="button" className="grid-all-tracks" onClick={showAllTracks}>
               <span aria-hidden="true">←</span> All tracks
             </button>
             <div className="grid-track-header">
               <div>
-                <SectionLabel style={{ marginBottom: 9 }}>Technical Simulation</SectionLabel>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews</SectionLabel>
                 <h2 id="technical-simulation-heading">Choose your role</h2>
                 <p>
-                  Explore the shape of upcoming technical interview rounds. These previews
-                  do not contribute to Case readiness.
+                  Data Engineering and Data Analyst are live.
                 </p>
               </div>
-              <span className="grid-track-status">Coming soon</span>
+              <span className="grid-track-status">{anyTechnicalRoleActive ? "Live voice" : "Coming soon"}</span>
             </div>
             <div className="technical-role-grid">
-              {TECHNICAL_ROLE_PREVIEWS.map((role) => {
-                const selected = selectedTechnicalRole === role.id;
+              {TECHNICAL_ROLE_META.map((role) => {
+                const roleCases = technicalByRole[role.id] ?? [];
+                const active = roleCases.length > 0;
                 return (
                   <button
                     key={role.id}
                     type="button"
-                    aria-pressed={selected}
-                    className={`technical-role-card${selected ? " is-selected" : ""}`}
-                    onClick={() => setSelectedTechnicalRole(role.id)}
+                    aria-pressed={false}
+                    className="technical-role-card"
+                    onClick={() => chooseTechnicalRole(role.id)}
                   >
                     <span className="technical-role-card__top">
                       <span className="technical-role-card__glyph" aria-hidden="true">
                         {role.id === "data_analyst" ? "◌" : "⌘"}
                       </span>
-                      <span>Preview</span>
+                      <span>{active ? "Live voice" : "Coming soon"}</span>
                     </span>
                     <span className="technical-role-card__title">{role.title}</span>
                     <span className="technical-role-card__copy">{role.description}</span>
@@ -1478,29 +1646,98 @@ export default function CaseVoiceInterview({
                 );
               })}
             </div>
-            {selectedTechnicalRole && (
-              <div className="technical-role-preview" role="status" aria-live="polite">
-                <div>
-                  <SectionLabel style={{ marginBottom: 7 }}>Selected role</SectionLabel>
-                  <h3>
-                    {TECHNICAL_ROLE_PREVIEWS.find((role) => role.id === selectedTechnicalRole)?.title}
-                  </h3>
-                </div>
+          </section>
+        )}
+
+        {selectedTrack === "technical" && selectedTechnicalRole !== null && activeRoleCases.length > 0 && (
+          <section className="case-voice-picker surface-card" aria-labelledby="technical-role-cases-heading">
+            <button type="button" className="grid-all-tracks" onClick={backToTechnicalRoles}>
+              <span aria-hidden="true">←</span> Roles
+            </button>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews · {selectedRoleMeta?.title}</SectionLabel>
+                <h2 id="technical-role-cases-heading">Choose a case</h2>
                 <p>
-                  Technical interview rounds for this role will appear here when they are ready.
-                  No readiness score or application data is changed by this preview.
+                  This live voice interview does not contribute to Case readiness.
                 </p>
-                <span>Coming soon</span>
               </div>
+              <span className="grid-track-status">Live voice</span>
+            </div>
+            {!configured && (
+              <p role="alert" style={{ margin: "0 2px 12px", fontSize: 12, color: "var(--gap)" }}>
+                Case voice is not configured for this Preview deployment.
+              </p>
             )}
+            {availability.showLoading && (
+              <p role="status" aria-live="polite" style={{ margin: "0 2px", fontSize: 13, color: "var(--ink-3)" }}>
+                Loading cases…
+              </p>
+            )}
+            {availability.showCases && (
+              <>
+                <CaseCardGrid cases={activeRoleCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <StartVoiceInterviewButton
+                  canStart={availability.canStart}
+                  onStart={() => {
+                    if (availability.canStart && selectedCaseId) void start(selectedCaseId);
+                  }}
+                />
+              </>
+            )}
+            {(notice || error) && (
+              <p role="status" style={{ margin: "12px 2px 0", fontSize: 12, color: error ? "var(--gap)" : "var(--ink-3)" }}>
+                {error ?? notice}
+              </p>
+            )}
+          </section>
+        )}
+
+        {selectedTrack === "technical" && selectedTechnicalRole !== null && activeRoleCases.length === 0 && (
+          <section className="technical-simulation surface-card" aria-labelledby="technical-role-preview-heading">
+            <button type="button" className="grid-all-tracks" onClick={backToTechnicalRoles}>
+              <span aria-hidden="true">←</span> Roles
+            </button>
+            <div className="grid-track-header">
+              <div>
+                <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews</SectionLabel>
+                <h2 id="technical-role-preview-heading">{selectedRoleMeta?.title}</h2>
+              </div>
+              <span className="grid-track-status">Coming soon</span>
+            </div>
+            <div className="technical-role-preview" role="status" aria-live="polite">
+              <div>
+                <SectionLabel style={{ marginBottom: 7 }}>Selected role</SectionLabel>
+                <h3>{selectedRoleMeta?.title}</h3>
+              </div>
+              <p>
+                Technical interview rounds for this role will appear here when they are ready.
+                No readiness score or application data is changed by this preview.
+              </p>
+              <span>Coming soon</span>
+            </div>
           </section>
         )}
       </div>
     );
   }
 
+  const avatarMode = mapCaseVoiceToAvatarMode({
+    status,
+    muted,
+    userSpeaking,
+    conversationStatus: projection?.conversationStatus,
+    liveStatus: projection?.liveStatus,
+  });
+
   return (
     <div className="case-voice-session" style={{ marginTop: 18 }}>
+      <InterviewerAvatar
+        mode={avatarMode}
+        level={level}
+        variant="panel"
+        captionKicker="Case interviewer / The GRID"
+      />
       <div
         className="case-voice-statusbar"
         style={{
@@ -1604,39 +1841,23 @@ export default function CaseVoiceInterview({
 
       {nativeLiveCapability && (
         <>
-          <div
-            className="case-progress-panel"
-            style={{
-              marginTop: 14,
-              padding: "14px 16px",
-              border: "1px solid var(--line)",
-              borderRadius: 10,
-              background: "var(--surface)",
-              overflowX: "auto",
-            }}
-            aria-label="Live case stage progress"
-          >
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              marginBottom: 12,
-            }}>
-              <SectionLabel>Case progress</SectionLabel>
-              <span style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                color: "var(--ink-3)",
-              }}>
-                {Math.max(0, nativeLiveProgress.stageIndex + 1)} of {NATIVE_CASE_LIVE_STAGE_LABELS.length}
-              </span>
-            </div>
-            <StageTracker
-              stages={[...NATIVE_CASE_LIVE_STAGE_LABELS]}
-              currentIdx={nativeLiveProgress.stageIndex}
+          <NativeLiveProgressPanel
+            caseId={nativeLiveCapability.caseId}
+            stageIndex={nativeLiveProgress.stageIndex}
+          />
+
+          {/* The three technical native experiences only; the strategy cases
+              keep their existing live surface unchanged. */}
+          {isTechnicalNativeCase(nativeLiveCapability.caseId) && (
+            <NativeCurrentQuestionPanel
+              state={currentQuestion ?? initialNativeCurrentQuestion(nativeLiveCapability.caseId)}
             />
-          </div>
+          )}
+
+          <NativeCaseBriefPanel
+            caseId={nativeLiveCapability.caseId}
+            stageIndex={nativeLiveProgress.stageIndex}
+          />
 
           {liveCaption && (
             <div
@@ -1788,6 +2009,198 @@ export default function CaseVoiceInterview({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Evaluator-aware live progress. The step vocabulary and count come from the
+ * case's progress definition, so the strategy cases keep their consulting stages
+ * while the technical experiences show their own steps and their own "n of N".
+ */
+function NativeLiveProgressPanel({
+  caseId,
+  stageIndex,
+}: {
+  caseId: string;
+  stageIndex: number;
+}) {
+  const definition = nativeProgressDefinition(caseId);
+  if (!definition) return null;
+  return (
+    <div
+      className="case-progress-panel"
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+        overflowX: "auto",
+      }}
+      aria-label={definition.ariaLabel}
+    >
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 12,
+      }}>
+        <SectionLabel>{definition.panelLabel}</SectionLabel>
+        <span style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--ink-3)",
+        }}>
+          {Math.max(0, stageIndex + 1)} of {definition.steps.length}
+        </span>
+      </div>
+      <StageTracker
+        stages={definition.steps.map((step) => step.label)}
+        currentIdx={stageIndex}
+      />
+    </div>
+  );
+}
+
+/**
+ * The question the candidate is currently being asked. Shows the configured
+ * readiness line until the first canonical anchor is spoken, then the complete
+ * spoken question, then any substantive follow-up probe. Acknowledgements never
+ * clear it. Body text is always verbatim assistant speech the candidate already
+ * heard — no prompt, guidance, rubric, or metadata can reach this panel.
+ */
+function NativeCurrentQuestionPanel({ state }: { state: NativeCurrentQuestionState }) {
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+      aria-label="Current question"
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+        <SectionLabel>Current question</SectionLabel>
+        {state.title && (
+          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{state.title}</span>
+        )}
+        {state.kind === "probe" && (
+          <span style={{
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--accent)",
+          }}>
+            Follow-up
+          </span>
+        )}
+      </div>
+      <p
+        aria-live="polite"
+        style={{
+          margin: 0,
+          fontSize: 14,
+          lineHeight: 1.6,
+          color: state.kind === "readiness" ? "var(--ink-3)" : "var(--ink)",
+        }}
+      >
+        {state.text}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Persistent brief for the system-design case and a collapsed round overview for
+ * the two question-bank rounds. Airport and GCC Gym resolve to null and show
+ * nothing.
+ *
+ * The Clickstream brief reveals progressively: it is derived purely from the
+ * current progress step, so it renders nothing before the interview starts and
+ * reconstructs identically after a refresh without any separate reveal state.
+ * Only the open/closed disclosure is local.
+ */
+function NativeCaseBriefPanel({
+  caseId,
+  stageIndex,
+}: {
+  caseId: string;
+  stageIndex: number;
+}) {
+  const brief = nativeCaseBrief(caseId, stageIndex);
+  const [open, setOpen] = useState(brief?.defaultOpen ?? false);
+  if (!brief) return null;
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: "14px 16px",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "var(--surface)",
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="case-brief-panel"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          gap: 12,
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          cursor: "pointer",
+          color: "var(--ink)",
+        }}
+      >
+        <SectionLabel>{brief.title}</SectionLabel>
+        <span aria-hidden style={{ color: "var(--ink-3)", fontSize: 12 }}>
+          {open ? "\u25b2" : "\u25bc"}
+        </span>
+      </button>
+      <div id="case-brief-panel" hidden={!open}>
+        {open && (
+          <>
+            <p style={{ margin: "8px 0 12px", fontSize: 12, color: "var(--ink-3)" }}>
+              {brief.intro}
+            </p>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+              gap: 16,
+            }}>
+              {brief.sections.map((section) => (
+                <div key={section.heading}>
+                  <div style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--ink)",
+                    marginBottom: 7,
+                  }}>
+                    {section.heading}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {section.items.map((item) => (
+                      <li key={item} style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

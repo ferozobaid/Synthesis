@@ -18,6 +18,7 @@ import {
 
 export type ModuleKey = "fit" | "behavioural" | "case";
 export type ModuleStatus = "not_started" | "in_progress" | "done";
+export type TargetSource = "unset" | "personalized" | "sample";
 
 export interface ModuleResult {
   status: ModuleStatus;
@@ -37,6 +38,7 @@ export interface Target {
 
 export interface ReadinessState {
   target: Target;
+  targetSource: TargetSource;
   fit: ModuleResult;
   behavioural: ModuleResult;
   case: ModuleResult;
@@ -44,8 +46,9 @@ export interface ReadinessState {
 
 const EMPTY_MODULE: ModuleResult = { status: "not_started", score: null };
 
-const DEFAULT_STATE: ReadinessState = {
+export const DEFAULT_READINESS_STATE: ReadinessState = {
   target: { role: null, company: null, jdText: "", resumeText: "" },
+  targetSource: "unset",
   fit: EMPTY_MODULE,
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
@@ -62,7 +65,10 @@ interface ReadinessContextValue {
    * existing module results are invalidated so the dashboard returns to an
    * unstarted state for the new role.
    */
-  commitTarget: (next: Target) => void;
+  commitTarget: (
+    next: Target,
+    source: Exclude<TargetSource, "unset">,
+  ) => void;
   setModule: (key: ModuleKey, patch: Partial<ModuleResult>) => void;
   reset: () => void;
   seedSample: () => void;
@@ -80,11 +86,10 @@ export interface NextAction {
 const ReadinessContext = createContext<ReadinessContextValue | null>(null);
 
 // A representative candidate used for "See a sample" / "Try a sample candidate".
-const SAMPLE_STATE: ReadinessState = {
-  target: {
-    role: "Data Analyst",
-    company: "Tenazx Inc",
-    resumeText: `JANE DOE
+export const SAMPLE_TARGET: Target = {
+  role: "Data Analyst",
+  company: "Tenazx Inc",
+  resumeText: `JANE DOE
 Business Analytics · jane.doe@email.com
 
 SUMMARY
@@ -104,14 +109,144 @@ Company: Tenazx Inc
 We are hiring a Data Analyst. Required: strong SQL and Python or R; experience with
 data visualization tools; statistical analysis. A Bachelor's degree in a quantitative
 field is required. Experience with cybersecurity or financial services is a plus.`,
-  },
+};
+
+export const SAMPLE_READINESS_STATE: ReadinessState = {
+  target: SAMPLE_TARGET,
+  targetSource: "sample",
   fit: EMPTY_MODULE,
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
 };
 
+function normalized(value: string | null): string {
+  return (value ?? "").trim();
+}
+
+function targetsMatch(left: Target, right: Target): boolean {
+  return (
+    normalized(left.role) === normalized(right.role) &&
+    normalized(left.company) === normalized(right.company) &&
+    normalized(left.jdText) === normalized(right.jdText) &&
+    normalized(left.resumeText) === normalized(right.resumeText)
+  );
+}
+
+function hasAnyTargetValue(target: Target): boolean {
+  return Object.values(target).some((value) => normalized(value).length > 0);
+}
+
+export function hasCompleteTarget(
+  state: Pick<ReadinessState, "target" | "targetSource">,
+): boolean {
+  return (
+    state.targetSource !== "unset" &&
+    normalized(state.target.role).length > 0 &&
+    normalized(state.target.jdText).length > 0
+  );
+}
+
+export function inferLegacyTargetSource(target: Target): TargetSource {
+  if (targetsMatch(target, SAMPLE_TARGET)) return "sample";
+  return hasAnyTargetValue(target) ? "personalized" : "unset";
+}
+
+function isTargetSource(value: unknown): value is TargetSource {
+  return (
+    value === "unset" ||
+    value === "personalized" ||
+    value === "sample"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hydrateModule(value: unknown): ModuleResult {
+  if (!isRecord(value)) return { ...EMPTY_MODULE };
+  const status =
+    value.status === "not_started" ||
+    value.status === "in_progress" ||
+    value.status === "done"
+      ? value.status
+      : "not_started";
+  return {
+    status,
+    score:
+      typeof value.score === "number" || value.score === null
+        ? value.score
+        : null,
+    statusLine:
+      typeof value.statusLine === "string" ? value.statusLine : undefined,
+    updatedAt:
+      typeof value.updatedAt === "number" ? value.updatedAt : undefined,
+  };
+}
+
+export function hydrateReadinessState(value: unknown): ReadinessState {
+  const parsed = isRecord(value) ? value : {};
+  const parsedTarget = isRecord(parsed.target) ? parsed.target : {};
+  const target: Target = {
+    role:
+      typeof parsedTarget.role === "string" || parsedTarget.role === null
+        ? parsedTarget.role
+        : null,
+    company:
+      typeof parsedTarget.company === "string" ||
+      parsedTarget.company === null
+        ? parsedTarget.company
+        : null,
+    jdText:
+      typeof parsedTarget.jdText === "string" ? parsedTarget.jdText : "",
+    resumeText:
+      typeof parsedTarget.resumeText === "string"
+        ? parsedTarget.resumeText
+        : "",
+  };
+
+  return {
+    target,
+    targetSource: isTargetSource(parsed.targetSource)
+      ? parsed.targetSource
+      : inferLegacyTargetSource(target),
+    fit: hydrateModule(parsed.fit),
+    behavioural: hydrateModule(parsed.behavioural),
+    case: hydrateModule(parsed.case),
+  };
+}
+
+export function commitReadinessTarget(
+  current: ReadinessState,
+  next: Target,
+  source: Exclude<TargetSource, "unset">,
+): ReadinessState {
+  if (targetsMatch(current.target, next)) {
+    return { ...current, target: { ...current.target, ...next }, targetSource: source };
+  }
+  return {
+    ...DEFAULT_READINESS_STATE,
+    target: next,
+    targetSource: source,
+  };
+}
+
+export function buildPersonalizedTarget(
+  current: Pick<ReadinessState, "target" | "targetSource">,
+  role: Omit<Target, "resumeText">,
+): Target {
+  const hasBundledSampleResume =
+    current.targetSource === "sample" &&
+    normalized(current.target.resumeText) ===
+      normalized(SAMPLE_TARGET.resumeText);
+  return {
+    ...role,
+    resumeText: hasBundledSampleResume ? "" : current.target.resumeText,
+  };
+}
+
 export function ReadinessProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<ReadinessState>(DEFAULT_STATE);
+  const [state, setState] = useState<ReadinessState>(DEFAULT_READINESS_STATE);
   const [hydrated, setHydrated] = useState(false);
 
   // Hydrate from localStorage once on mount (client only).
@@ -119,8 +254,7 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<ReadinessState>;
-        setState({ ...DEFAULT_STATE, ...parsed, target: { ...DEFAULT_STATE.target, ...parsed.target } });
+        setState(hydrateReadinessState(JSON.parse(raw)));
       }
     } catch {
       /* ignore malformed storage */
@@ -142,21 +276,12 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, target: { ...s.target, ...patch } }));
   }, []);
 
-  const commitTarget = useCallback((next: Target) => {
-    setState((s) => {
-      const cur = s.target;
-      const norm = (v: string | null) => (v ?? "").trim();
-      const changed =
-        norm(next.role) !== norm(cur.role) ||
-        norm(next.company) !== norm(cur.company) ||
-        norm(next.jdText) !== norm(cur.jdText) ||
-        norm(next.resumeText) !== norm(cur.resumeText);
-      // Unchanged target: keep module results. Materially different target:
-      // reset every module so readiness reflects the new role, not the old one.
-      if (!changed) return { ...s, target: { ...cur, ...next } };
-      return { ...DEFAULT_STATE, target: next };
-    });
-  }, []);
+  const commitTarget = useCallback(
+    (next: Target, source: Exclude<TargetSource, "unset">) => {
+      setState((current) => commitReadinessTarget(current, next, source));
+    },
+    [],
+  );
 
   const setModule = useCallback((key: ModuleKey, patch: Partial<ModuleResult>) => {
     setState((s) => ({
@@ -165,8 +290,8 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const reset = useCallback(() => setState(DEFAULT_STATE), []);
-  const seedSample = useCallback(() => setState(SAMPLE_STATE), []);
+  const reset = useCallback(() => setState(DEFAULT_READINESS_STATE), []);
+  const seedSample = useCallback(() => setState(SAMPLE_READINESS_STATE), []);
 
   const overallReadiness = useCallback((): number | null => {
     const parts = [state.fit, state.behavioural, state.case].filter(
@@ -179,6 +304,13 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
 
   const nextBestAction = useCallback((): NextAction => {
     const { fit, behavioural, case: caseM } = state;
+    if (!hasCompleteTarget(state))
+      return {
+        title: "Set the role you're preparing for",
+        desc: "Add the target job once so fit, behavioural, and case practice share the same benchmark.",
+        cta: "Set target role",
+        href: "/onboard",
+      };
     // Prioritize the not-yet-run module, then the weakest completed one.
     if (fit.status === "not_started")
       return {

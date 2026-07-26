@@ -96,6 +96,10 @@ const SECRET = "gym-route-secret";
 const authHeader = { authorization: `Bearer ${SECRET}` };
 const GYM = "gcc_premium_gym_market_entry";
 const AIRPORT = "airport_profitability";
+const DATA_ENGINEER = "data_engineer_clickstream";
+const DE_ROUND = "data_engineer_technical_round";
+const DA_ROUND = "data_analyst_technical_round";
+const ALL_CASE_IDS = [AIRPORT, GYM, DATA_ENGINEER, DE_ROUND, DA_ROUND];
 
 interface ChatMessage { id?: string; role: "assistant" | "user"; content: string }
 
@@ -239,21 +243,30 @@ beforeEach(() => {
 });
 
 describe("Preview LLM catalog", () => {
-  it("exposes only id, title, and description for both selectable cases in llm mode", async () => {
+  it("exposes only id, title, description, and track/role classification for all selectable cases in llm mode", async () => {
     const response = await catalogGET();
     expect(response.status).toBe(200);
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
-    expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM]);
+    expect(cases.map((entry) => entry.id)).toEqual(ALL_CASE_IDS);
     for (const entry of cases) {
-      expect(Object.keys(entry).sort()).toEqual(["description", "id", "title"]);
+      const expectedKeys = entry.track === "technical"
+        ? ["description", "id", "role", "title", "track"]
+        : ["description", "id", "title", "track"];
+      expect(Object.keys(entry).sort()).toEqual(expectedKeys);
     }
+    expect(cases.find((entry) => entry.id === AIRPORT)).toMatchObject({ track: "strategy" });
+    expect(cases.find((entry) => entry.id === GYM)).toMatchObject({ track: "strategy" });
+    expect(cases.find((entry) => entry.id === DATA_ENGINEER)).toMatchObject({
+      track: "technical",
+      role: "data_engineering",
+    });
   });
 
-  it("always presents exactly the two cases with no Beautify or Diconsa options", async () => {
+  it("always presents exactly the strategy cases and technical rounds with no Beautify or Diconsa options", async () => {
     for (const mode of ["llm", "legacy", "production"]) {
       process.env.CASE_VOICE_INTERVIEWER_MODE = mode;
       const { cases } = await (await catalogGET()).json() as { cases: Array<{ id: string }> };
-      expect(cases.map((entry) => entry.id)).toEqual([AIRPORT, GYM]);
+      expect(cases.map((entry) => entry.id)).toEqual(ALL_CASE_IDS);
       expect(JSON.stringify(cases)).not.toContain("beautify");
       expect(JSON.stringify(cases)).not.toContain("diconsa");
     }

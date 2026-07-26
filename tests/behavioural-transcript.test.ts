@@ -155,10 +155,51 @@ describe("mapTranscriptToQuestions — synthetic edge cases", () => {
 
   it("classifies known backend question types deterministically", () => {
     expect(classifyBehaviouralQuestion({ id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" })).toBe("introduction");
+    // Canonical role-motivation id, with wording that varies by role (identity is stable).
+    expect(classifyBehaviouralQuestion({ id: "role_motivation", question: "Why are you interested in working in data analytics?", type: "role_motivation" })).toBe("motivation_role_fit");
+    expect(classifyBehaviouralQuestion({ id: "role_motivation", question: "Why do you want to work in consulting?", type: "role_motivation" })).toBe("motivation_role_fit");
+    // Conditional industry-motivation reuses the role-fit rubric.
+    expect(classifyBehaviouralQuestion({ id: "industry_motivation", question: "Why are you interested in working in banking?", type: "industry_motivation" })).toBe("motivation_role_fit");
+    // Legacy ids still classify identically (older sessions / prepared-answer fixtures).
     expect(classifyBehaviouralQuestion({ id: "why_this_role", question: "Why are you interested in this role?", type: "motivation" })).toBe("motivation_role_fit");
+    expect(classifyBehaviouralQuestion({ id: "why_consulting", question: "Why are you interested in consulting?", type: "motivation" })).toBe("motivation_role_fit");
     expect(classifyBehaviouralQuestion({ id: "why_this_company", question: "Why do you want to work at Revature?", type: "motivation", source: "parsed JD company name" })).toBe("company_fit");
     expect(classifyBehaviouralQuestion({ id: "greatest_strength", question: "What are your greatest strengths, and how have you applied them?", type: "self-assessment" })).toBe("self_assessment");
     expect(classifyBehaviouralQuestion({ id: "leadership", question: "Tell me about a time you led a team.", type: "star" })).toBe("competency_star");
+  });
+
+  it("maps a reordered transcript (role-aware, self-assessment last) to the right questions", () => {
+    const qs: OrderedQuestion[] = [
+      { id: "tell_me_about_yourself", question: "Tell me about yourself.", type: "intro" },
+      { id: "role_motivation", question: "Why are you interested in working in data analytics?", type: "role_motivation" },
+      { id: "why_this_company", question: "Why do you want to work at National Bank of Canada?", type: "motivation", source: "parsed JD company name" },
+      { id: "industry_motivation", question: "Why are you interested in working in banking?", type: "industry_motivation" },
+      { id: "greatest_strength", question: "What are your greatest strengths, and how have you applied them?", type: "self-assessment" },
+    ];
+    const messages: TranscriptMessage[] = [
+      { role: "bot", message: "Tell me about yourself." },
+      { role: "user", message: "I am a data analyst focused on SQL and dashboards for commercial teams." },
+      { role: "bot", message: "Why are you interested in working in data analytics?" },
+      { role: "user", message: "Analytics lets me turn messy data into decisions, which matches my strengths." },
+      { role: "bot", message: "Why do you want to work at National Bank of Canada?" },
+      { role: "user", message: "The bank pairs scale with a strong data culture, and I want that impact." },
+      { role: "bot", message: "Why are you interested in working in banking?" },
+      { role: "user", message: "Banking data is high-stakes and regulated, which makes the analytics work meaningful." },
+      { role: "bot", message: "What are your greatest strengths, and how have you applied them?" },
+      { role: "user", message: "My strength is clear communication of analysis, applied in regional sales reviews." },
+    ];
+    const { mapped, usedPositionalFallback } = mapTranscriptToQuestions(qs, messages);
+    expect(usedPositionalFallback).toBe(false);
+    expect(mapped.map((m) => m.questionId)).toEqual([
+      "tell_me_about_yourself",
+      "role_motivation",
+      "why_this_company",
+      "industry_motivation",
+      "greatest_strength",
+    ]);
+    expect(mapped.every((m) => m.confidence === "high")).toBe(true);
+    expect(mapped[1].answer).toContain("Analytics");
+    expect(mapped[3].answer).toContain("Banking");
   });
 
   it("does not apply STAR criticism to intro, role-interest, or company-interest questions", async () => {

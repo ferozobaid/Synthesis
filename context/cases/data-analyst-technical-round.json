@@ -1,0 +1,15 @@
+{
+  "id": "data_analyst_technical_round",
+  "title": "Data Analyst Technical Round",
+  "firm": "Synthesis",
+  "type": "data analyst / technical round",
+  "content": "A five-question spoken technical round covering SQL analysis, metric definition, dashboards, diagnostic analysis, and experiment analysis. Questions, order, and scoring live in context/technical/data_analyst.json; this record only routes the native assistant and the shared question-bank evaluator.",
+  "stages": [],
+  "exhibits": [],
+  "scoring_rubric": {
+    "scale": "1-5",
+    "dimensions": []
+  },
+  "evaluator_type": "technical_question_bank",
+  "question_bank_role": "data_analyst"
+}

@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "note": "Behavioural question bank. 'why_this_company' is dynamic — {{company}} is filled from the parsed JD; falls back to 'this company'. Competencies align with the tags used in seed_answer_bank.json so RAG retrieval matches the user's own prepared answers.",
+  "version": 2,
+  "note": "Behavioural question bank. Order follows a realistic interview arc: intro → role/function motivation → company → (optional) industry → competency evidence → self-awareness. 'role_motivation' is role-aware — its wording is filled from the target role/function at session start (deterministic templates, never a runtime model call); its stable id/type never changes. 'why_this_company' fills {{company}} from the parsed JD / readiness target (falls back to 'this company'). 'industry_motivation' is conditional (dynamic + \"conditional\": \"industry\"): it is only asked when a distinct industry is known and is not redundant with the role family or company; otherwise it is dropped at generation time. Competencies align with the tags in seed_answer_bank.json so RAG retrieval matches the user's own prepared answers.",
   "competencies": [
     "motivation & fit",
     "leadership & influence",
@@ -15,10 +15,9 @@
   ],
   "questions": [
     { "id": "tell_me_about_yourself", "question": "Tell me about yourself.", "competency": "motivation & fit", "type": "intro", "dynamic": false },
-    { "id": "why_this_role", "question": "Why are you interested in this role?", "competency": "motivation & fit", "type": "motivation", "dynamic": false },
+    { "id": "role_motivation", "question": "Why are you interested in this type of role?", "competency": "motivation & fit", "type": "role_motivation", "dynamic": true, "source": "target role or role family" },
     { "id": "why_this_company", "question": "Why do you want to work at {{company}}?", "competency": "motivation & fit", "type": "motivation", "dynamic": true, "source": "parsed JD company name", "fallback_company": "this company" },
-    { "id": "why_consulting", "question": "Why are you interested in consulting?", "competency": "motivation & fit", "type": "motivation", "dynamic": false },
-    { "id": "greatest_strength", "question": "What are your greatest strengths, and how have you applied them?", "competency": "motivation & fit", "type": "self-assessment", "dynamic": false },
+    { "id": "industry_motivation", "question": "Why are you interested in working in {{industry}}?", "competency": "motivation & fit", "type": "industry_motivation", "dynamic": true, "conditional": "industry", "source": "parsed JD industry / domain" },
     { "id": "time_you_failed", "question": "Tell me about a time you failed and what you learned.", "competency": "failure & lessons learned", "type": "star", "dynamic": false },
     { "id": "leadership", "question": "Tell me about a time you led a team through a difficult situation.", "competency": "leadership & influence", "type": "star", "dynamic": false },
     { "id": "conflict", "question": "Tell me about a time you had a conflict with a teammate and how you resolved it.", "competency": "conflict resolution", "type": "star", "dynamic": false },
@@ -27,6 +26,7 @@
     { "id": "data_driven_decision", "question": "Tell me about a time you used data to make a decision.", "competency": "data-driven decision making", "type": "star", "dynamic": false },
     { "id": "tight_deadline", "question": "Tell me about a time you delivered high-quality work under a tight deadline.", "competency": "working under pressure", "type": "star", "dynamic": false },
     { "id": "cross_functional", "question": "Tell me about a time you worked cross-functionally.", "competency": "cross-functional collaboration", "type": "star", "dynamic": false },
-    { "id": "initiative", "question": "Tell me about a time you went beyond what was asked.", "competency": "initiative", "type": "star", "dynamic": false }
+    { "id": "initiative", "question": "Tell me about a time you went beyond what was asked.", "competency": "initiative", "type": "star", "dynamic": false },
+    { "id": "greatest_strength", "question": "What are your greatest strengths, and how have you applied them?", "competency": "motivation & fit", "type": "self-assessment", "dynamic": false }
   ]
 }

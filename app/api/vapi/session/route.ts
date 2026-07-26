@@ -17,7 +17,7 @@ import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import {
   CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
-  resolveCaseVoiceArchitecture,
+  resolveCaseVoiceArchitectureForCase,
   resolveNativeCaseAssistant,
 } from "@/lib/voice/case-native-config";
 import { issueReportCapability } from "@/lib/voice/report-capability";
@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
       questionBank: MOCK_QUESTIONS,
       jdText,
       userId: MOCK_USER_ID,
+      // Explicit target (readiness store / onboarding) grounds role-aware motivation
+      // wording even when no JD is pasted; falls back to the parsed JD inside startBehavioural.
+      targetRole,
+      targetCompany: companyName,
     });
 
     const now = new Date().toISOString();
@@ -153,7 +157,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "case not found" }, { status: 404 });
     }
     const catalogEntry = previewLlmCaseCatalogEntry(resolvedCaseId);
-    const architecture = resolveCaseVoiceArchitecture(process.env);
+    const architecture = resolveCaseVoiceArchitectureForCase(resolvedCaseId, process.env);
 
     // Readiness is a voice-only pre-case gate. The authored prompt is withheld
     // until the candidate confirms they are ready. The two cases always run the
@@ -176,6 +180,8 @@ export async function POST(req: NextRequest) {
         module: "case",
         session: voiceSession,
         caseId: resolvedCaseId,
+        caseTrack: catalogEntry?.track,
+        caseRole: catalogEntry?.role,
         selectedCaseTitle: catalogEntry?.title ?? c.title,
         selectedCaseDescription: catalogEntry?.description,
         architecture: "vapi_native",
@@ -211,6 +217,8 @@ export async function POST(req: NextRequest) {
         reportToken,
         reportStatus: "pending",
         caseId: resolvedCaseId,
+        caseTrack: record.caseTrack,
+        caseRole: record.caseRole ?? null,
         caseTitle: record.selectedCaseTitle,
         caseDescription: record.selectedCaseDescription ?? null,
         candidateName: candidateName ?? null,
@@ -223,6 +231,8 @@ export async function POST(req: NextRequest) {
       module: "case",
       session: voiceSession,
       caseId: resolvedCaseId,
+      caseTrack: catalogEntry?.track,
+      caseRole: catalogEntry?.role,
       selectedCaseTitle: catalogEntry?.title ?? c.title,
       selectedCaseDescription: catalogEntry?.description,
       architecture: "custom_llm",
@@ -260,6 +270,8 @@ export async function POST(req: NextRequest) {
       projectionToken,
       openingPrompt: openingText,
       caseId: resolvedCaseId,
+      caseTrack: record.caseTrack,
+      caseRole: record.caseRole ?? null,
       caseTitle: c.title,
       caseDescription: catalogEntry?.description ?? null,
       stage: voiceSession.fsm_state,

@@ -316,6 +316,11 @@ describe("authenticated report binding, idempotency and fencing", () => {
     const diagnostic = info.mock.calls.find((call) => call[0] === "[case-native-report] scoring");
     expect(diagnostic?.[1]).toEqual({
       selectedCaseId: AIRPORT,
+      // Consulting keeps its own budget and is not routed through the technical
+      // budget module, so maxTokenBudget is null here.
+      evaluatorType: "consulting",
+      model: "claude-haiku-4-5",
+      maxTokenBudget: null,
       observedStageCount: 1,
       missingStageCount: 5,
       partial: true,
@@ -334,10 +339,13 @@ describe("authenticated report binding, idempotency and fencing", () => {
     });
     expect(Object.keys(diagnostic?.[1] ?? {}).sort()).toEqual([
       "anthropicErrorType",
+      "evaluatorType",
       "failureCategory",
       "httpStatus",
       "inputTokens",
+      "maxTokenBudget",
       "missingStageCount",
+      "model",
       "observedStageCount",
       "outputTokens",
       "partial",
@@ -407,8 +415,10 @@ describe("protected Case report polling", () => {
     const projection = await response.json();
     expect(response.status).toBe(200);
     expect(Object.keys(projection).sort()).toEqual([
-      "caseId", "caseTitle", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
+      "answers", "caseId", "caseRole", "caseTitle", "caseTrack", "evaluatorType", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
     ]);
+    // Consulting cases carry no answer projection.
+    expect(projection.answers).toEqual([]);
     expect(JSON.stringify(projection)).not.toMatch(
       /transcript|assistantId|callId|fencing|solution|rubric|exhibit|validationPath|validationReason|validationReceivedType/i,
     );

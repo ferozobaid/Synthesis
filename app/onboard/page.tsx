@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useReadiness } from "@/components/readiness-store";
+import {
+  buildPersonalizedTarget,
+  useReadiness,
+} from "@/components/readiness-store";
 import { DocumentInput } from "@/components/DocumentInput";
 
 /** Naive role-title guess from a pasted JD (client-only convenience). */
@@ -18,22 +21,38 @@ function guessRole(jd: string): { role: string | null; company: string | null } 
 
 export default function Onboard() {
   const router = useRouter();
-  const { commitTarget, seedSample } = useReadiness();
-  const [resume, setResume] = useState("");
+  const { state, hydrated, commitTarget, seedSample } = useReadiness();
   const [roleTitle, setRoleTitle] = useState("");
   const [jd, setJd] = useState("");
 
+  useEffect(() => {
+    if (!hydrated || state.targetSource !== "personalized") return;
+    setRoleTitle((current) => current || state.target.role || "");
+    setJd((current) => current || state.target.jdText);
+  }, [
+    hydrated,
+    state.target.jdText,
+    state.target.role,
+    state.targetSource,
+  ]);
+
+  const canContinue =
+    roleTitle.trim().length > 0 && jd.trim().length > 0;
+
   function build() {
+    if (!canContinue) return;
     const guessed = guessRole(jd);
     // commitTarget invalidates prior module scores when the role materially
-    // changes, so the new dashboard starts from an unstarted readiness state.
-    commitTarget({
-      resumeText: resume,
-      jdText: jd,
-      role: roleTitle.trim() || guessed.role || "Your target role",
-      company: guessed.company,
-    });
-    router.push("/dashboard");
+    // changes, so the next analysis starts from an unstarted readiness state.
+    commitTarget(
+      buildPersonalizedTarget(state, {
+        jdText: jd,
+        role: roleTitle.trim() || guessed.role || "Your target role",
+        company: guessed.company,
+      }),
+      "personalized",
+    );
+    router.push("/fit");
   }
 
   function trySample() {
@@ -42,7 +61,7 @@ export default function Onboard() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", animation: "fadeIn .4s ease both" }}>
+    <main className="page-enter" style={{ minHeight: "100vh" }}>
       <div className="page-shell onboard-shell">
         <Link href="/" className="page-back">
           ← Back
@@ -53,47 +72,26 @@ export default function Onboard() {
             <div className="onboard-eyebrow">Set your target role / 01</div>
             <h1 className="page-title onboard-title">Who are you preparing to be?</h1>
             <p className="onboard-description">
-              Give us your resume and the job you&apos;re targeting. Everything Synthesis coaches — fit, behavioural,
-              and case — is tuned to this role.
+              Set the job you&apos;re targeting once. Resume fit, behavioural,
+              and case practice will all use the same role benchmark.
             </p>
           </div>
 
           <aside className="onboard-brief" aria-label="Setup summary">
             <div className="onboard-brief__label">Setup / 02 inputs</div>
             <strong>One role. One readiness plan.</strong>
-            <p>Your resume shows your evidence. The job description defines the bar.</p>
+            <p>Your job description defines the shared bar. Resume evidence comes next.</p>
           </aside>
         </header>
 
-        <div className="onboard-input-grid">
-          {/* resume */}
-          <section className="surface-card onboard-card onboard-card--resume">
+        <div className="onboard-input-grid onboard-input-grid--role-only">
+          <section className="surface-card onboard-card onboard-card--role">
             <div className="onboard-card__header">
               <span className="onboard-card__number" aria-hidden="true">01</span>
               <div>
-                <div className="onboard-card__eyebrow">Candidate evidence</div>
-                <h2>Your resume</h2>
-                <p>Upload your latest resume, or paste the text manually.</p>
-              </div>
-            </div>
-            <DocumentInput
-              kind="resume"
-              value={resume}
-              onTextChange={setResume}
-              textareaLabel="Your resume text"
-              placeholder="Or paste your complete resume text here…"
-              height={148}
-            />
-          </section>
-
-          {/* target job */}
-          <section className="surface-card onboard-card onboard-card--role">
-            <div className="onboard-card__header">
-              <span className="onboard-card__number" aria-hidden="true">02</span>
-              <div>
-                <div className="onboard-card__eyebrow">Role benchmark</div>
+                <div className="onboard-card__eyebrow">Shared role benchmark</div>
                 <h2>Target job</h2>
-                <p>Name the role, then paste the job description as your primary input.</p>
+                <p>Name the role, then paste the job description Synthesis should use across every module.</p>
               </div>
             </div>
             <label htmlFor="onboard-role" className="field-label">Role title</label>
@@ -126,17 +124,21 @@ export default function Onboard() {
           <div className="onboard-actions__note">
             <div className="onboard-actions__label">Grounded role analysis</div>
             <p>
-              Requirements are checked against real occupational data for this role, so your fit reflects what the job
-              actually demands — not just keyword overlap.
+              Next, add your resume to measure your evidence against this role.
+              You can change the shared target at any time.
             </p>
           </div>
           <div className="onboard-actions__buttons">
-            <button onClick={build} className="app-button app-button--primary">
-              Build my readiness dashboard →
+            <button
+              onClick={build}
+              disabled={!canContinue}
+              className="app-button app-button--primary"
+            >
+              Continue to resume analysis →
             </button>
             <button onClick={trySample} className="app-button app-button--secondary">
               <span className="onboard-actions__dot" />
-              Try a sample candidate
+              View sample readiness plan
             </button>
           </div>
         </footer>

@@ -8,15 +8,27 @@ import type {
   BehaviouralScore,
   BehaviouralSession,
 } from "@/lib/types";
-import { useReadiness } from "@/components/readiness-store";
-import VoiceInterview, { type VoiceReport } from "@/components/VoiceInterview";
+import {
+  hasCompleteTarget,
+  useReadiness,
+} from "@/components/readiness-store";
+import VoiceInterview, {
+  type VoiceAvatarState,
+  type VoiceReport,
+} from "@/components/VoiceInterview";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition, appendTranscript } from "@/components/useSpeechRecognition";
+import { useRevealOnScroll } from "@/components/ui/useRevealOnScroll";
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
+import {
+  mapVoiceStatusToAvatarMode,
+  type AvatarMode,
+} from "@/components/interviewer/avatarState";
 
 interface StartResult {
   session: BehaviouralSession;
@@ -59,11 +71,20 @@ const STAR = [
 ];
 
 const DIM_COLORS = ["var(--secondary)", "var(--accent)", "var(--success)", "var(--partial)", "var(--ink)"];
+// Core questions always asked; the optional industry-motivation question adds one
+// more when a distinct industry is known, so this is shown as an approximate count.
+const BEHAVIOURAL_QUESTION_COUNT = 13;
 
 export default function BehaviouralPage() {
   const router = useRouter();
-  const { state, hydrated, setModule } = useReadiness();
+  const { state, hydrated, setModule, seedSample } = useReadiness();
   const startedRef = useRef(false);
+  const targetReady = hasCompleteTarget(state);
+  const isSampleTarget =
+    targetReady && state.targetSource === "sample";
+  const targetContext = state.target.company
+    ? `${state.target.role} at ${state.target.company}`
+    : state.target.role;
 
   const [session, setSession] = useState<BehaviouralSession | null>(null);
   const [questions, setQuestions] = useState<BehaviouralQuestion[]>([]);
@@ -71,13 +92,17 @@ export default function BehaviouralPage() {
   const [answer, setAnswer] = useState("");
   const [results, setResults] = useState<Record<string, TurnResult>>({});
   const [loading, setLoading] = useState(false);
-  const [starting, setStarting] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [interviewStarted, setInterviewStarted] = useState(false);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   // True while the Vapi voice flow owns the screen — hide the manual question
   // during the live call and post-call report processing.
   const [voiceActive, setVoiceActive] = useState(false);
   // The post-call voice report (same shape as the manual summary) once ready.
   const [voiceSummary, setVoiceSummary] = useState<SummaryResult | null>(null);
+  // Fine-grained Vapi call state lifted from VoiceInterview for the avatar;
+  // null until the configured voice flow reports in (manual/mock mode stays null).
+  const [voiceState, setVoiceState] = useState<VoiceAvatarState | null>(null);
 
   const handleVoiceComplete = useCallback(
     (report: VoiceReport) => {
@@ -108,10 +133,28 @@ export default function BehaviouralPage() {
     stop: stopVoice,
   } = useSpeechRecognition({ onFinalResult: appendSpeech });
 
+  // The monitor is rendered only while the configured Vapi flow owns the
+  // screen. This fallback covers its first connecting render before the
+  // fine-grained Vapi state callback arrives.
+  const avatarMode: AvatarMode = voiceState
+    ? mapVoiceStatusToAvatarMode(voiceState.status, voiceState.muted, voiceState.userSpeaking)
+    : summary || voiceSummary
+      ? "complete"
+      : starting
+        ? "processing"
+        : listening
+          ? "userSpeaking"
+          : "ready";
+
   const start = useCallback(async () => {
     setStarting(true);
     try {
-      const d = await postBehavioural<StartResult>({ action: "start", jdText: state.target.jdText });
+      const d = await postBehavioural<StartResult>({
+        action: "start",
+        jdText: state.target.jdText,
+        targetRole: state.target.role,
+        targetCompany: state.target.company,
+      });
       setSession(d.session);
       setQuestions(d.questions);
       setIdx(0);
@@ -121,14 +164,21 @@ export default function BehaviouralPage() {
     } finally {
       setStarting(false);
     }
-  }, [state.target.jdText]);
+  }, [state.target.jdText, state.target.role, state.target.company]);
 
-  // Wait for the store to hydrate so the session is built from the target JD.
-  useEffect(() => {
-    if (!hydrated || startedRef.current) return;
+  const beginInterview = useCallback(() => {
+    if (!hydrated || !targetReady || startedRef.current) return;
     startedRef.current = true;
-    start();
-  }, [hydrated, start]);
+    setInterviewStarted(true);
+    void start();
+  }, [hydrated, start, targetReady]);
+
+  const handleVoiceActiveChange = useCallback((active: boolean) => {
+    setVoiceActive(active);
+    // Pending report recovery remains automatic across refreshes and bypasses
+    // the fresh-session preflight without starting a new microphone session.
+    if (active) setInterviewStarted(true);
+  }, []);
 
   async function submit() {
     if (!session || !current) return;
@@ -168,19 +218,107 @@ export default function BehaviouralPage() {
   }
 
   return (
-    <main className="page-shell page-shell--narrow" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell page-shell--narrow behavioural-page-shell page-enter">
       <Link href="/dashboard" className="page-back">
         ← Dashboard
       </Link>
 
+      {voiceActive && !summary && !voiceSummary && (
+        <InterviewerAvatar
+          mode={avatarMode}
+          level={voiceState?.level ?? 0}
+          variant="stage"
+          captionKicker="Behavioural voice / live interviewer"
+        />
+      )}
+
       {/* Hands-free voice interview (renders only when Vapi is configured). */}
       <VoiceInterview
         jdText={state.target.jdText}
-        onActiveChange={setVoiceActive}
+        targetRole={state.target.role}
+        targetCompany={state.target.company}
+        startRequested={interviewStarted}
+        onActiveChange={handleVoiceActiveChange}
+        onVoiceStateChange={setVoiceState}
         onComplete={handleVoiceComplete}
       />
 
-      {starting ? (
+      {!interviewStarted ? (
+        <section className="behavioural-preflight" aria-labelledby="behavioural-preflight-title">
+          <div>
+            <SectionLabel style={{ marginBottom: 12 }}>Behavioural interview preflight</SectionLabel>
+            <h1 id="behavioural-preflight-title">Turn your experience into a clear story.</h1>
+            <p>
+              {targetReady
+                ? "You'll answer a structured set of motivation and experience questions grounded in the role shown below. Use STAR where it helps; your interviewer will keep the conversation moving."
+                : "Choose your own target role or deliberately load the sample interview before any questions or microphone session can begin."}
+            </p>
+            {targetReady && (
+              <div
+                className={`behavioural-preflight__context ${
+                  isSampleTarget ? "is-sample" : "is-personalized"
+                }`}
+                aria-live="polite"
+              >
+                <span>
+                  {isSampleTarget ? "Sample interview ·" : "Personalized for"}
+                </span>
+                <strong>{targetContext}</strong>
+              </div>
+            )}
+          </div>
+          <div className="behavioural-preflight__facts" aria-label="Interview details">
+            <div>
+              <span>Questions</span>
+              <strong>{BEHAVIOURAL_QUESTION_COUNT}–{BEHAVIOURAL_QUESTION_COUNT + 1}</strong>
+            </div>
+            <div>
+              <span>Microphone</span>
+              <strong>{hydrated ? "Not active" : "Checking…"}</strong>
+              <small>Starts only after you continue</small>
+            </div>
+          </div>
+          {targetReady ? (
+            <div className="behavioural-preflight__actions">
+              <button
+                type="button"
+                className="behavioural-preflight__start"
+                onClick={beginInterview}
+                disabled={!hydrated}
+              >
+                {isSampleTarget
+                  ? "Start sample interview"
+                  : "Start behavioural interview"}
+                <span aria-hidden="true">→</span>
+              </button>
+              <Link
+                href="/onboard"
+                className="behavioural-preflight__secondary"
+              >
+                {isSampleTarget ? "Use my role" : "Change role"}
+              </Link>
+            </div>
+          ) : (
+            <div className="behavioural-preflight__actions">
+              <Link
+                href="/onboard"
+                className="behavioural-preflight__start"
+              >
+                Set my role
+                <span aria-hidden="true">→</span>
+              </Link>
+              <button
+                type="button"
+                className="behavioural-preflight__secondary"
+                onClick={seedSample}
+                disabled={!hydrated}
+              >
+                Load sample interview
+              </button>
+            </div>
+          )}
+        </section>
+      ) : starting ? (
         <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
           <Spinner />
           <div style={{ fontSize: 14, color: "var(--ink-3)" }}>Preparing your questions…</div>
@@ -347,8 +485,10 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
   const score100 = to100(summary.overall);
   const band = readinessBand(score100);
   const nextFocus = summary.feedback.next_focus[0];
+  const qualitativeReveal = useRevealOnScroll<HTMLDivElement>();
   return (
-    <div style={{ animation: "fadeUp .5s ease both" }}>
+    <div>
+      <div className="reveal-item" style={{ "--reveal-index": 0 } as React.CSSProperties}>
       <SectionLabel color="var(--secondary)" style={{ marginBottom: 10, fontSize: 11, letterSpacing: ".13em" }}>Behavioural readiness report</SectionLabel>
       <VerdictBanner
         score={score100}
@@ -360,6 +500,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         bandTint={band.tintBg}
         verdict={summary.feedback.summary}
       />
+      </div>
 
       {summary.unanswered && summary.unanswered > 0 ? (
         <p style={{ margin: "-6px 0 16px", fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>
@@ -369,7 +510,7 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </p>
       ) : null}
 
-      <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 }}>
+      <div className="reveal-item" style={{ "--reveal-index": 1, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: "22px 24px", boxShadow: "var(--shadow-sm)", marginBottom: 18 } as React.CSSProperties}>
         <SectionLabel style={{ marginBottom: 16 }}>Across all {summary.answered} answer{summary.answered === 1 ? "" : "s"}</SectionLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {summary.dimension_averages.map((d, i) => (
@@ -382,9 +523,16 @@ function SummaryView({ summary, onDone }: { summary: SummaryResult; onDone: () =
         </div>
       </div>
 
-      {summary.qualitative ? <QualitativeReportView qualitative={summary.qualitative} /> : null}
+      {summary.qualitative ? (
+        <div
+          ref={qualitativeReveal.ref}
+          className={`scroll-reveal${qualitativeReveal.revealed ? "" : " is-pre-reveal"}`}
+        >
+          <QualitativeReportView qualitative={summary.qualitative} />
+        </div>
+      ) : null}
 
-      <div style={{ background: "var(--glow)", boxShadow: "0 10px 28px rgba(20,45,82,.18)", borderRadius: 18, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div className="reveal-item" style={{ "--reveal-index": 3, background: "var(--glow)", boxShadow: "0 10px 28px rgba(20,45,82,.18)", borderRadius: 18, padding: "20px 24px", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" } as React.CSSProperties}>
         <div>
           <SectionLabel color="rgba(255,255,255,.55)" style={{ marginBottom: 6 }}>{nextFocus ? "Focus next on" : "Report complete"}</SectionLabel>
           <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-.01em" }}>

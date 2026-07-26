@@ -26,6 +26,8 @@ export interface CompleteOpts {
   /** Optional per-request controls. Existing callers retain SDK defaults. */
   timeoutMs?: number;
   maxRetries?: number;
+  /** Optional AbortSignal — cancels the underlying HTTP request (SDK `signal`). */
+  signal?: AbortSignal;
 }
 
 export type ClaudeCompletionStopReason =
@@ -92,6 +94,7 @@ export async function completeWithMetadata(
     {
       ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
       ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     },
   );
   // Opt-in real-mode usage logging for cost/verification. Off by default; never reached

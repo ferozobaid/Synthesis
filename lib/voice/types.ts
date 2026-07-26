@@ -43,7 +43,15 @@ export type CaseReportDimension =
   | "communication";
 
 export interface CasePostCallDimensionScore {
-  dimension: CaseReportDimension;
+  /**
+   * The 5 consulting-case dimensions for consulting-evaluated cases, or the
+   * dedicated technical evaluator's dimension keys (see
+   * lib/voice/case-technical-post-call-scorer.ts) for technical_system_design
+   * cases. Widened from CaseReportDimension so both evaluators share one report
+   * shape; CaseReportDimension itself stays the consulting scorer's exhaustive
+   * internal union.
+   */
+  dimension: CaseReportDimension | string;
   score: number | null;
   justification: string;
   evidence: string | null;
@@ -77,6 +85,27 @@ export interface CasePostCallReport {
   answeredStages: CaseReportStage[];
   missingStages: CaseReportStage[];
   /** Backend-only safe classification; omitted from the public polling projection. */
+  partialReasons: Array<
+    | "missing_anchor"
+    | "missing_candidate_response"
+    | "transcript_truncated"
+    | "unusable_transcript"
+  >;
+  score: CasePostCallScore;
+}
+
+/**
+ * Post-call report for a technical question-bank round (Data Analyst / Data
+ * Engineer). Reuses the CasePostCallScore presentation shape — each bank question
+ * is one dimension_scores row whose `dimension` holds the question id (a string, so
+ * no consulting-dimension union is involved) — with question-level observed/answered
+ * sets in place of the case stage sets.
+ */
+export interface QuestionBankPostCallReport {
+  partial: boolean;
+  observedQuestions: string[];
+  answeredQuestions: string[];
+  missingQuestions: string[];
   partialReasons: Array<
     | "missing_anchor"
     | "missing_candidate_response"
@@ -198,6 +227,9 @@ export interface CaseVoiceSession {
   /** The exact CaseSessionState the existing case-runner produces/updates. */
   session: CaseSessionState;
   caseId: string;
+  /** Catalog classification snapshotted at session creation. */
+  caseTrack?: "strategy" | "technical";
+  caseRole?: "data_engineering" | "data_analyst";
   /** Snapshotted candidate-facing selection metadata (backend-derived). */
   selectedCaseTitle?: string;
   selectedCaseDescription?: string;
@@ -217,6 +249,8 @@ export interface CaseVoiceSession {
   authoritativeCallId?: string | null;
   normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
   finalReport?: CasePostCallReport | null;
+  /** Populated instead of finalReport for technical_question_bank rounds. */
+  finalQuestionBankReport?: QuestionBankPostCallReport | null;
   reportErrorCode?: string | null;
   /** Architecture is frozen at bootstrap; absent means legacy. */
   interviewerMode?: CaseVoiceInterviewerMode;

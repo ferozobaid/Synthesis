@@ -357,7 +357,7 @@ const PROPOSAL_KEYS = [
   "strengths",
 ] as const;
 
-const EMPTY_MODEL_DIAGNOSTIC: CasePostCallModelDiagnostic = {
+export const EMPTY_MODEL_DIAGNOSTIC: CasePostCallModelDiagnostic = {
   httpStatus: null,
   anthropicErrorType: null,
   stopReason: null,
@@ -385,7 +385,7 @@ function safeAnthropicErrorType(error: unknown): CasePostCallAnthropicErrorType 
     : "unknown";
 }
 
-function responseDiagnostic(
+export function responseDiagnostic(
   result: ClaudeCompletionResult,
 ): CasePostCallModelDiagnostic {
   return {
@@ -400,7 +400,7 @@ function responseDiagnostic(
   };
 }
 
-function errorDiagnostic(error: unknown): CasePostCallModelDiagnostic {
+export function errorDiagnostic(error: unknown): CasePostCallModelDiagnostic {
   return {
     ...EMPTY_MODEL_DIAGNOSTIC,
     httpStatus: safeHttpStatus(error),
@@ -408,7 +408,7 @@ function errorDiagnostic(error: unknown): CasePostCallModelDiagnostic {
   };
 }
 
-function validationDiagnostic(
+export function validationDiagnostic(
   diagnostic: CasePostCallModelDiagnostic,
   issue: CasePostCallValidationIssue,
 ): CasePostCallModelDiagnostic {
@@ -487,7 +487,7 @@ function deterministicScores(mapped: MappedCaseTranscript): Record<CaseReportDim
   return out;
 }
 
-function normalizedWords(value: string): string {
+export function normalizedWords(value: string): string {
   return value
     .normalize("NFKC")
     .toLocaleLowerCase("en-US")
@@ -496,7 +496,7 @@ function normalizedWords(value: string): string {
     .trim();
 }
 
-function shingles(value: string, size: number): string[] {
+export function shingles(value: string, size: number): string[] {
   const words = normalizedWords(value).split(" ").filter(Boolean);
   if (words.length < size) return [];
   return words.slice(0, words.length - size + 1).map((_, index) =>
@@ -504,7 +504,7 @@ function shingles(value: string, size: number): string[] {
   );
 }
 
-function protectedReferenceText(caseRecord: CaseRecord): string[] {
+export function protectedReferenceText(caseRecord: CaseRecord): string[] {
   return [
     caseRecord.target_solution_notes ?? "",
     caseRecord.quant?.answer ?? "",
@@ -517,7 +517,7 @@ function protectedReferenceText(caseRecord: CaseRecord): string[] {
   ].filter(Boolean);
 }
 
-function hasMatchingNumericClaim(
+export function hasMatchingNumericClaim(
   claim: CanonicalNumericClaim,
   candidates: readonly CanonicalNumericClaim[],
   tolerance?: number,
@@ -532,7 +532,7 @@ function hasMatchingNumericClaim(
  * authoritative transcript and the public opening prompt only. In particular,
  * this never reads case exhibits, solution steps, evaluator inputs, or notes.
  */
-function candidateVisibleNumericClaims(
+export function candidateVisibleNumericClaims(
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
 ): {
@@ -555,7 +555,7 @@ function candidateVisibleNumericClaims(
  * in the public case opening; this permits discussion of spoken case inputs
  * without granting access to undisclosed solution work.
  */
-function protectedNumericClaims(
+export function protectedNumericClaims(
   caseRecord: CaseRecord,
   authoredClaims: readonly CanonicalNumericClaim[],
 ): {
@@ -594,7 +594,7 @@ function protectedNumericClaims(
  * numbers unsupported by candidate-visible grounding are unsafe there — grounded,
  * candidate-visible numbers are kept.
  */
-function numericClaimIsUnsafe(
+export function numericClaimIsUnsafe(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
@@ -625,7 +625,7 @@ function numericClaimIsUnsafe(
   return false;
 }
 
-interface ModelTextSafetyIssue {
+export interface ModelTextSafetyIssue {
   reason: Extract<
     CasePostCallValidationReason,
     "empty" | "unsafe_numeric_claim" | "candidate_overlap" | "protected_reference_overlap"
@@ -642,7 +642,7 @@ interface ModelTextSafetyIssue {
  *   number-free deterministic prose without trusting it or changing structured
  *   scores. Recovery discards the unsafe text; it never authorizes the number.
  */
-function modelTextSafetyIssue(
+export function modelTextSafetyIssue(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
@@ -681,7 +681,7 @@ function modelTextSafetyIssue(
     : null;
 }
 
-function modelTextSafetyReason(
+export function modelTextSafetyReason(
   text: string,
   path: CasePostCallValidationPath,
   mapped: MappedCaseTranscript,
@@ -690,7 +690,7 @@ function modelTextSafetyReason(
   return modelTextSafetyIssue(text, path, mapped, caseRecord)?.reason ?? null;
 }
 
-function modelTextIsUnsafe(
+export function modelTextIsUnsafe(
   text: string,
   mapped: MappedCaseTranscript,
   caseRecord: CaseRecord,
@@ -699,13 +699,13 @@ function modelTextIsUnsafe(
   return modelTextSafetyReason(text, path, mapped, caseRecord) !== null;
 }
 
-function boundedText(value: unknown, maxLength = 480): string | null {
+export function boundedText(value: unknown, maxLength = 480): string | null {
   if (typeof value !== "string") return null;
   const text = value.replace(/\s+/g, " ").trim();
   return text && text.length <= maxLength ? text : null;
 }
 
-function boundedTextArray(value: unknown, maxItems = 4, allowEmpty = false): string[] | null {
+export function boundedTextArray(value: unknown, maxItems = 4, allowEmpty = false): string[] | null {
   if (
     !Array.isArray(value) ||
     (!allowEmpty && value.length === 0) ||
@@ -715,7 +715,7 @@ function boundedTextArray(value: unknown, maxItems = 4, allowEmpty = false): str
   return values.every((item): item is string => item !== null) ? values : null;
 }
 
-function validationReceivedType(value: unknown): CasePostCallValidationReceivedType {
+export function validationReceivedType(value: unknown): CasePostCallValidationReceivedType {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
   if (typeof value === "object") return "object";
@@ -726,7 +726,7 @@ function validationReceivedType(value: unknown): CasePostCallValidationReceivedT
   return "other";
 }
 
-function invalidProposal(
+export function invalidProposal(
   path: CasePostCallValidationPath,
   reason: CasePostCallValidationReason,
   received?: unknown,
@@ -760,7 +760,7 @@ type ValidatedText =
   | { ok: true; value: string }
   | { ok: false; result: CasePostCallProposalValidationResult };
 
-function shortenTextAtBoundary(text: string, maxLength: number): string | null {
+export function shortenTextAtBoundary(text: string, maxLength: number): string | null {
   if (text.length <= maxLength) return text;
 
   let sentenceEnd = -1;
@@ -775,7 +775,7 @@ function shortenTextAtBoundary(text: string, maxLength: number): string | null {
   return wordBoundary > 0 ? text.slice(0, wordBoundary).trimEnd() : null;
 }
 
-function validateText(
+export function validateText(
   value: unknown,
   path: CasePostCallValidationPath,
   maxLength: number,
@@ -822,7 +822,7 @@ function validateText(
   return { ok: true, value: shortened };
 }
 
-function discardModelText(
+export function discardModelText(
   value: unknown,
   path: CasePostCallValidationPath,
   replacement: string,
@@ -836,7 +836,7 @@ type ValidatedTextArray =
   | { ok: true; value: string[] }
   | { ok: false; result: CasePostCallProposalValidationResult };
 
-function validateTextArray(
+export function validateTextArray(
   value: unknown,
   path: CasePostCallValidationPath,
   maxItems: number,
@@ -1271,7 +1271,11 @@ function buildSafeReport(
   supplied: Partial<Record<CaseReportDimension, number>>,
   proposal: CasePostCallModelProposal | null = null,
 ): CasePostCallReport {
-  const dimension_scores: CasePostCallDimensionScore[] = DIMENSIONS.map((dimension) => {
+  // Intentionally uninferred to CasePostCallDimensionScore[] here: keeping the
+  // literal CaseReportDimension type from DIMENSIONS.map lets every downstream
+  // Record<CaseReportDimension, ...> index below type-check without a cast. It
+  // still satisfies the wider CasePostCallDimensionScore shape at the return.
+  const dimension_scores = DIMENSIONS.map((dimension) => {
     const enough = hasEvidence(dimension, mapped);
     const proposed = proposal?.dimensionScores.find((item) => item.dimension === dimension);
     const score = enough ? clampScore(proposed?.score ?? supplied[dimension]) : null;
@@ -1309,7 +1313,7 @@ function buildSafeReport(
   }
 
   const scored = dimension_scores.filter(
-    (item): item is CasePostCallDimensionScore & { score: number } => item.score !== null,
+    (item): item is (typeof dimension_scores)[number] & { score: number } => item.score !== null,
   );
   const deterministicStrengths = scored
     .filter((item) => item.score >= 4)
@@ -1642,7 +1646,9 @@ export function candidateSafeCasePostCallScore(
 ): CasePostCallScore {
   const answered = new Set(scope.answeredStages);
   const dimension_scores = score.dimension_scores
-    .filter((item) => DIMENSIONS.includes(item.dimension))
+    .filter((item): item is CasePostCallDimensionScore & { dimension: CaseReportDimension } =>
+      DIMENSIONS.includes(item.dimension as CaseReportDimension),
+    )
     .map((item) => {
       const coveredStages = answeredDimensionStages(item.dimension, scope.answeredStages);
       const parsedScore = item.score === null ? null : clampScore(item.score);

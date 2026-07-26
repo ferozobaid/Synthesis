@@ -1,7 +1,12 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { SiteNav } from "./SiteNav";
+import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { HeroNav } from "@/components/hero/HeroNav";
+import {
+  elementCanConsumeHorizontalDelta,
+  isDominantHorizontalGesture,
+} from "@/components/ui/productGestureGuard";
 
 /**
  * Wraps app content with the sticky nav — except on the landing page (`/`),
@@ -9,11 +14,42 @@ import { SiteNav } from "./SiteNav";
  */
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const hideNav = pathname === "/";
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setMenuOpen(false), [pathname]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (hideNav || !shell) return;
+    const preventRouteSwipe = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
+      if (!isDominantHorizontalGesture(event.deltaX, event.deltaY)) return;
+      if (elementCanConsumeHorizontalDelta(event.target, shell, event.deltaX)) return;
+      event.preventDefault();
+    };
+    shell.addEventListener("wheel", preventRouteSwipe, {
+      passive: false,
+      capture: true,
+    });
+    return () => shell.removeEventListener("wheel", preventRouteSwipe, true);
+  }, [hideNav]);
+
+  if (hideNav) return <>{children}</>;
+
   return (
-    <>
-      {!hideNav && <SiteNav />}
-      {children}
-    </>
+    <div ref={shellRef} className="product-experience">
+      <HeroNav
+        mode="carousel"
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+        onHowItWorks={() => router.push("/?view=how-it-works")}
+        showDashboard
+      />
+      <div className="product-experience__content">{children}</div>
+    </div>
   );
 }

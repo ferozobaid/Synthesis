@@ -20,6 +20,8 @@ interface DocumentInputProps {
   textareaLabel: string;
   placeholder: string;
   height?: number;
+  collapsibleText?: boolean;
+  initialTextVisible?: boolean;
 }
 
 interface ExtractResponse {
@@ -45,6 +47,8 @@ export function DocumentInput({
   textareaLabel,
   placeholder,
   height = 120,
+  collapsibleText = false,
+  initialTextVisible = true,
 }: DocumentInputProps) {
   const inputId = useId();
   const textareaId = useId();
@@ -54,6 +58,9 @@ export function DocumentInput({
   const [lastExtractedText, setLastExtractedText] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [textVisible, setTextVisible] = useState(
+    !collapsibleText || initialTextVisible,
+  );
 
   async function upload(file: File) {
     const validationError = validateClientDocument(file);
@@ -88,9 +95,14 @@ export function DocumentInput({
       setLastExtractedText(data.text);
       setFilename(data.filename || file.name);
       setState("success");
-      setMessage("Text extracted. Review it below before continuing.");
+      setMessage(
+        collapsibleText
+          ? "Text extracted. Open the text editor if you want to review it."
+          : "Text extracted. Review it below before continuing.",
+      );
     } catch (error) {
       setState("error");
+      if (collapsibleText) setTextVisible(true);
       setMessage(
         error instanceof Error
           ? error.message
@@ -211,15 +223,47 @@ export function DocumentInput({
     </>
   );
 
+  const optionalTextControl = collapsibleText ? (
+    <div className={`document-input__optional-text${textVisible ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="document-input__text-toggle"
+        aria-expanded={textVisible}
+        aria-controls={textareaId}
+        onClick={() => setTextVisible((visible) => !visible)}
+      >
+        <span>
+          {textVisible
+            ? "Hide text editor"
+            : value.trim()
+              ? `Review ${kind} text`
+              : `Paste ${kind} text instead`}
+        </span>
+        <small>{value.length.toLocaleString()} characters</small>
+        <i aria-hidden="true">{textVisible ? "−" : "+"}</i>
+      </button>
+      <div className="document-input__text-panel" hidden={!textVisible}>
+        {textControl}
+      </div>
+    </div>
+  ) : (
+    textControl
+  );
+
   return (
     <div
       className={`document-input document-input--${kind === "resume" ? "resume" : "job-description"}`}
       data-state={state}
       data-dragging={dragging ? "true" : "false"}
     >
-      {kind === "job description" ? (
+      {collapsibleText ? (
         <>
-          {textControl}
+          {uploadControl}
+          {optionalTextControl}
+        </>
+      ) : kind === "job description" ? (
+        <>
+          {optionalTextControl}
           {divider}
           {uploadControl}
         </>
@@ -227,7 +271,7 @@ export function DocumentInput({
         <>
           {uploadControl}
           {divider}
-          {textControl}
+          {optionalTextControl}
         </>
       )}
     </div>

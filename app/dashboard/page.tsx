@@ -35,13 +35,18 @@ export default function Dashboard() {
   const modulesDone = [state.fit, state.behavioural, state.case].filter((m) => m.status === "done").length;
 
   return (
-    <main className="page-shell dashboard-shell" style={{ animation: "fadeIn .4s ease both" }}>
+    <main className="page-shell dashboard-shell page-enter">
       {/* header */}
       <div className="dashboard-header" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 32, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 10 }}>
             Readiness for
           </div>
+          {state.targetSource === "sample" && (
+            <div className="dashboard-sample-badge">
+              Sample readiness plan
+            </div>
+          )}
           <h1 className="page-title dashboard-role-title">
             {role}
           </h1>
@@ -56,7 +61,7 @@ export default function Dashboard() {
           className="app-button app-button--secondary"
           style={{ minHeight: 38, padding: "8px 14px" }}
         >
-          Change role
+          {state.targetSource === "sample" ? "Use my own role" : "Change role"}
         </Link>
       </div>
 

@@ -19,7 +19,12 @@ describe("behavioural runner (mock session)", () => {
 
     const why = res.questions.find((q) => q.id === "why_this_company");
     expect(why?.question).toContain("Revature");
-    expect(res.session.questions_asked?.length).toBe(MOCK_QUESTIONS.length);
+    // The session records exactly the generated (ordered) question set; the
+    // conditional industry question is dropped for this consulting-family JD.
+    expect(res.session.questions_asked?.length).toBe(res.questions.length);
+    expect(res.session.questions_asked?.map((q) => q.question_id)).toEqual(
+      res.questions.map((q) => q.id),
+    );
     expect(res.session.scores).toEqual({});
   });
 
