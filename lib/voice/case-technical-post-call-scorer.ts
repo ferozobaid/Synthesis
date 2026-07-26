@@ -43,6 +43,10 @@ import {
   type CasePostCallValidationPath,
   type CasePostCallValidationReason,
 } from "@/lib/voice/case-post-call-scorer";
+import {
+  TECHNICAL_SYSTEM_DESIGN_MAX_TOKENS,
+  logTechnicalScorerCall,
+} from "@/lib/voice/technical-scorer-budget";
 import type {
   CasePostCallDimensionScore,
   CasePostCallReport,
@@ -59,6 +63,8 @@ import {
 } from "@/lib/voice/case-technical-dimensions";
 
 export const TECHNICAL_CASE_POST_CALL_MODEL = CASE_POST_CALL_MODEL;
+/** Evaluator-specific output budget; see lib/voice/technical-scorer-budget.ts. */
+export const TECHNICAL_CASE_POST_CALL_MAX_TOKENS = TECHNICAL_SYSTEM_DESIGN_MAX_TOKENS;
 
 // Re-exported for API stability: existing importers of this module (the report
 // route, tests) keep working unchanged. The canonical definitions now live in
@@ -868,13 +874,29 @@ export async function scoreTechnicalCasePostCall(
       ].join(" "),
       model: TECHNICAL_CASE_POST_CALL_MODEL,
       temperature: 0,
-      maxTokens: 1_800,
+      maxTokens: TECHNICAL_CASE_POST_CALL_MAX_TOKENS,
       outputSchema: TECHNICAL_CASE_POST_CALL_OUTPUT_SCHEMA,
       maxRetries: 0,
       timeoutMs: 60_000,
     });
     const diagnostic: CasePostCallModelDiagnostic = responseDiagnostic(completion);
+    const logCall = (
+      result: "model" | "deterministic_fallback",
+      failureCategory: string | null,
+    ) =>
+      logTechnicalScorerCall({
+        evaluatorType: "technical_system_design",
+        caseId: caseRecord.id,
+        model: TECHNICAL_CASE_POST_CALL_MODEL,
+        maxTokenBudget: TECHNICAL_CASE_POST_CALL_MAX_TOKENS,
+        stopReason: completion.stopReason,
+        inputTokens: completion.inputTokens,
+        outputTokens: completion.outputTokens,
+        result,
+        failureCategory,
+      });
     if (completion.stopReason === "max_tokens" || completion.stopReason === "refusal") {
+      logCall("deterministic_fallback", completion.stopReason);
       return {
         ok: true,
         report: buildSafeReport(caseRecord, mapped, fallback),
@@ -888,6 +910,7 @@ export async function scoreTechnicalCasePostCall(
     try {
       raw = extractJSON(completion.text);
     } catch {
+      logCall("deterministic_fallback", "malformed_json");
       return {
         ok: true,
         report: buildSafeReport(caseRecord, mapped, fallback),
@@ -898,6 +921,7 @@ export async function scoreTechnicalCasePostCall(
     }
     const validation = validateTechnicalProposal(raw, mapped, caseRecord);
     if (!validation.ok) {
+      logCall("deterministic_fallback", "schema_validation_error");
       return {
         ok: true,
         report: buildSafeReport(caseRecord, mapped, fallback),
@@ -906,6 +930,7 @@ export async function scoreTechnicalCasePostCall(
         modelDiagnostic: validationDiagnostic(diagnostic, validation.issue),
       };
     }
+    logCall("model", null);
     return {
       ok: true,
       report: buildSafeReport(caseRecord, mapped, fallback, validation.proposal),
@@ -914,11 +939,23 @@ export async function scoreTechnicalCasePostCall(
       modelDiagnostic: diagnostic,
     };
   } catch (error) {
+    const failureCategory = classifyCasePostCallModelError(error);
+    logTechnicalScorerCall({
+      evaluatorType: "technical_system_design",
+      caseId: caseRecord.id,
+      model: TECHNICAL_CASE_POST_CALL_MODEL,
+      maxTokenBudget: TECHNICAL_CASE_POST_CALL_MAX_TOKENS,
+      stopReason: null,
+      inputTokens: null,
+      outputTokens: null,
+      result: "deterministic_fallback",
+      failureCategory,
+    });
     return {
       ok: true,
       report: buildSafeReport(caseRecord, mapped, fallback),
       scorerOutcome: "deterministic_fallback",
-      failureCategory: classifyCasePostCallModelError(error),
+      failureCategory,
       modelDiagnostic: errorDiagnostic(error),
     };
   }

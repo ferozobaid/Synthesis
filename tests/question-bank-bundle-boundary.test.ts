@@ -44,4 +44,27 @@ describe("client/server bundle boundary for the question-bank rounds", () => {
     const src = read("components/CaseNativeVoiceInterview.tsx");
     expect(src.includes("@/lib/voice/question-bank-catalog")).toBe(true);
   });
+
+  // The unified technical-native modules are imported by client components, so
+  // they must stay free of the scorers, the bank JSON, and the model SDK.
+  for (const module of [
+    "lib/voice/native-progress.ts",
+    "lib/voice/native-current-question.ts",
+    "lib/voice/native-case-brief.ts",
+    "lib/voice/case-native-live.ts",
+  ]) {
+    it(`${module} imports no server-only module`, () => {
+      const src = read(module);
+      for (const forbidden of SERVER_ONLY_IMPORTS) {
+        expect(src.includes(forbidden)).toBe(false);
+      }
+    });
+  }
+
+  it("the answer projection reaches the client as a type-only import", () => {
+    const src = read("components/CaseNativeVoiceInterview.tsx");
+    // Value imports of the projection module would bundle the transcript mappers.
+    expect(src.includes('import type { CandidateAnswerGroup } from "@/lib/voice/case-answer-projection"')).toBe(true);
+    expect(src.includes('import { candidateAnswerProjection')).toBe(false);
+  });
 });

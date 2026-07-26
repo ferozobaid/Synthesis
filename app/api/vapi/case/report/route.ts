@@ -28,6 +28,13 @@ import { scoreTechnicalCasePostCall } from "@/lib/voice/case-technical-post-call
 import { scoreQuestionBankPostCall } from "@/lib/voice/case-question-bank-scorer";
 import { mapQuestionBankTranscript } from "@/lib/voice/question-bank-transcript";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
+import {
+  CASE_POST_CALL_MODEL,
+} from "@/lib/voice/case-post-call-scorer";
+import {
+  TECHNICAL_SCORER_MAX_TOKENS,
+  type TechnicalEvaluatorType,
+} from "@/lib/voice/technical-scorer-budget";
 import type { CaseRecord } from "@/lib/types";
 import type { CaseVoiceSession } from "@/lib/voice/types";
 import type { MappedCaseTranscript } from "@/lib/voice/case-transcript";
@@ -169,6 +176,11 @@ function safeFailureCategory(value: unknown): SafeScorerFailureCategory {
 
 function recordCasePostCallScoringDiagnostic(input: {
   selectedCaseId: string;
+  /** Evaluator that produced this report — the dispatch key, never inferred. */
+  evaluatorType: string;
+  model: string;
+  /** Effective output-token budget, or null for the untouched consulting path. */
+  maxTokenBudget: number | null;
   observedStageCount: number;
   missingStageCount: number;
   partial: boolean;
@@ -186,6 +198,13 @@ function recordCasePostCallScoringDiagnostic(input: {
   validationReceivedType: CasePostCallValidationReceivedType | null;
 }): void {
   console.info("[case-native-report] scoring", input);
+}
+
+/** Effective technical budget, or null for the unchanged consulting scorer. */
+function scorerMaxTokenBudget(evaluatorType: string): number | null {
+  return Object.prototype.hasOwnProperty.call(TECHNICAL_SCORER_MAX_TOKENS, evaluatorType)
+    ? TECHNICAL_SCORER_MAX_TOKENS[evaluatorType as TechnicalEvaluatorType]
+    : null;
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -339,6 +358,9 @@ async function processQuestionBankReport(
 
   recordCasePostCallScoringDiagnostic({
     selectedCaseId: record.caseId,
+    evaluatorType: "technical_question_bank",
+    model: CASE_POST_CALL_MODEL,
+    maxTokenBudget: scorerMaxTokenBudget("technical_question_bank"),
     observedStageCount: mapped?.observedQuestions.length ?? 0,
     missingStageCount: mapped?.missingQuestions.length ?? 5,
     partial: mapped?.partial ?? true,
@@ -520,6 +542,9 @@ export async function POST(req: NextRequest) {
 
     recordCasePostCallScoringDiagnostic({
       selectedCaseId: record.caseId,
+      evaluatorType: caseRecord.evaluator_type ?? "consulting",
+      model: CASE_POST_CALL_MODEL,
+      maxTokenBudget: scorerMaxTokenBudget(caseRecord.evaluator_type ?? "consulting"),
       observedStageCount: mapped?.observedStages.length ?? 0,
       missingStageCount: mapped?.missingStages.length ?? 6,
       partial: mapped?.partial ?? true,

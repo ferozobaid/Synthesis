@@ -1,20 +1,17 @@
+import { normalizeCaseStageAnchor } from "@/lib/voice/case-transcript";
 import {
-  CASE_REPORT_STAGES,
-  caseStageAnchorManifest,
-  normalizeCaseStageAnchor,
-} from "@/lib/voice/case-transcript";
+  STRATEGY_STAGE_LABELS,
+  nativeProgressDefinition,
+} from "@/lib/voice/native-progress";
 
-const CURRENT_STAGE_ANCHOR_VERSION = "case-stage-anchors-v1";
 const MAX_ASSISTANT_CONTEXT_CHARS = 24_000;
 
-export const NATIVE_CASE_LIVE_STAGE_LABELS = [
-  "Clarification",
-  "Framework",
-  "Analysis",
-  "Market sizing",
-  "Pressure test",
-  "Recommendation",
-] as const;
+/**
+ * Consulting stage labels. Retained as the Airport/GCC Gym vocabulary and as the
+ * stable export other modules and tests read; the authoritative per-case labels
+ * now come from nativeProgressDefinition().
+ */
+export const NATIVE_CASE_LIVE_STAGE_LABELS = [...STRATEGY_STAGE_LABELS] as const;
 
 export interface NativeCaseLiveTranscriptLine {
   role: "assistant" | "user";
@@ -37,7 +34,7 @@ export function initialNativeCaseLiveProgress(): NativeCaseLiveProgress {
   };
 }
 
-function containsNormalizedPhrase(text: string, phrase: string): boolean {
+export function containsNormalizedPhrase(text: string, phrase: string): boolean {
   const normalizedText = normalizeCaseStageAnchor(text);
   const normalizedPhrase = normalizeCaseStageAnchor(phrase);
   return Boolean(
@@ -51,6 +48,10 @@ function containsNormalizedPhrase(text: string, phrase: string): boolean {
  * Advances live presentation from finalized assistant speech only. The reducer
  * is deliberately independent of the backend FSM and never inspects candidate
  * text for stage or timer authority.
+ *
+ * The step vocabulary comes from the case's progress definition, so consulting
+ * stages, technical system-design stages, and question-bank questions all share
+ * one reducer while keeping their own internal ids.
  */
 export function advanceNativeCaseLiveProgress(
   current: NativeCaseLiveProgress,
@@ -59,22 +60,25 @@ export function advanceNativeCaseLiveProgress(
   finalizedAt: number,
 ): NativeCaseLiveProgress {
   if (finalizedLine.role !== "assistant" || !finalizedLine.text.trim()) return current;
-  const manifest = caseStageAnchorManifest(caseId, CURRENT_STAGE_ANCHOR_VERSION);
-  if (!manifest) return current;
+  const definition = nativeProgressDefinition(caseId);
+  if (!definition) return current;
 
   const combined = `${current.finalizedAssistantText} ${finalizedLine.text}`
     .replace(/\s+/g, " ")
     .trim()
     .slice(-MAX_ASSISTANT_CONTEXT_CHARS);
   let stageIndex = current.stageIndex;
-  for (let index = 0; index < CASE_REPORT_STAGES.length; index += 1) {
-    if (containsNormalizedPhrase(combined, manifest.anchors[CASE_REPORT_STAGES[index]])) {
+  for (let index = 0; index < definition.steps.length; index += 1) {
+    if (containsNormalizedPhrase(combined, definition.steps[index].anchor)) {
       stageIndex = Math.max(stageIndex, index);
     }
   }
+  // A round with no separate opening line starts at its first spoken question.
   const caseBegan =
-    containsNormalizedPhrase(combined, manifest.openingAnchor) ||
-    containsNormalizedPhrase(combined, manifest.anchors.clarification);
+    (definition.openingAnchor !== null &&
+      containsNormalizedPhrase(combined, definition.openingAnchor)) ||
+    (definition.steps.length > 0 &&
+      containsNormalizedPhrase(combined, definition.steps[0].anchor));
   return {
     stageIndex,
     startedAt: current.startedAt ?? (caseBegan ? finalizedAt : null),
