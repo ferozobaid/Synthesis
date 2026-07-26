@@ -46,4 +46,16 @@ describe("shared live interviewer CRT", () => {
       /\.interviewer-wave\s*\{[^}]*max-width:\s*40%;[^}]*max-height:\s*20%;[^}]*overflow:\s*hidden;/s,
     );
   });
+
+  it("keeps the compact Case monitor status on one fitted line", () => {
+    const styles = readFileSync("app/globals.css", "utf8");
+    const crtStyles = styles.slice(styles.indexOf("/* Self-contained live CRT."));
+
+    expect(crtStyles).toMatch(
+      /\.interviewer-stage--panel \.interviewer-screen__label\s*\{[^}]*font-size:\s*clamp\(4\.75px,[^}]*white-space:\s*nowrap;/s,
+    );
+    expect(crtStyles).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*?\.interviewer-stage--panel \.interviewer-screen__label\s*\{[^}]*font-size:\s*4\.5px;/s,
+    );
+  });
 });

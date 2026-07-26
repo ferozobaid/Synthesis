@@ -179,8 +179,13 @@ export const SynthesisCarousel = forwardRef<
           onClick={onReturnToHero}
           aria-label="Back to landing"
         >
-          <span aria-hidden="true" className="home-carousel__back-line">
-            <span />
+          <span aria-hidden="true" className="home-carousel__back-cue">
+            <span className="home-carousel__back-arrows">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="home-carousel__back-line" />
           </span>
           <span className="home-carousel__back-label">Back to landing</span>
         </button>
