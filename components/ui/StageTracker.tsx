@@ -12,46 +12,25 @@ export function StageTracker({
   complete?: boolean;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 10 }}>
+    <div
+      className={`stage-tracker stage-tracker--${stages.length}`}
+      role="list"
+    >
       {stages.map((name, i) => {
         const done = complete || i < currentIdx;
         const active = !complete && i === currentIdx;
-        const dotColor = active ? "var(--accent)" : done ? "var(--success)" : "var(--line)";
         const showLine = i < stages.length - 1;
         return (
-          <div key={name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-              <div
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: dotColor,
-                  boxShadow: active ? "0 0 0 4px var(--accent-tint)" : "none",
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 10,
-                  fontFamily: "var(--font-mono)",
-                  letterSpacing: ".02em",
-                  color: active ? "var(--ink)" : done ? "var(--ink-2)" : "var(--ink-4)",
-                  fontWeight: active ? 600 : 400,
-                }}
-              >
-                {name}
-              </span>
-            </div>
+          <div
+            key={name}
+            className={`stage-tracker__step${done ? " is-done" : ""}${active ? " is-active" : ""}`}
+            role="listitem"
+            aria-current={active ? "step" : undefined}
+          >
+            <span className="stage-tracker__dot" aria-hidden="true" />
+            <span className="stage-tracker__label">{name}</span>
             {showLine && (
-              <div
-                style={{
-                  width: 26,
-                  height: 2,
-                  marginBottom: 20,
-                  borderRadius: 2,
-                  background: done ? "var(--success)" : "var(--line)",
-                }}
-              />
+              <span className="stage-tracker__connector" aria-hidden="true" />
             )}
           </div>
         );

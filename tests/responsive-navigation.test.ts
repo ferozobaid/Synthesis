@@ -35,33 +35,33 @@ describe("responsive release navigation", () => {
     expect(copy).toBeLessThan(desktopStage);
     expect(styles).toContain(".home-readiness-stage--mobile");
     expect(styles).toContain(".home-readiness-stage--desktop");
-    expect(styles).toContain("padding-bottom: 126px;");
+    expect(styles).toContain("padding-bottom: 178px;");
   });
 
-  it("uses an explicit reduced-motion-safe glowing return control", () => {
+  it("uses a centered, reduced-motion-safe triple-arrow return control", () => {
     const carousel = readFileSync(
       "components/home/SynthesisCarousel.tsx",
       "utf8",
     );
     const styles = readFileSync("app/globals.css", "utf8");
 
+    expect(carousel).toContain("home-carousel__back-cue");
+    expect(carousel).toContain("home-carousel__back-arrows");
     expect(carousel).toContain("home-carousel__back-line");
     expect(carousel).toContain("home-carousel__back-label");
+    expect(carousel.split("<i />")).toHaveLength(4);
     expect(carousel).toContain("onClick={onReturnToHero}");
     expect(carousel).toContain("Back to landing");
     expect(carousel).toContain("activeSlide === 0");
-    expect(styles).toContain("@keyframes home-back-glow");
-    expect(styles).toContain(".home-carousel__back-line > span");
+    expect(styles).toContain("@keyframes home-back-arrow-rise");
+    expect(styles).toContain("@keyframes home-back-line-glow");
+    expect(styles).toContain(".home-carousel__back-arrows i");
     expect(styles).toContain(
-      "top: calc(var(--home-nav-height) + clamp(18px, 3vh, 30px));",
+      "bottom: clamp(16px, 2.5vh, 24px);",
     );
-    expect(styles).toContain(
-      "right: max(20px, calc((100vw - 1200px) / 2 + 32px));",
-    );
-    expect(styles).toContain(
-      "bottom: max(13px, env(safe-area-inset-bottom));",
-    );
-    expect(styles).toContain("left: 14px;");
+    expect(styles).toContain("left: 50%;");
+    expect(styles).toContain("transform: translateX(-50%);");
+    expect(styles).toContain("padding-bottom: 178px;");
     expect(styles).toContain("animation: none;");
   });
 
