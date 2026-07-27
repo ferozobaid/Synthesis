@@ -24,6 +24,11 @@ import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { Spinner, SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import {
+  behaviouralFullSessionRange,
+  FOCUSED_SESSION_QUESTION_COUNT,
+} from "@/lib/behavioural/bank";
+import type { BehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
 import {
   mapVoiceStatusToAvatarMode,
@@ -71,9 +76,10 @@ const STAR = [
 ];
 
 const DIM_COLORS = ["var(--secondary)", "var(--accent)", "var(--success)", "var(--partial)", "var(--ink)"];
-// Core questions always asked; the optional industry-motivation question adds one
-// more when a distinct industry is known, so this is shown as an approximate count.
-const BEHAVIOURAL_QUESTION_COUNT = 13;
+// Derived from the authored bank, never hardcoded: Full runs every unconditional
+// question plus the industry one when a distinct industry is known; Focused always
+// runs exactly one question per coverage family.
+const FULL_SESSION_RANGE = behaviouralFullSessionRange();
 
 export default function BehaviouralPage() {
   const router = useRouter();
@@ -94,6 +100,9 @@ export default function BehaviouralPage() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [interviewStarted, setInterviewStarted] = useState(false);
+  // Chosen on the preflight and frozen once the interview starts; the server
+  // re-validates and falls back to "full" for anything unrecognised.
+  const [sessionMode, setSessionMode] = useState<BehaviouralSessionMode>("full");
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   // True while the Vapi voice flow owns the screen — hide the manual question
   // during the live call and post-call report processing.
@@ -154,6 +163,7 @@ export default function BehaviouralPage() {
         jdText: state.target.jdText,
         targetRole: state.target.role,
         targetCompany: state.target.company,
+        sessionMode,
       });
       setSession(d.session);
       setQuestions(d.questions);
@@ -164,7 +174,7 @@ export default function BehaviouralPage() {
     } finally {
       setStarting(false);
     }
-  }, [state.target.jdText, state.target.role, state.target.company]);
+  }, [state.target.jdText, state.target.role, state.target.company, sessionMode]);
 
   const beginInterview = useCallback(() => {
     if (!hydrated || !targetReady || startedRef.current) return;
@@ -237,6 +247,7 @@ export default function BehaviouralPage() {
         jdText={state.target.jdText}
         targetRole={state.target.role}
         targetCompany={state.target.company}
+        sessionMode={sessionMode}
         startRequested={interviewStarted}
         onActiveChange={handleVoiceActiveChange}
         onVoiceStateChange={setVoiceState}
@@ -267,10 +278,47 @@ export default function BehaviouralPage() {
               </div>
             )}
           </div>
+          <fieldset className="behavioural-preflight__modes">
+            <legend>Session length</legend>
+            {(
+              [
+                {
+                  mode: "full" as const,
+                  label: "Full session",
+                  detail: `${FULL_SESSION_RANGE.min}–${FULL_SESSION_RANGE.max} questions · complete role-aware interview`,
+                },
+                {
+                  mode: "focused" as const,
+                  label: "Focused session",
+                  detail: `${FOCUSED_SESSION_QUESTION_COUNT} questions · one from each core area`,
+                },
+              ]
+            ).map((option) => (
+              <label
+                key={option.mode}
+                className={sessionMode === option.mode ? "is-selected" : undefined}
+              >
+                <input
+                  type="radio"
+                  name="behavioural-session-mode"
+                  value={option.mode}
+                  checked={sessionMode === option.mode}
+                  onChange={() => setSessionMode(option.mode)}
+                  disabled={!hydrated}
+                />
+                <strong>{option.label}</strong>
+                <small>{option.detail}</small>
+              </label>
+            ))}
+          </fieldset>
           <div className="behavioural-preflight__facts" aria-label="Interview details">
             <div>
               <span>Questions</span>
-              <strong>{BEHAVIOURAL_QUESTION_COUNT}–{BEHAVIOURAL_QUESTION_COUNT + 1}</strong>
+              <strong>
+                {sessionMode === "focused"
+                  ? FOCUSED_SESSION_QUESTION_COUNT
+                  : `${FULL_SESSION_RANGE.min}–${FULL_SESSION_RANGE.max}`}
+              </strong>
             </div>
             <div>
               <span>Microphone</span>

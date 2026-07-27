@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { startBehavioural } from "@/lib/behavioural/runner";
+import { asBehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import { initSession } from "@/lib/fsm/case-fsm";
 import {
   MOCK_JD_TEXT,
@@ -70,6 +71,10 @@ export async function POST(req: NextRequest) {
     // Mirror the existing /api/behavioural route: fall back to the sample JD in
     // mock mode so "why this company" stays grounded without a pasted JD.
     const jdText = jdRaw.trim() ? jdRaw : useMocks() ? MOCK_JD_TEXT : "";
+    // Unknown/absent modes fall back to the existing full flow rather than failing.
+    const sessionMode = asBehaviouralSessionMode(
+      (body as { sessionMode?: unknown }).sessionMode,
+    );
     const started = startBehavioural({
       questionBank: MOCK_QUESTIONS,
       jdText,
@@ -78,6 +83,7 @@ export async function POST(req: NextRequest) {
       // wording even when no JD is pasted; falls back to the parsed JD inside startBehavioural.
       targetRole,
       targetCompany: companyName,
+      sessionMode,
     });
 
     const now = new Date().toISOString();
@@ -95,6 +101,7 @@ export async function POST(req: NextRequest) {
       module: "behavioural",
       session: started.session,
       questions: started.questions,
+      sessionMode: started.sessionMode,
       questionIndex: 0,
       reportStatus: "pending",
       report: null,
@@ -125,6 +132,7 @@ export async function POST(req: NextRequest) {
       // Complete ordered question set (stable ids + text) + the numbered string.
       questions: started.questions.map((q) => ({ id: q.id, question: q.question })),
       questionList,
+      sessionMode: started.sessionMode,
       candidateName: resolvedName,
       targetRole: resolvedRole,
       companyName: resolvedCompany,

@@ -4,8 +4,8 @@
  */
 import beautify from "@/context/cases/beautify.json";
 import diconsa from "@/context/cases/diconsa.json";
-import questionBank from "@/context/behavioural/question_bank.json";
 import seedAnswers from "@/context/behavioural/seed_answer_bank.json";
+import { BEHAVIOURAL_QUESTION_BANK } from "@/lib/behavioural/bank";
 import type {
   AnswerBankEntry,
   BehaviouralQuestion,
@@ -24,7 +24,8 @@ export function mockCase(id: string): CaseRecord | undefined {
   return CASES.find((c) => c.id === id);
 }
 
-export const MOCK_QUESTIONS = (questionBank as { questions: BehaviouralQuestion[] }).questions;
+/** Re-exported so lib/behavioural/bank.ts stays the single bank source. */
+export const MOCK_QUESTIONS: BehaviouralQuestion[] = BEHAVIOURAL_QUESTION_BANK;
 
 /**
  * A sample JD (mirrors context/jd_samples/consultant.txt) used as the mock-mode

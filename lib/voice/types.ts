@@ -16,6 +16,7 @@ import type {
   CaseState,
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
+import type { BehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import type { FrameworkProbeObjective } from "@/lib/fsm/case-framework";
 import type {
   CaseInterviewerCandidateAction,
@@ -122,6 +123,8 @@ export interface BehaviouralVoiceSession {
   session: BehaviouralSession;
   /** The frozen question batch (so question text is stable across turns). */
   questions: BehaviouralQuestion[];
+  /** Session mode that produced `questions`. Absent on pre-mode sessions = "full". */
+  sessionMode?: BehaviouralSessionMode;
   /** Cursor into `questions` — the browser's local `idx`, moved server-side. */
   questionIndex: number;
   createdAt: string;

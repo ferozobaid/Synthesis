@@ -11,13 +11,38 @@
  *
  * Pure + deterministic. Live plane only; never imports from offline scripts.
  */
-import type { BehaviouralQuestion, JDRequirements } from "@/lib/types";
+import type {
+  BehaviouralFocusFamily,
+  BehaviouralQuestion,
+  JDRequirements,
+} from "@/lib/types";
 import {
   roleMotivationQuestion,
   roleFamilyLabel,
   shouldAskIndustry,
   industryMotivationQuestion,
+  focusFamilyPreference,
 } from "@/lib/behavioural/role-context";
+
+/**
+ * Full  — the existing role-aware 13–14 question interview, unchanged.
+ * Focused — exactly one balanced question per coverage family (5 total).
+ */
+export type BehaviouralSessionMode = "full" | "focused";
+
+/** Coverage families, in the order the Focused Session fills them. */
+export const FOCUS_FAMILY_ORDER: readonly BehaviouralFocusFamily[] = [
+  "introduction",
+  "motivation",
+  "competency",
+  "challenge",
+  "achievement",
+] as const;
+
+/** Normalize any inbound value to a session mode, defaulting to the existing flow. */
+export function asBehaviouralSessionMode(value: unknown): BehaviouralSessionMode {
+  return value === "focused" ? "focused" : "full";
+}
 
 /** Resolved interview context that drives dynamic question wording. */
 export interface BehaviouralContext {
@@ -88,6 +113,80 @@ export function generateQuestions(
       return true;
     })
     .map((q) => fillDynamic(q, context));
+}
+
+/**
+ * Focused Session: exactly one question per coverage family, five in total.
+ *
+ * Deliberately layered ON TOP of generateQuestions rather than reimplementing it,
+ * so conditional-drop, dynamic wording, and ordering behave identically to the Full
+ * Session — Focused can only ever be a subset of what Full would have asked.
+ *
+ * Selection is deterministic (no model call): each family takes the first available
+ * id from its role-affinity preference list, and the chosen five are re-sorted into
+ * bank order so the interview arc (intro → motivation → competency evidence) holds.
+ */
+export function selectFocusedQuestions(
+  bank: BehaviouralQuestion[],
+  ctx: BehaviouralContext | JDRequirements | null,
+): BehaviouralQuestion[] {
+  const context = normalizeContext(ctx);
+  // The exact Full-Session set; Focused never sees a question Full would not ask.
+  const generated = generateQuestions(bank, ctx);
+  const roleFamily = roleFamilyLabel(context.role, context.industry);
+  const byId = new Map(generated.map((q) => [q.id, q]));
+
+  const picked = new Set<string>();
+  for (const family of FOCUS_FAMILY_ORDER) {
+    const preferred = focusFamilyPreference(family, roleFamily);
+    const ordered =
+      family === "motivation" ? motivationPreference(preferred, context) : preferred;
+
+    // First available preference, then any unpicked question authored to this family.
+    const chosen =
+      ordered.find((id) => byId.has(id) && !picked.has(id)) ??
+      generated.find((q) => q.focus_family === family && !picked.has(q.id))?.id;
+    if (chosen) picked.add(chosen);
+  }
+
+  // Defensive backfill: a bank predating focus_family (or an exhausted family)
+  // must still yield a full five rather than a short interview.
+  for (const q of generated) {
+    if (picked.size >= FOCUS_FAMILY_ORDER.length) break;
+    picked.add(q.id);
+  }
+
+  return generated.filter((q) => picked.has(q.id));
+}
+
+/**
+ * "Why this company" only earns the motivation slot when a real company is known —
+ * otherwise it degrades to the generic "this company" fallback, so the role-aware
+ * motivation question is the stronger single representative of the family.
+ */
+function motivationPreference(
+  preferred: string[],
+  context: BehaviouralContext,
+): string[] {
+  if (!context.company?.trim()) return preferred;
+  return [
+    "why_this_company",
+    ...preferred.filter((id) => id !== "why_this_company"),
+  ];
+}
+
+/**
+ * Build the session's question set for a mode. "full" delegates to the unchanged
+ * generateQuestions path; "focused" narrows that same set to five.
+ */
+export function buildSessionQuestions(
+  bank: BehaviouralQuestion[],
+  ctx: BehaviouralContext | JDRequirements | null,
+  mode: BehaviouralSessionMode = "full",
+): BehaviouralQuestion[] {
+  return mode === "focused"
+    ? selectFocusedQuestions(bank, ctx)
+    : generateQuestions(bank, ctx);
 }
 
 /** Accept either an already-resolved context or a raw parsed JD (back-compat). */

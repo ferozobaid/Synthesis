@@ -13,7 +13,11 @@
 import { useMocks } from "@/lib/config";
 import { parseJD } from "@/lib/parsers/jd-parser";
 import { retrieveAnswer } from "@/lib/rag";
-import { generateQuestions, type BehaviouralContext } from "@/lib/behavioural/question-gen";
+import {
+  buildSessionQuestions,
+  type BehaviouralContext,
+  type BehaviouralSessionMode,
+} from "@/lib/behavioural/question-gen";
 import { evaluateBehavioural } from "@/lib/behavioural/evaluator";
 import type {
   AnswerBankEntry,
@@ -33,6 +37,8 @@ export interface BehaviouralStartResult {
   questions: BehaviouralQuestion[];
   jd: { company: string | null; role_title: string | null } | null;
   mock: boolean;
+  /** Which session mode produced `questions`. Defaults to the existing full flow. */
+  sessionMode: BehaviouralSessionMode;
 }
 
 export interface BehaviouralTurnResult {
@@ -81,6 +87,8 @@ export function startBehavioural(opts: {
   targetRole?: string | null;
   /** Target company from the readiness store / onboarding; overrides the parsed JD company. */
   targetCompany?: string | null;
+  /** "focused" narrows the same set to five; omitted/unknown keeps the full flow. */
+  sessionMode?: BehaviouralSessionMode;
 }): BehaviouralStartResult {
   const jd = opts.jdText && opts.jdText.trim() ? parseJD(opts.jdText) : null;
   const context: BehaviouralContext = {
@@ -88,7 +96,8 @@ export function startBehavioural(opts: {
     company: opts.targetCompany?.trim() || jd?.company || null,
     industry: jd?.domain ?? null,
   };
-  const questions = generateQuestions(opts.questionBank, context);
+  const sessionMode: BehaviouralSessionMode = opts.sessionMode ?? "full";
+  const questions = buildSessionQuestions(opts.questionBank, context, sessionMode);
 
   const session: BehaviouralSession = {
     id: newSessionId(),
@@ -112,6 +121,7 @@ export function startBehavioural(opts: {
     questions,
     jd: jd ? { company: jd.company, role_title: jd.role_title } : null,
     mock: useMocks(),
+    sessionMode,
   };
 }
 

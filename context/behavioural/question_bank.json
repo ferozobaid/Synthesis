@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "note": "Behavioural question bank. Order follows a realistic interview arc: intro → role/function motivation → company → (optional) industry → competency evidence → self-awareness. 'role_motivation' is role-aware — its wording is filled from the target role/function at session start (deterministic templates, never a runtime model call); its stable id/type never changes. 'why_this_company' fills {{company}} from the parsed JD / readiness target (falls back to 'this company'). 'industry_motivation' is conditional (dynamic + \"conditional\": \"industry\"): it is only asked when a distinct industry is known and is not redundant with the role family or company; otherwise it is dropped at generation time. Competencies align with the tags in seed_answer_bank.json so RAG retrieval matches the user's own prepared answers.",
+  "version": 3,
+  "note": "Behavioural question bank. Order follows a realistic interview arc: intro → role/function motivation → company → (optional) industry → competency evidence → self-awareness. Every question carries a 'focus_family' (introduction | motivation | competency | challenge | achievement) — authored, never inferred — which the Focused Session uses to pick exactly one balanced question per family. Full Session ignores focus_family entirely and is unchanged. 'role_motivation' is role-aware — its wording is filled from the target role/function at session start (deterministic templates, never a runtime model call); its stable id/type never changes. 'why_this_company' fills {{company}} from the parsed JD / readiness target (falls back to 'this company'). 'industry_motivation' is conditional (dynamic + \"conditional\": \"industry\"): it is only asked when a distinct industry is known and is not redundant with the role family or company; otherwise it is dropped at generation time. Competencies align with the tags in seed_answer_bank.json so RAG retrieval matches the user's own prepared answers.",
   "competencies": [
     "motivation & fit",
     "leadership & influence",
@@ -14,19 +14,19 @@
     "initiative"
   ],
   "questions": [
-    { "id": "tell_me_about_yourself", "question": "Tell me about yourself.", "competency": "motivation & fit", "type": "intro", "dynamic": false },
-    { "id": "role_motivation", "question": "Why are you interested in this type of role?", "competency": "motivation & fit", "type": "role_motivation", "dynamic": true, "source": "target role or role family" },
-    { "id": "why_this_company", "question": "Why do you want to work at {{company}}?", "competency": "motivation & fit", "type": "motivation", "dynamic": true, "source": "parsed JD company name", "fallback_company": "this company" },
-    { "id": "industry_motivation", "question": "Why are you interested in working in {{industry}}?", "competency": "motivation & fit", "type": "industry_motivation", "dynamic": true, "conditional": "industry", "source": "parsed JD industry / domain" },
-    { "id": "time_you_failed", "question": "Tell me about a time you failed and what you learned.", "competency": "failure & lessons learned", "type": "star", "dynamic": false },
-    { "id": "leadership", "question": "Tell me about a time you led a team through a difficult situation.", "competency": "leadership & influence", "type": "star", "dynamic": false },
-    { "id": "conflict", "question": "Tell me about a time you had a conflict with a teammate and how you resolved it.", "competency": "conflict resolution", "type": "star", "dynamic": false },
-    { "id": "ambiguity", "question": "Tell me about a time you dealt with significant ambiguity.", "competency": "dealing with ambiguity", "type": "star", "dynamic": false },
-    { "id": "influence_without_authority", "question": "Tell me about a time you influenced others without formal authority.", "competency": "persuading stakeholders", "type": "star", "dynamic": false },
-    { "id": "data_driven_decision", "question": "Tell me about a time you used data to make a decision.", "competency": "data-driven decision making", "type": "star", "dynamic": false },
-    { "id": "tight_deadline", "question": "Tell me about a time you delivered high-quality work under a tight deadline.", "competency": "working under pressure", "type": "star", "dynamic": false },
-    { "id": "cross_functional", "question": "Tell me about a time you worked cross-functionally.", "competency": "cross-functional collaboration", "type": "star", "dynamic": false },
-    { "id": "initiative", "question": "Tell me about a time you went beyond what was asked.", "competency": "initiative", "type": "star", "dynamic": false },
-    { "id": "greatest_strength", "question": "What are your greatest strengths, and how have you applied them?", "competency": "motivation & fit", "type": "self-assessment", "dynamic": false }
+    { "id": "tell_me_about_yourself", "question": "Tell me about yourself.", "competency": "motivation & fit", "type": "intro", "dynamic": false, "focus_family": "introduction" },
+    { "id": "role_motivation", "question": "Why are you interested in this type of role?", "competency": "motivation & fit", "type": "role_motivation", "dynamic": true, "source": "target role or role family", "focus_family": "motivation" },
+    { "id": "why_this_company", "question": "Why do you want to work at {{company}}?", "competency": "motivation & fit", "type": "motivation", "dynamic": true, "source": "parsed JD company name", "fallback_company": "this company", "focus_family": "motivation" },
+    { "id": "industry_motivation", "question": "Why are you interested in working in {{industry}}?", "competency": "motivation & fit", "type": "industry_motivation", "dynamic": true, "conditional": "industry", "source": "parsed JD industry / domain", "focus_family": "motivation" },
+    { "id": "time_you_failed", "question": "Tell me about a time you failed and what you learned.", "competency": "failure & lessons learned", "type": "star", "dynamic": false, "focus_family": "challenge" },
+    { "id": "leadership", "question": "Tell me about a time you led a team through a difficult situation.", "competency": "leadership & influence", "type": "star", "dynamic": false, "focus_family": "achievement" },
+    { "id": "conflict", "question": "Tell me about a time you had a conflict with a teammate and how you resolved it.", "competency": "conflict resolution", "type": "star", "dynamic": false, "focus_family": "challenge" },
+    { "id": "ambiguity", "question": "Tell me about a time you dealt with significant ambiguity.", "competency": "dealing with ambiguity", "type": "star", "dynamic": false, "focus_family": "competency" },
+    { "id": "influence_without_authority", "question": "Tell me about a time you influenced others without formal authority.", "competency": "persuading stakeholders", "type": "star", "dynamic": false, "focus_family": "achievement" },
+    { "id": "data_driven_decision", "question": "Tell me about a time you used data to make a decision.", "competency": "data-driven decision making", "type": "star", "dynamic": false, "focus_family": "competency" },
+    { "id": "tight_deadline", "question": "Tell me about a time you delivered high-quality work under a tight deadline.", "competency": "working under pressure", "type": "star", "dynamic": false, "focus_family": "challenge" },
+    { "id": "cross_functional", "question": "Tell me about a time you worked cross-functionally.", "competency": "cross-functional collaboration", "type": "star", "dynamic": false, "focus_family": "competency" },
+    { "id": "initiative", "question": "Tell me about a time you went beyond what was asked.", "competency": "initiative", "type": "star", "dynamic": false, "focus_family": "achievement" },
+    { "id": "greatest_strength", "question": "What are your greatest strengths, and how have you applied them?", "competency": "motivation & fit", "type": "self-assessment", "dynamic": false, "focus_family": "achievement" }
   ]
 }

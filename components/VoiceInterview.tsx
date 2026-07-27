@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { containment } from "@/lib/text";
 import type { BehaviouralQualitativeReport } from "@/lib/behavioural/qualitative";
+import type { BehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import {
   createUserSpeakingTracker,
   quantizeLevel,
@@ -210,6 +211,7 @@ export default function VoiceInterview({
   jdText,
   targetRole,
   targetCompany,
+  sessionMode = "full",
   startRequested = true,
   onActiveChange,
   onVoiceStateChange,
@@ -220,6 +222,8 @@ export default function VoiceInterview({
   targetRole?: string | null;
   /** Target company from the readiness store — grounds the "why this company" question. */
   targetCompany?: string | null;
+  /** "focused" asks five balanced questions; "full" keeps the existing interview. */
+  sessionMode?: BehaviouralSessionMode;
   /** Fresh sessions remain idle until the page's preflight CTA is activated. */
   startRequested?: boolean;
   /** True while the configured voice flow owns the screen. */
@@ -257,6 +261,8 @@ export default function VoiceInterview({
   targetRoleRef.current = targetRole;
   const targetCompanyRef = useRef(targetCompany);
   targetCompanyRef.current = targetCompany;
+  const sessionModeRef = useRef(sessionMode);
+  sessionModeRef.current = sessionMode;
   const startRequestedRef = useRef(startRequested);
   startRequestedRef.current = startRequested;
   const questionsRef = useRef<Question[]>([]);
@@ -409,6 +415,7 @@ export default function VoiceInterview({
           jdText: jdTextRef.current ?? "",
           targetRole: targetRoleRef.current ?? undefined,
           companyName: targetCompanyRef.current ?? undefined,
+          sessionMode: sessionModeRef.current,
         }),
       });
       if (!res.ok) throw new Error("Could not start the interview session.");
