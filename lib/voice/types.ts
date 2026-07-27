@@ -266,6 +266,18 @@ export interface CaseVoiceSession {
   /** Readiness is outside the scored FSM and never creates a projected Case turn. */
   readinessStatus?: "awaiting" | "confirmed";
   readinessConfirmedAt?: string | null;
+  /**
+   * Server-owned interview clock. Snapshotted from the catalog at creation so a
+   * later difficulty change never re-times a live session. All optional: legacy
+   * records simply have no deadline and are never enforced against.
+   */
+  maxDurationSeconds?: number;
+  /** Set ONCE when the case actually begins (never during readiness). */
+  caseStartedAt?: string | null;
+  /** caseStartedAt + maxDurationSeconds. The authoritative deadline. */
+  caseExpiresAt?: string | null;
+  /** Persisted observation of expiry. Never the source of truth — see case-clock.ts. */
+  caseTimedOut?: boolean;
   /** Voice-only conversational state; never changes the Case FSM or score. */
   conversationStatus?: "active" | "paused";
   /** Bound to the first valid Vapi call id that successfully advances the session. */

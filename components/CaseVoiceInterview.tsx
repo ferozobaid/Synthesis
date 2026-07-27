@@ -12,9 +12,17 @@ import {
   advanceNativeCaseLiveProgress,
   endNativeCaseLiveProgress,
   initialNativeCaseLiveProgress,
-  nativeCaseLiveElapsedMilliseconds,
 } from "@/lib/voice/case-native-live";
 import { isTechnicalNativeCase, nativeProgressDefinition } from "@/lib/voice/native-progress";
+import {
+  CaseClockAuthError,
+  caseClockRemainingMs,
+  caseClockSkewOffsetMs,
+  createCaseClockController,
+  isAuthoritativeClock,
+  type CaseClockController,
+  type CaseClockSnapshot,
+} from "@/lib/voice/case-clock-sync";
 import {
   advanceNativeCurrentQuestion,
   initialNativeCurrentQuestion,
@@ -124,6 +132,12 @@ export interface CaseVoiceProjection {
   score: CaseScore | null;
   exhibits: CaseExhibit[];
   turns: CaseVoiceProjectedTurn[];
+  /** Server-owned clock (absent on legacy sessions, which simply have no deadline). */
+  maxDurationSeconds?: number | null;
+  caseStartedAt?: string | null;
+  caseExpiresAt?: string | null;
+  serverNow?: string;
+  timedOut?: boolean;
   updatedAt: string;
 }
 
@@ -183,6 +197,22 @@ export interface PreviewCaseChoice {
   track: PreviewCaseTrack;
   /** Present only for track: "technical" entries. */
   role?: PreviewCaseTechnicalRole;
+  /** Authored difficulty and its derived maximum duration (absent on legacy responses). */
+  difficultyStars?: number;
+  maxDurationSeconds?: number;
+}
+
+/** "★★★☆☆" for a 3-of-5 rating; empty when the catalog omitted a difficulty. */
+export function caseDifficultyLabel(stars: number | undefined): string {
+  if (typeof stars !== "number" || !Number.isFinite(stars)) return "";
+  const filled = Math.max(0, Math.min(5, Math.round(stars)));
+  return "★".repeat(filled) + "☆".repeat(5 - filled);
+}
+
+/** "10 min" for a duration in seconds; empty when the catalog omitted one. */
+export function caseDurationLabel(seconds: number | undefined): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return "";
+  return `${Math.round(seconds / 60)} min`;
 }
 
 type GridTrack = "case" | "technical";
@@ -448,7 +478,15 @@ export async function fetchPreviewCatalog(
             VALID_TRACKS.includes((entry as PreviewCaseChoice).track) &&
             ((entry as PreviewCaseChoice).role === undefined ||
               VALID_TECHNICAL_ROLES.includes((entry as PreviewCaseChoice).role as PreviewCaseTechnicalRole)),
-        )
+        ).map((entry) => ({
+          ...entry,
+          // Difficulty/duration are presentational here; the SERVER snapshots the
+          // authoritative duration at session creation, never the browser.
+          difficultyStars:
+            typeof entry.difficultyStars === "number" ? entry.difficultyStars : undefined,
+          maxDurationSeconds:
+            typeof entry.maxDurationSeconds === "number" ? entry.maxDurationSeconds : undefined,
+        }))
       : [];
     return cases.length > 0 ? { status: "loaded", cases } : { status: "error", cases: [] };
   } catch {
@@ -568,15 +606,91 @@ export function caseVoiceRecoveryMessage(projection: CaseVoiceProjection): strin
     : "Your Case progress was recovered from this session. Start a new interview to continue live.";
 }
 
-export function caseVoiceElapsedMilliseconds(
-  readinessConfirmedAt: string | null,
-  now: number,
-  endedAt: number | null = null,
-): number {
-  if (!readinessConfirmedAt) return 0;
-  const startedAt = Date.parse(readinessConfirmedAt);
-  if (!Number.isFinite(startedAt)) return 0;
-  return Math.max(0, (endedAt ?? now) - startedAt);
+/**
+ * The clock snapshot carried by a custom-LLM projection, or null when the case has
+ * not started (or the session predates server-owned timing). Custom-LLM polls this
+ * endpoint continuously, so the skew offset stays current without extra requests.
+ */
+export function caseVoiceProjectionClock(
+  projection: CaseVoiceProjection | null,
+): CaseClockSnapshot | null {
+  if (!projection?.serverNow) return null;
+  return {
+    maxDurationSeconds: projection.maxDurationSeconds ?? null,
+    caseStartedAt: projection.caseStartedAt ?? null,
+    caseExpiresAt: projection.caseExpiresAt ?? null,
+    serverNow: projection.serverNow,
+    timedOut: projection.timedOut ?? false,
+  };
+}
+
+/** Map a clock response to a snapshot, converting a rejected capability. */
+async function readCaseClockResponse(response: Response): Promise<CaseClockSnapshot> {
+  // 401/403/404 mean the capability or session is not usable — retrying cannot fix
+  // it, so surface a distinct error the controller stops on.
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    throw new CaseClockAuthError();
+  }
+  if (!response.ok) throw new Error("case clock unavailable");
+  return (await response.json()) as CaseClockSnapshot;
+}
+
+/** GET the native case clock. */
+export async function fetchCaseClock(
+  pending: Pick<PendingNativeCaseReport, "sessionId" | "reportToken">,
+  fetcher: typeof fetch = fetch,
+): Promise<CaseClockSnapshot> {
+  return readCaseClockResponse(
+    await fetcher(`/api/case/session/${encodeURIComponent(pending.sessionId)}/clock`, {
+      headers: { "x-report-token": pending.reportToken },
+    }),
+  );
+}
+
+/** POST to start the native case clock. Safe to repeat: the server is first-write-wins. */
+export async function startCaseClock(
+  pending: Pick<PendingNativeCaseReport, "sessionId" | "reportToken">,
+  fetcher: typeof fetch = fetch,
+): Promise<CaseClockSnapshot> {
+  return readCaseClockResponse(
+    await fetcher(`/api/case/session/${encodeURIComponent(pending.sessionId)}/clock`, {
+      method: "POST",
+      headers: { "x-report-token": pending.reportToken },
+    }),
+  );
+}
+
+/** Remaining-time thresholds (ms) that raise a countdown warning, each once. */
+export const CASE_TIMER_WARNING_THRESHOLDS_MS: readonly number[] = [
+  5 * 60_000,
+  2 * 60_000,
+  1 * 60_000,
+] as const;
+
+/**
+ * The tightest warning band the remaining time has entered — the smallest
+ * threshold that is still >= remainingMs. Null when outside every band.
+ * e.g. 90s remaining → the 2-minute band; 30s remaining → the 1-minute band.
+ */
+export function caseTimerWarningThreshold(remainingMs: number | null): number | null {
+  if (remainingMs === null) return null;
+  const entered = CASE_TIMER_WARNING_THRESHOLDS_MS.filter(
+    (threshold) => remainingMs <= threshold,
+  );
+  return entered.length > 0 ? Math.min(...entered) : null;
+}
+
+/** Thresholds newly crossed between two remaining-time readings. */
+export function crossedCaseTimerWarnings(
+  previousRemainingMs: number | null,
+  remainingMs: number | null,
+): number[] {
+  if (remainingMs === null) return [];
+  return CASE_TIMER_WARNING_THRESHOLDS_MS.filter(
+    (threshold) =>
+      remainingMs <= threshold &&
+      (previousRemainingMs === null || previousRemainingMs > threshold),
+  );
 }
 
 export function formatCaseVoiceElapsed(milliseconds: number): string {
@@ -649,6 +763,16 @@ function parseProjection(value: unknown): CaseVoiceProjection {
     score: projection.score ?? null,
     exhibits: uniqueCaseExhibits(projection.exhibits as CaseExhibit[]),
     turns: projection.turns as CaseVoiceProjectedTurn[],
+    // Server-owned clock. Anything malformed normalizes to "no deadline" rather
+    // than a bogus one — the countdown is only ever drawn from a valid server pair.
+    maxDurationSeconds:
+      typeof projection.maxDurationSeconds === "number" ? projection.maxDurationSeconds : null,
+    caseStartedAt:
+      typeof projection.caseStartedAt === "string" ? projection.caseStartedAt : null,
+    caseExpiresAt:
+      typeof projection.caseExpiresAt === "string" ? projection.caseExpiresAt : null,
+    serverNow: typeof projection.serverNow === "string" ? projection.serverNow : undefined,
+    timedOut: projection.timedOut === true,
   } as CaseVoiceProjection;
 }
 
@@ -698,6 +822,19 @@ function CaseCardGrid({
           >
             <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", marginBottom: 6 }}>{entry.title}</div>
             <div style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}>{entry.description}</div>
+            {caseDifficultyLabel(entry.difficultyStars) && (
+              <div className="case-picker-card__meta" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  aria-label={`Difficulty ${entry.difficultyStars} of 5`}
+                  style={{ fontSize: 12, color: "var(--secondary)", letterSpacing: ".06em" }}
+                >
+                  {caseDifficultyLabel(entry.difficultyStars)}
+                </span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--ink-4)" }}>
+                  {caseDurationLabel(entry.maxDurationSeconds)}
+                </span>
+              </div>
+            )}
           </button>
         );
       })}
@@ -770,6 +907,13 @@ export default function CaseVoiceInterview({
   const [showTranscript, setShowTranscript] = useState(CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [timerEndedAt, setTimerEndedAt] = useState<number | null>(null);
+  // The ONE deadline, always server-issued. Null means no countdown is shown —
+  // a client-side fallback deadline is never invented.
+  const [clock, setClock] = useState<{
+    snapshot: CaseClockSnapshot;
+    offsetMs: number;
+  } | null>(null);
+  const [timerWarning, setTimerWarning] = useState<number | null>(null);
   const [nativeLiveProgress, setNativeLiveProgress] = useState(
     initialNativeCaseLiveProgress,
   );
@@ -794,7 +938,14 @@ export default function CaseVoiceInterview({
   const startAttemptRef = useRef(0);
   const lastFinalTranscriptAtRef = useRef<number | null>(null);
   const endedReasonRef = useRef<string | null>(null);
+  // One controller at a time; the ref is what makes duplicate effect runs harmless.
+  const clockControllerRef = useRef<CaseClockController | null>(null);
+  const warnedThresholdsRef = useRef<Set<number>>(new Set());
+  const lastRemainingRef = useRef<number | null>(null);
+  const autoEndedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
+  const nativeLiveProgressRef = useRef(nativeLiveProgress);
+  nativeLiveProgressRef.current = nativeLiveProgress;
   onCompleteRef.current = onComplete;
   statusRef.current = status;
 
@@ -1331,34 +1482,77 @@ export default function CaseVoiceInterview({
     };
   }, [capability, expireSession, reportCompletion]);
 
+  // Custom-LLM: the clock rides along on the projection this path already polls at
+  // 1 Hz, so the skew offset is continuously refreshed with no extra requests.
   useEffect(() => {
-    const nativeRunning =
-      nativeLiveCapability !== null &&
-      nativeLiveProgress.startedAt !== null &&
-      nativeLiveProgress.endedAt === null &&
-      callActive;
-    const customRunning =
-      nativeLiveCapability === null &&
-      projection?.readinessStatus === "confirmed" &&
-      projection.liveStatus !== "concluded_unscored" &&
-      callActive &&
-      !projection.complete &&
-      timerEndedAt === null;
-    const running = nativeRunning || customRunning;
-    if (!running) return;
+    const snapshot = caseVoiceProjectionClock(projection);
+    if (!isAuthoritativeClock(snapshot)) return;
+    const offsetMs = caseClockSkewOffsetMs(snapshot, Date.now());
+    setClock({ snapshot, offsetMs });
+  }, [projection]);
+
+  // Native: ask the server to start the clock once the case genuinely begins, with
+  // bounded retries. GET-before-POST means a remount restores an existing deadline
+  // instead of restarting it, and can also recover a start that previously failed.
+  useEffect(() => {
+    const pending = nativeLiveCapability;
+    if (!pending) {
+      clockControllerRef.current?.dispose();
+      clockControllerRef.current = null;
+      return;
+    }
+    if (!clockControllerRef.current) {
+      clockControllerRef.current = createCaseClockController({
+        fetchClock: () => fetchCaseClock(pending),
+        startClock: () => startCaseClock(pending),
+        // Only the anchor-detected case opening authorizes a start request.
+        hasCaseStarted: () => nativeLiveProgressRef.current.startedAt !== null,
+        isActive: () => callActiveRef.current,
+        onSnapshot: (snapshot, receivedAtMs) => {
+          setClock({ snapshot, offsetMs: caseClockSkewOffsetMs(snapshot, receivedAtMs) });
+        },
+      });
+    }
+    // Idempotent: repeated renders and repeated anchor detections cannot start a
+    // second retry loop.
+    clockControllerRef.current.ensure();
+  }, [nativeLiveCapability, nativeLiveProgress.startedAt]);
+
+  useEffect(() => () => {
+    clockControllerRef.current?.dispose();
+    clockControllerRef.current = null;
+  }, []);
+
+  // Tick whenever a live deadline exists — not merely while a call is attached, or
+  // the countdown would freeze.
+  useEffect(() => {
+    if (!clock || timerEndedAt !== null) return;
     setTimerNow(Date.now());
     const timer = setInterval(() => setTimerNow(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [
-    callActive,
-    nativeLiveCapability,
-    nativeLiveProgress.endedAt,
-    nativeLiveProgress.startedAt,
-    projection?.complete,
-    projection?.liveStatus,
-    projection?.readinessStatus,
-    timerEndedAt,
-  ]);
+  }, [clock, timerEndedAt]);
+
+  // Warnings at 5m / 2m / 1m, each raised once, and a single graceful auto-end at
+  // zero. The server is independently authoritative on expiry, so a missed tick
+  // costs nothing.
+  useEffect(() => {
+    if (!clock || timerEndedAt !== null) return;
+    const remaining = caseClockRemainingMs(clock.snapshot, timerNow, clock.offsetMs);
+    if (remaining === null) return;
+
+    for (const threshold of crossedCaseTimerWarnings(lastRemainingRef.current, remaining)) {
+      if (warnedThresholdsRef.current.has(threshold)) continue;
+      warnedThresholdsRef.current.add(threshold);
+      setTimerWarning(threshold);
+    }
+    lastRemainingRef.current = remaining;
+
+    if (remaining > 0 || autoEndedRef.current) return;
+    autoEndedRef.current = true;
+    // Route through the existing graceful path so the normal report and scoring
+    // pipeline runs exactly as it does for any other end of call.
+    if (callActiveRef.current) endCall();
+  }, [clock, endCall, timerEndedAt, timerNow]);
 
   const transcript = useMemo(() => {
     const openingText = projection?.openingText ?? capability?.openingPrompt ?? "";
@@ -1370,17 +1564,21 @@ export default function CaseVoiceInterview({
   );
   const controls = caseVoiceControls(status, callActive, sdkReady);
   const active = status === "listening" || status === "speaking" || status === "connecting";
-  const nativeTimerWaiting =
-    nativeLiveCapability !== null && nativeLiveProgress.startedAt === null;
-  const elapsed = nativeLiveCapability
-    ? formatCaseVoiceElapsed(nativeCaseLiveElapsedMilliseconds(nativeLiveProgress, timerNow))
-    : formatCaseVoiceElapsed(
-        caseVoiceElapsedMilliseconds(
-          projection?.readinessConfirmedAt ?? null,
-          timerNow,
-          timerEndedAt,
-        ),
-      );
+  // Countdown from the server deadline only. With no deadline (case not started
+  // yet, clock unreachable, or a legacy session) the timer shows a neutral state
+  // rather than a second, client-authoritative notion of case time.
+  const remainingMs = caseClockRemainingMs(
+    clock?.snapshot ?? null,
+    timerEndedAt ?? timerNow,
+    clock?.offsetMs ?? 0,
+  );
+  const timerLabel =
+    remainingMs === null
+      ? nativeLiveCapability !== null && nativeLiveProgress.startedAt === null
+        ? "Waiting to begin"
+        : "Timing unavailable"
+      : formatCaseVoiceElapsed(remainingMs);
+  const timerPending = remainingMs === null;
 
   // Recovery is resolved before the presentation-only track selector appears.
   // Existing session, call, and report capabilities remain the lifecycle source
@@ -1774,10 +1972,10 @@ export default function CaseVoiceInterview({
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div
-            aria-label="Case interview timer"
-            className="case-voice-timer"
+            aria-label="Case interview time remaining"
+            className={`case-voice-timer${timerWarning !== null ? " is-warning" : ""}`}
             style={{
-              minWidth: nativeTimerWaiting ? 118 : 62,
+              minWidth: timerPending ? 118 : 62,
               padding: "7px 10px",
               border: "1px solid var(--line)",
               borderRadius: 8,
@@ -1785,15 +1983,18 @@ export default function CaseVoiceInterview({
               textAlign: "center",
             }}
           >
-            <div style={{ fontSize: 9, color: "var(--ink-4)", fontWeight: 600 }}>CASE TIME</div>
-            <div style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: nativeTimerWaiting ? 10 : 14,
-              color: "var(--ink)",
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-            }}>
-              {nativeTimerWaiting ? "Waiting to begin" : elapsed}
+            <div style={{ fontSize: 9, color: "var(--ink-4)", fontWeight: 600 }}>TIME LEFT</div>
+            <div
+              aria-live={timerWarning !== null ? "polite" : "off"}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: timerPending ? 10 : 14,
+                color: timerWarning !== null ? "var(--partial)" : "var(--ink)",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {timerLabel}
             </div>
           </div>
           {controls.start && (

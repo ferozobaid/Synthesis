@@ -68,7 +68,7 @@ function getRedis(): Redis {
   return new Redis({ url, token });
 }
 
-/** Persist (create or overwrite) a session with the 45-minute TTL. */
+/** Persist (create or overwrite) a session with the 2-hour TTL. */
 export async function saveSession(sessionId: string, record: VoiceSession): Promise<void> {
   const key = keyFor(sessionId);
   assertValidRecord(record);

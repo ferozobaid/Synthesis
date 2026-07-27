@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import { loadSession } from "@/lib/voice/session-store";
+import { caseClockProjection } from "@/lib/voice/case-clock";
 import { CASE_STATES } from "@/lib/types";
 
 function tokenMatches(provided: string, storedHashHex: string): boolean {
@@ -64,6 +65,9 @@ export async function GET(
     score: record.score ?? null,
     exhibits,
     turns,
+    // Server-owned clock. serverNow lets the browser correct for clock skew, and
+    // because this endpoint is polled continuously the offset stays accurate.
+    ...caseClockProjection(record, Date.now()),
     updatedAt: record.updatedAt,
   });
 }
