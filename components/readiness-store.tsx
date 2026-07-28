@@ -67,14 +67,69 @@ export interface CaseOutcome {
 /** How many outcome ids to remember per case before dropping the oldest. */
 export const MAX_RECORDED_OUTCOME_IDS = 20;
 
+/**
+ * Which kind of interview produced the current Interview Readiness score.
+ * "technical" is the fallback for a technical-track case this build does not
+ * recognise, so an unknown id degrades to an honest generic label.
+ */
+export type InterviewSourceKind =
+  | "strategy"
+  | "data_analyst_technical"
+  | "data_engineer_technical"
+  | "clickstream_system_design"
+  | "technical";
+
+/** Minimal provenance for the score currently shown as Interview Readiness. */
+export interface InterviewReadinessSource {
+  kind: InterviewSourceKind;
+  caseId: string;
+  /** True when the current score came from a partial (provisional) report. */
+  provisional: boolean;
+}
+
+const TECHNICAL_SOURCE_KINDS: Record<string, InterviewSourceKind> = {
+  data_analyst_technical_round: "data_analyst_technical",
+  data_engineer_technical_round: "data_engineer_technical",
+  data_engineer_clickstream: "clickstream_system_design",
+};
+
+/** Classify a completed interview for display. Pure and total. */
+export function interviewSourceKind(
+  caseId: string,
+  caseTrack: CaseOutcomeTrack,
+): InterviewSourceKind {
+  if (caseTrack !== "technical") return "strategy";
+  return TECHNICAL_SOURCE_KINDS[caseId] ?? "technical";
+}
+
+const INTERVIEW_SOURCE_LABELS: Record<InterviewSourceKind, string> = {
+  strategy: "Strategy case",
+  data_analyst_technical: "Data Analyst technical",
+  data_engineer_technical: "Data Engineer technical",
+  clickstream_system_design: "Clickstream system design",
+  technical: "Technical interview",
+};
+
+/** Human label for an interview source, e.g. "Data Analyst technical". */
+export function interviewSourceLabel(kind: InterviewSourceKind): string {
+  return INTERVIEW_SOURCE_LABELS[kind] ?? INTERVIEW_SOURCE_LABELS.technical;
+}
+
 export interface ReadinessState {
   target: Target;
   targetSource: TargetSource;
   fit: ModuleResult;
   behavioural: ModuleResult;
+  /**
+   * Interview Readiness: the latest unique completed scored interview, from
+   * EITHER track. Strategy and Technical both feed it, so both reach
+   * overallReadiness() through the unchanged three-module average.
+   */
   case: ModuleResult;
   /** Per-case results, keyed by caseId. Both tracks live here. */
   caseOutcomes: Record<string, CaseOutcome>;
+  /** Provenance of the current `case` score, or null before any interview. */
+  interviewSource: InterviewReadinessSource | null;
 }
 
 /** A completed, scored attempt handed to the store. */
@@ -143,12 +198,66 @@ export function mergeCaseOutcome(
   };
 }
 
-/** Dashboard status line for the Case module, marking a provisional latest result. */
+/**
+ * Dashboard status line for Interview Readiness: which interview produced the
+ * current score, and whether it is complete or provisional. The literal word
+ * "provisional" is load-bearing — components/ui/dashboardPresentation.ts detects
+ * a provisional result from this string.
+ */
 export function caseReadinessStatusLine(outcome: CaseOutcome): string {
-  const attempts = `${outcome.attemptCount} case${outcome.attemptCount === 1 ? "" : "s"}`;
+  const source = interviewSourceLabel(
+    interviewSourceKind(outcome.caseId, outcome.caseTrack),
+  );
   return outcome.latestWasPartial
-    ? `${attempts} · provisional (partial report)`
-    : `${attempts} · full report`;
+    ? `${source} · provisional (partial report)`
+    : `${source} · full report`;
+}
+
+/**
+ * Fold a completed interview into readiness. The single source of truth for the
+ * propagation contract — recordCaseOutcome is a thin setState wrapper around it,
+ * and tests exercise this directly rather than a mirrored copy.
+ *
+ * Both tracks update Interview Readiness. The score is the LATEST unique
+ * completed interview, never an average across tracks and never the highest, so
+ * a technical round finishing after a strategy case replaces it (and vice versa).
+ * Per-case history in `caseOutcomes` keeps its own independent latest/best/attempt
+ * policy and is unaffected by which case currently owns readiness.
+ */
+export function applyCaseOutcome(
+  state: ReadinessState,
+  incoming: CompletedCaseOutcome,
+): ReadinessState {
+  const merged = mergeCaseOutcome(state.caseOutcomes[incoming.caseId], incoming);
+  // Already recorded: change nothing — not the history, not the timestamps, and
+  // not readiness. Returning the identical state also avoids a re-render.
+  if (!merged) return state;
+
+  const next: ReadinessState = {
+    ...state,
+    caseOutcomes: { ...state.caseOutcomes, [incoming.caseId]: merged },
+  };
+
+  // "Latest" means latest in time. An out-of-order arrival still records its
+  // per-case history but must not displace a more recent interview's score.
+  if (merged.lastCompletedAt < (state.case.updatedAt ?? 0)) return next;
+
+  return {
+    ...next,
+    case: {
+      ...next.case,
+      status: "done",
+      // Existing 0..100 scale and conventions; no new formula.
+      score: merged.latestScore,
+      statusLine: caseReadinessStatusLine(merged),
+      updatedAt: merged.lastCompletedAt,
+    },
+    interviewSource: {
+      kind: interviewSourceKind(merged.caseId, merged.caseTrack),
+      caseId: merged.caseId,
+      provisional: merged.latestWasPartial,
+    },
+  };
 }
 
 const EMPTY_MODULE: ModuleResult = { status: "not_started", score: null };
@@ -160,6 +269,7 @@ export const DEFAULT_READINESS_STATE: ReadinessState = {
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
   caseOutcomes: {},
+  interviewSource: null,
 };
 
 const STORAGE_KEY = "synthesis-readiness";
@@ -232,6 +342,7 @@ export const SAMPLE_READINESS_STATE: ReadinessState = {
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
   caseOutcomes: {},
+  interviewSource: null,
 };
 
 function normalized(value: string | null): string {
@@ -336,6 +447,25 @@ export function hydrateCaseOutcomes(value: unknown): Record<string, CaseOutcome>
   return outcomes;
 }
 
+/**
+ * Rebuild the interview-source provenance. Absent (legacy blob) or malformed
+ * yields null, which the dashboard renders as an unattributed score rather than
+ * failing — the score itself lives on `case` and is never lost.
+ */
+export function hydrateInterviewSource(value: unknown): InterviewReadinessSource | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.caseId !== "string" || !value.caseId) return null;
+  const kind = value.kind;
+  const valid =
+    kind === "strategy" ||
+    kind === "data_analyst_technical" ||
+    kind === "data_engineer_technical" ||
+    kind === "clickstream_system_design" ||
+    kind === "technical";
+  if (!valid) return null;
+  return { kind, caseId: value.caseId, provisional: value.provisional === true };
+}
+
 export function hydrateReadinessState(value: unknown): ReadinessState {
   const parsed = isRecord(value) ? value : {};
   const parsedTarget = isRecord(parsed.target) ? parsed.target : {};
@@ -366,6 +496,7 @@ export function hydrateReadinessState(value: unknown): ReadinessState {
     behavioural: hydrateModule(parsed.behavioural),
     case: hydrateModule(parsed.case),
     caseOutcomes: hydrateCaseOutcomes(parsed.caseOutcomes),
+    interviewSource: hydrateInterviewSource(parsed.interviewSource),
   };
 }
 
@@ -444,30 +575,7 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const recordCaseOutcome = useCallback((outcome: CompletedCaseOutcome) => {
-    setState((s) => {
-      const merged = mergeCaseOutcome(s.caseOutcomes[outcome.caseId], outcome);
-      // Already recorded: change nothing — not the map, not the timestamps, and
-      // not Case readiness. Returning the identical state also avoids a re-render.
-      if (!merged) return s;
-      const next: ReadinessState = {
-        ...s,
-        caseOutcomes: { ...s.caseOutcomes, [outcome.caseId]: merged },
-      };
-      // Technical rounds are recorded but never move Strategy/Case readiness.
-      if (merged.caseTrack !== "strategy") return next;
-      return {
-        ...next,
-        case: {
-          ...next.case,
-          status: "done",
-          // Existing scale and conventions: the latest unique scored attempt,
-          // already normalized to 0..100. No averaging or new formula.
-          score: merged.latestScore,
-          statusLine: caseReadinessStatusLine(merged),
-          updatedAt: merged.lastCompletedAt,
-        },
-      };
-    });
+    setState((s) => applyCaseOutcome(s, outcome));
   }, []);
 
   const reset = useCallback(() => setState(DEFAULT_READINESS_STATE), []);

@@ -1804,7 +1804,7 @@ export default function CaseVoiceInterview({
                 <SectionLabel style={{ marginBottom: 9 }}>Case Simulation</SectionLabel>
                 <h2 id="case-simulation-heading">Choose a strategy case</h2>
                 <p>
-                  Your existing Case readiness score reflects this track only.
+                  Your score counts toward Interview Readiness, alongside technical rounds.
                 </p>
               </div>
               <span className="grid-track-status">Live voice</span>
@@ -1905,7 +1905,7 @@ export default function CaseVoiceInterview({
                 <SectionLabel style={{ marginBottom: 9 }}>Technical Interviews · {selectedRoleMeta?.title}</SectionLabel>
                 <h2 id="technical-role-cases-heading">Choose a case</h2>
                 <p>
-                  This live voice interview does not contribute to Case readiness.
+                  Your score counts toward Interview Readiness, alongside strategy cases.
                 </p>
               </div>
               <span className="grid-track-status">Live voice</span>

@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_READINESS_STATE,
   MAX_RECORDED_OUTCOME_IDS,
+  applyCaseOutcome,
   caseReadinessStatusLine,
   hydrateCaseOutcomes,
+  hydrateInterviewSource,
   hydrateReadinessState,
+  interviewSourceKind,
+  interviewSourceLabel,
   mergeCaseOutcome,
   type CaseOutcome,
   type CompletedCaseOutcome,
@@ -30,27 +34,16 @@ function attempt(overrides: Partial<CompletedCaseOutcome> = {}): CompletedCaseOu
 }
 
 /**
- * Mirrors the reducer in ReadinessProvider.recordCaseOutcome so the propagation
- * contract is testable without mounting React.
+ * The real reducer ReadinessProvider.recordCaseOutcome delegates to — exercised
+ * directly rather than mirrored, so the test cannot drift from the implementation.
  */
-function record(state: ReadinessState, incoming: CompletedCaseOutcome): ReadinessState {
-  const merged = mergeCaseOutcome(state.caseOutcomes[incoming.caseId], incoming);
-  if (!merged) return state;
-  const next: ReadinessState = {
-    ...state,
-    caseOutcomes: { ...state.caseOutcomes, [incoming.caseId]: merged },
-  };
-  if (merged.caseTrack !== "strategy") return next;
-  return {
-    ...next,
-    case: {
-      ...next.case,
-      status: "done",
-      score: merged.latestScore,
-      statusLine: caseReadinessStatusLine(merged),
-      updatedAt: merged.lastCompletedAt,
-    },
-  };
+const record = applyCaseOutcome;
+
+/** The unchanged overallReadiness formula, so both tracks can be proven to reach it. */
+function overall(state: ReadinessState): number | null {
+  const parts = [state.fit, state.behavioural, state.case].filter((m) => m.score != null);
+  if (parts.length === 0) return null;
+  return Math.round(parts.reduce((acc, m) => acc + (m.score ?? 0), 0) / parts.length);
 }
 
 function report(overrides: Partial<NativeCaseReportProjection> = {}): NativeCaseReportProjection {
@@ -89,7 +82,10 @@ describe("case outcome recording", () => {
       const state = record(DEFAULT_READINESS_STATE, attempt());
       expect(state.case.status).toBe("done");
       expect(state.case.score).toBe(80);
-      expect(state.case.statusLine).toBe("1 case · full report");
+      expect(state.case.statusLine).toBe("Strategy case · full report");
+      expect(state.interviewSource).toEqual({
+        kind: "strategy", caseId: STRATEGY, provisional: false,
+      });
       expect(state.caseOutcomes[STRATEGY].latestScore).toBe(80);
     });
 
@@ -114,27 +110,113 @@ describe("case outcome recording", () => {
     });
   });
 
-  describe("technical separation", () => {
-    it("persists a technical outcome without touching Strategy readiness", () => {
+  describe("technical interviews count toward Interview Readiness", () => {
+    it("a technical outcome updates Interview Readiness", () => {
       const state = record(
         DEFAULT_READINESS_STATE,
         attempt({ caseId: TECHNICAL, caseTrack: "technical", score: 90 }),
       );
       expect(state.caseOutcomes[TECHNICAL].latestScore).toBe(90);
-      // Strategy/Case readiness untouched.
-      expect(state.case).toEqual(DEFAULT_READINESS_STATE.case);
-      expect(state.case.score).toBeNull();
+      expect(state.case.status).toBe("done");
+      expect(state.case.score).toBe(90);
     });
 
-    it("keeps a prior strategy readiness score unchanged when a technical round finishes", () => {
-      let state = record(DEFAULT_READINESS_STATE, attempt({ score: 70 }));
-      const strategyReadiness = state.case;
+    it("both tracks reach Overall Readiness through state.case", () => {
+      const seeded: ReadinessState = {
+        ...DEFAULT_READINESS_STATE,
+        fit: { status: "done", score: 60, updatedAt: 1 },
+        behavioural: { status: "done", score: 60, updatedAt: 1 },
+      };
+      expect(overall(seeded)).toBe(60);
+
+      // Strategy lifts the average...
+      const afterStrategy = record(seeded, attempt({ score: 90 }));
+      expect(overall(afterStrategy)).toBe(70);
+
+      // ...and so does a technical round, through the same module.
+      const afterTechnical = record(
+        seeded,
+        attempt({ caseId: TECHNICAL, caseTrack: "technical", score: 90, outcomeId: "t-1" }),
+      );
+      expect(overall(afterTechnical)).toBe(70);
+    });
+
+    it("the latest unique interview replaces the previous track, either direction", () => {
+      // Strategy first, then technical takes over.
+      let state = record(DEFAULT_READINESS_STATE, attempt({ score: 70, completedAt: 1_000 }));
+      expect(state.case.score).toBe(70);
+      expect(state.interviewSource?.kind).toBe("strategy");
+
       state = record(
         state,
-        attempt({ caseId: TECHNICAL, caseTrack: "technical", score: 95, outcomeId: "outcome-t" }),
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical",
+          score: 40, outcomeId: "t-1", completedAt: 2_000,
+        }),
       );
-      expect(state.case).toEqual(strategyReadiness);
-      expect(state.caseOutcomes[TECHNICAL].latestScore).toBe(95);
+      // Latest wins — not the highest, and not an average of 70 and 40.
+      expect(state.case.score).toBe(40);
+      expect(state.interviewSource?.kind).toBe("data_analyst_technical");
+
+      // Technical first, then strategy takes over.
+      state = record(
+        state,
+        attempt({ score: 55, outcomeId: "s-2", completedAt: 3_000 }),
+      );
+      expect(state.case.score).toBe(55);
+      expect(state.interviewSource?.kind).toBe("strategy");
+    });
+
+    it("records provenance for every recognised interview kind", () => {
+      const kinds: [string, string][] = [
+        ["airport_profitability", "strategy"],
+        ["data_analyst_technical_round", "data_analyst_technical"],
+        ["data_engineer_technical_round", "data_engineer_technical"],
+        ["data_engineer_clickstream", "clickstream_system_design"],
+      ];
+      kinds.forEach(([caseId, expected], index) => {
+        const track = caseId.startsWith("data_") ? "technical" : "strategy";
+        const state = record(
+          DEFAULT_READINESS_STATE,
+          attempt({ caseId, caseTrack: track as "strategy" | "technical", outcomeId: `k-${index}` }),
+        );
+        expect(state.interviewSource, caseId).toEqual({
+          kind: expected, caseId, provisional: false,
+        });
+        expect(state.case.statusLine, caseId).toContain(
+          interviewSourceLabel(expected as never),
+        );
+      });
+    });
+
+    it("falls back to a generic technical kind for an unrecognised technical case", () => {
+      expect(interviewSourceKind("some_future_round", "technical")).toBe("technical");
+      expect(interviewSourceKind("some_future_case", "strategy")).toBe("strategy");
+    });
+
+    it("marks a provisional technical result as provisional", () => {
+      const state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({ caseId: TECHNICAL, caseTrack: "technical", score: 45, partial: true }),
+      );
+      expect(state.case.statusLine).toContain("provisional");
+      expect(state.interviewSource?.provisional).toBe(true);
+    });
+
+    it("an out-of-order older interview records history but does not displace readiness", () => {
+      let state = record(DEFAULT_READINESS_STATE, attempt({ score: 80, completedAt: 5_000 }));
+      state = record(
+        state,
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical",
+          score: 20, outcomeId: "t-old", completedAt: 1_000,
+        }),
+      );
+      // History is kept...
+      expect(state.caseOutcomes[TECHNICAL].latestScore).toBe(20);
+      // ...but the more recent interview still owns readiness.
+      expect(state.case.score).toBe(80);
+      expect(state.interviewSource?.kind).toBe("strategy");
     });
 
     it("exposes technical results through the same per-case contract", () => {
@@ -272,11 +354,29 @@ describe("case outcome recording", () => {
       };
       const state = hydrateReadinessState(legacy);
       expect(state.caseOutcomes).toEqual({});
+      // A blob predating provenance simply has none; the score is never lost.
+      expect(state.interviewSource).toBeNull();
       // Existing module results survive untouched.
       expect(state.fit.score).toBe(74);
       expect(state.behavioural.score).toBe(68);
       expect(state.case.score).toBe(55);
       expect(state.target.role).toBe("Data Analyst");
+    });
+
+    it("round-trips interview provenance and rejects malformed provenance", () => {
+      const state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({ caseId: TECHNICAL, caseTrack: "technical" }),
+      );
+      const rehydrated = hydrateReadinessState(JSON.parse(JSON.stringify(state)));
+      expect(rehydrated.interviewSource).toEqual(state.interviewSource);
+
+      expect(hydrateInterviewSource(undefined)).toBeNull();
+      expect(hydrateInterviewSource({ kind: "nope", caseId: "x" })).toBeNull();
+      expect(hydrateInterviewSource({ kind: "strategy" })).toBeNull();
+      expect(hydrateInterviewSource({ kind: "strategy", caseId: "x" })).toEqual({
+        kind: "strategy", caseId: "x", provisional: false,
+      });
     });
 
     it("round-trips a stored outcome map", () => {

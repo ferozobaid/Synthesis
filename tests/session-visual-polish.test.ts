@@ -56,13 +56,13 @@ describe("session visual polish contracts", () => {
   });
 });
 
-describe("dashboard Case / Strategy readiness presentation", () => {
+describe("dashboard Interview Readiness presentation", () => {
   it("renders all three modules and passes the existing overall contract through", () => {
     expect(dashboard).toContain("const overall = overallReadiness();");
     expect(dashboard).toContain("<ReadinessRing value={overall}");
     expect(dashboard).toContain('label="Fit Analyzer"');
     expect(dashboard).toContain('label="Behavioural"');
-    expect(dashboard).toContain('label="Case / Strategy"');
+    expect(dashboard).toContain('label="Interview"');
     expect(dashboard).toContain("module={state.case}");
     expect(dashboard).not.toContain("state.caseOutcomes");
   });
@@ -81,7 +81,7 @@ describe("dashboard Case / Strategy readiness presentation", () => {
     expect(hydrated.case.score).toBe(61);
     expect(isProvisionalCaseResult(hydrated.case)).toBe(true);
     expect(dashboard).toContain('text: "Provisional"');
-    expect(dashboard).toContain("Provisional Case / Strategy score");
+    expect(dashboard).toContain("Provisional interview score");
   });
 
   it("does not label complete or empty Case states as provisional", () => {

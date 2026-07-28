@@ -118,7 +118,7 @@ export default function Dashboard() {
                 <BreakdownRow label="Fit Analyzer" module={state.fit} color="var(--accent)" />
                 <BreakdownRow label="Behavioural" module={state.behavioural} color="var(--secondary)" />
                 <BreakdownRow
-                  label="Case / Strategy"
+                  label="Interview"
                   module={state.case}
                   color="var(--ink)"
                   provisional={caseIsProvisional}
@@ -173,7 +173,7 @@ export default function Dashboard() {
           statusLine={statusLine(state.case, "Enter Case Simulation")}
           badge={caseBadge}
           score={state.case.score}
-          scoreLabel={caseIsProvisional ? "Provisional Case / Strategy score" : "Case / Strategy readiness"}
+          scoreLabel={caseIsProvisional ? "Provisional interview score" : "Interview readiness"}
           ctaLabel="Open The GRID"
           hoverBorder="var(--ink-3)"
         />
