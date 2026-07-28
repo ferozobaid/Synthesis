@@ -15,8 +15,10 @@
  *    the case has genuinely begun.
  *  - Exactly one scheduler. `ensure()` is idempotent, so duplicated React effects,
  *    re-renders, and repeated anchor detections cannot create parallel retry loops.
- *  - Bounded backoff on transient errors; authorization failures stop immediately
- *    rather than retrying forever.
+ *  - Two independent loops share that one scheduler slot: a fixed ~1s poll while
+ *    waiting for the case to actually begin (never a failure, never exhausts), and
+ *    a bounded backoff reserved for genuine transient network/server errors.
+ *    Authorization failures stop immediately rather than retrying forever.
  *  - Retrying is safe: the server applies first-write-wins and returns the original
  *    deadline, so a duplicate POST cannot extend or restart the interview.
  */
@@ -47,6 +49,14 @@ export const CASE_CLOCK_RETRY_DELAYS_MS: readonly number[] = [
 export function caseClockRetryDelay(attempt: number): number | null {
   return CASE_CLOCK_RETRY_DELAYS_MS[attempt] ?? null;
 }
+
+/**
+ * Fixed poll while waiting for the case to actually begin (readiness dialogue,
+ * pre-anchor). This is not a failure, so it never touches the retry budget above
+ * and never expires — the controller can wait here indefinitely without ever
+ * exhausting the genuine network/server retry allowance.
+ */
+export const CASE_CLOCK_AWAIT_START_POLL_MS = 1_000;
 
 /** True once the server has issued a real deadline. */
 export function isAuthoritativeClock(
@@ -158,6 +168,22 @@ export function createCaseClockController(
     }, delay);
   };
 
+  /**
+   * Waiting for the case to begin is not an error: it never consumes `attempt`,
+   * so it can never exhaust the network/server retry budget above, and it never
+   * gives up on its own — only dispose() or the call ending stops it.
+   */
+  const waitForStart = () => {
+    if (disposed || !options.isActive()) {
+      stop();
+      return;
+    }
+    cancelPending = schedule(() => {
+      cancelPending = null;
+      void run();
+    }, CASE_CLOCK_AWAIT_START_POLL_MS);
+  };
+
   const run = async (): Promise<void> => {
     if (disposed || settled) {
       running = false;
@@ -177,9 +203,11 @@ export function createCaseClockController(
         return;
       }
       // Server reports no start. Only ask for one when the case really has begun
-      // (live anchor, or restored evidence after a remount).
+      // (live anchor, or restored evidence after a remount) — until then this is
+      // an ordinary wait, not a failure, so it polls on its own fixed interval
+      // rather than the network-error backoff.
       if (!options.hasCaseStarted()) {
-        retry();
+        waitForStart();
         return;
       }
       const started = await options.startClock();

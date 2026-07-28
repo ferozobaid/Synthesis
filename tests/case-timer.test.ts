@@ -235,6 +235,176 @@ describe("native clock synchronizer", () => {
     expect(startClock).not.toHaveBeenCalled();
   });
 
+  it("waits on its own fixed poll without touching the retry budget, however long the wait", async () => {
+    const scheduler = manualScheduler();
+    let started = false;
+    const startClock = vi.fn().mockResolvedValue(snapshot());
+    const controller = createCaseClockController({
+      fetchClock: vi.fn().mockResolvedValue(UNSTARTED),
+      startClock,
+      hasCaseStarted: () => started,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Wait through MORE ticks than the entire retry budget has slots — the wait
+    // must never expire and must never touch `attempt`.
+    for (let i = 0; i < CASE_CLOCK_RETRY_DELAYS_MS.length + 4; i++) {
+      expect(controller.state().attempt).toBe(0);
+      await scheduler.flush();
+    }
+    expect(startClock).not.toHaveBeenCalled();
+
+    // Now the case genuinely begins.
+    started = true;
+    await scheduler.flush();
+
+    expect(startClock).toHaveBeenCalledTimes(1);
+    expect(controller.state().settled).toBe(true);
+    expect(controller.state().attempt).toBe(0);
+  });
+
+  it("posts within one poll interval of the false → true transition", async () => {
+    const scheduler = manualScheduler();
+    let started = false;
+    const startClock = vi.fn().mockResolvedValue(snapshot());
+    const controller = createCaseClockController({
+      fetchClock: vi.fn().mockResolvedValue(UNSTARTED),
+      startClock,
+      hasCaseStarted: () => started,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+    await scheduler.flush(); // one wait tick while still unstarted
+    expect(startClock).not.toHaveBeenCalled();
+
+    // The anchor fires between two poll ticks — a single scheduled interval later
+    // the controller must have already posted.
+    started = true;
+    expect(scheduler.pending()).toBe(1);
+    await scheduler.flush();
+
+    expect(startClock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the genuine network-error retry budget untouched by a preceding wait", async () => {
+    const scheduler = manualScheduler();
+    let started = false;
+    const startClock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValue(snapshot());
+    const controller = createCaseClockController({
+      fetchClock: vi.fn().mockResolvedValue(UNSTARTED),
+      startClock,
+      hasCaseStarted: () => started,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Several wait ticks first — none of these are retries.
+    for (let i = 0; i < 3; i++) await scheduler.flush();
+    expect(controller.state().attempt).toBe(0);
+
+    // The case begins; the first start attempt fails transiently.
+    started = true;
+    await scheduler.flush();
+    expect(startClock).toHaveBeenCalledTimes(1);
+    // The wait consumed none of the budget, so this is genuinely attempt 0→1.
+    expect(controller.state().attempt).toBe(1);
+
+    await scheduler.flush();
+    expect(startClock).toHaveBeenCalledTimes(2);
+    expect(controller.state().settled).toBe(true);
+  });
+
+  it("keeps exactly one scheduled poll while duplicate ensure() calls arrive during the wait", async () => {
+    const scheduler = manualScheduler();
+    const controller = createCaseClockController({
+      fetchClock: vi.fn().mockResolvedValue(UNSTARTED),
+      startClock: vi.fn(),
+      hasCaseStarted: () => false,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    for (let i = 0; i < 6; i++) controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(scheduler.pending()).toBe(1);
+
+    await scheduler.flush();
+    for (let i = 0; i < 4; i++) controller.ensure();
+    expect(scheduler.pending()).toBe(1);
+  });
+
+  it("dispose cancels a pending wait tick, so a stale start is never posted", async () => {
+    const scheduler = manualScheduler();
+    const fetchClock = vi.fn().mockResolvedValue(UNSTARTED);
+    const startClock = vi.fn().mockResolvedValue(snapshot());
+    const controller = createCaseClockController({
+      fetchClock,
+      startClock,
+      // Still waiting (readiness dialogue): this schedules a wait tick, not a
+      // start — that pending tick is what dispose() must cancel.
+      hasCaseStarted: () => false,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(scheduler.pending()).toBe(1);
+
+    controller.dispose();
+    await scheduler.flush(3);
+
+    expect(fetchClock).toHaveBeenCalledTimes(1);
+    expect(startClock).not.toHaveBeenCalled();
+    expect(scheduler.pending()).toBe(0);
+  });
+
+  it("short-circuits on an already-authoritative deadline with no wait or retry loop at all", async () => {
+    const scheduler = manualScheduler();
+    const fetchClock = vi.fn().mockResolvedValue(snapshot());
+    const startClock = vi.fn();
+    const controller = createCaseClockController({
+      fetchClock,
+      startClock,
+      hasCaseStarted: () => true,
+      isActive: () => true,
+      onSnapshot: vi.fn(),
+      schedule: scheduler.schedule,
+    });
+
+    controller.ensure();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchClock).toHaveBeenCalledTimes(1);
+    expect(startClock).not.toHaveBeenCalled();
+    expect(scheduler.pending()).toBe(0);
+    expect(controller.state().settled).toBe(true);
+  });
+
   it("stops immediately on an authorization failure instead of retrying forever", async () => {
     const scheduler = manualScheduler();
     const fetchClock = vi.fn().mockRejectedValue(new CaseClockAuthError());
