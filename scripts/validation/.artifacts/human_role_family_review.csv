@@ -1,0 +1,193 @@
+﻿review_id,jd_title,jd_text,allowed_families,human_role_family,reviewer_notes
+HRF-001,Backend Software Engineer,"Title: Backend Software Engineer
+Company: Synthetic Validation Employer
+Domain: Software product engineering
+Education: Bachelor's degree in Computer Science or related field
+
+Requirements:
+- 3+ years of relevant experience required.
+- Bachelor's degree in Computer Science or related field required.
+- Hands-on Python development required.
+- SQL database design and query optimization required.
+- REST API implementation required.
+- AWS cloud deployment required.
+- Docker container workflows required.
+Preferred Qualifications:
+- React experience preferred.
+- Git collaboration preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,INFORMATION-TECHNOLOGY,
+HRF-002,Cloud DevOps Engineer,"Title: Cloud DevOps Engineer
+Company: Synthetic Validation Employer
+Domain: Cloud infrastructure operations
+Education: Bachelor's degree in Computer Science, Engineering, or related field
+
+Requirements:
+- 5+ years of relevant experience required.
+- Bachelor's degree in Computer Science, Engineering, or related field required.
+- AWS infrastructure administration required.
+- Docker and Kubernetes operations required.
+- Python automation scripting required.
+- CI/CD pipeline support required.
+- Production incident troubleshooting required.
+Preferred Qualifications:
+- Terraform exposure preferred.
+- Data visualization for service metrics preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,INFORMATION-TECHNOLOGY,
+HRF-003,Data Engineer,"Title: Data Engineer
+Company: Synthetic Validation Employer
+Domain: Analytics platform engineering
+Education: Bachelor's degree in Computer Science, Data Science, or related field
+
+Requirements:
+- 4+ years of relevant experience required.
+- Bachelor's degree in Computer Science, Data Science, or related field required.
+- Python data pipeline development required.
+- SQL data modeling required.
+- ETL workflow ownership required.
+- Spark or distributed processing required.
+- AWS data platform experience required.
+Preferred Qualifications:
+- Tableau exposure preferred.
+- Docker deployment preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,INFORMATION-TECHNOLOGY,
+HRF-004,Finance Manager,"Title: Finance Manager
+Company: Synthetic Validation Employer
+Domain: Business unit finance
+Education: Bachelor's degree in Finance or Accounting; MBA preferred
+
+Requirements:
+- 6+ years of relevant experience required.
+- Bachelor's degree in Finance or Accounting; MBA preferred required.
+- Financial reporting leadership required.
+- Forecasting and planning cadence required.
+- Excel modeling review required.
+- Team management required.
+- Stakeholder management required.
+Preferred Qualifications:
+- Power BI dashboard ownership preferred.
+- Project management preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,FINANCE,
+HRF-005,Financial Analyst,"Title: Financial Analyst
+Company: Synthetic Validation Employer
+Domain: Corporate finance
+Education: Bachelor's degree in Finance, Accounting, Economics, or related field
+
+Requirements:
+- 2+ years of relevant experience required.
+- Bachelor's degree in Finance, Accounting, Economics, or related field required.
+- Excel financial modeling required.
+- Forecasting and budget analysis required.
+- Variance analysis required.
+- Management reporting required.
+- Stakeholder communication required.
+Preferred Qualifications:
+- Power BI dashboards preferred.
+- SQL exposure preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,FINANCE,
+HRF-006,FP&A Analyst,"Title: FP&A Analyst
+Company: Synthetic Validation Employer
+Domain: Financial planning and analysis
+Education: Bachelor's degree in Finance or Accounting
+
+Requirements:
+- 3+ years of relevant experience required.
+- Bachelor's degree in Finance or Accounting required.
+- Forecasting model ownership required.
+- Budget planning required.
+- Excel scenario analysis required.
+- Monthly variance reporting required.
+- Cross-functional stakeholder management required.
+Preferred Qualifications:
+- Tableau reporting preferred.
+- Process improvement preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,FINANCE,
+HRF-007,Frontend Engineer,"Title: Frontend Engineer
+Company: Synthetic Validation Employer
+Domain: Web application development
+Education: Bachelor's degree in Computer Science or equivalent experience
+
+Requirements:
+- 3+ years of relevant experience required.
+- Bachelor's degree in Computer Science or equivalent experience required.
+- React application development required.
+- TypeScript implementation required.
+- JavaScript debugging required.
+- API integration required.
+- Git-based release workflow required.
+Preferred Qualifications:
+- AWS deployment experience preferred.
+- Accessibility testing preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,INFORMATION-TECHNOLOGY,
+HRF-008,Investment Analyst,"Title: Investment Analyst
+Company: Synthetic Validation Employer
+Domain: Investment research
+Education: Bachelor's degree in Finance, Economics, or related field
+
+Requirements:
+- 3+ years of relevant experience required.
+- Bachelor's degree in Finance, Economics, or related field required.
+- Financial modeling and valuation required.
+- Portfolio analysis required.
+- Market research required.
+- Excel investment analysis required.
+- Executive presentation writing required.
+Preferred Qualifications:
+- Python analysis preferred.
+- Regression analysis preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,FINANCE,
+HRF-009,Management Consultant,"Title: Management Consultant
+Company: Synthetic Validation Employer
+Domain: Client advisory
+Education: Bachelor's degree in Business, Economics, Engineering, or related field
+
+Requirements:
+- 3+ years of relevant experience required.
+- Bachelor's degree in Business, Economics, Engineering, or related field required.
+- Client-facing consulting experience required.
+- Process improvement analysis required.
+- Project management required.
+- Stakeholder management required.
+- Structured communication required.
+Preferred Qualifications:
+- Financial modeling exposure preferred.
+- Data visualization preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,CONSULTANT,
+HRF-010,Operations Consultant,"Title: Operations Consultant
+Company: Synthetic Validation Employer
+Domain: Operating model improvement
+Education: Bachelor's degree in Business, Operations, Engineering, or related field
+
+Requirements:
+- 4+ years of relevant experience required.
+- Bachelor's degree in Business, Operations, Engineering, or related field required.
+- Process improvement required.
+- Operating model analysis required.
+- Project management required.
+- Data visualization required.
+- Client-ready communication required.
+Preferred Qualifications:
+- Lean methods preferred.
+- Forecasting exposure preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,CONSULTANT,
+HRF-011,Strategy Consultant,"Title: Strategy Consultant
+Company: Synthetic Validation Employer
+Domain: Growth strategy
+Education: Bachelor's degree in Business, Economics, or related field; MBA preferred
+
+Requirements:
+- 4+ years of relevant experience required.
+- Bachelor's degree in Business, Economics, or related field; MBA preferred required.
+- Market analysis required.
+- Customer segmentation required.
+- Executive presentation development required.
+- Financial modeling for business cases required.
+- Stakeholder interviews required.
+Preferred Qualifications:
+- SQL analysis preferred.
+- Experimentation design preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,CONSULTANT,
+HRF-012,Technology Consultant,"Title: Technology Consultant
+Company: Synthetic Validation Employer
+Domain: Digital transformation
+Education: Bachelor's degree in Computer Science, Business, or related field
+
+Requirements:
+- 5+ years of relevant experience required.
+- Bachelor's degree in Computer Science, Business, or related field required.
+- Technology advisory experience required.
+- Cloud implementation planning required.
+- SQL analysis required.
+- Project management required.
+- Stakeholder management required.
+Preferred Qualifications:
+- Python prototyping preferred.
+- AWS implementation preferred.",INFORMATION-TECHNOLOGY | FINANCE | CONSULTANT | UNMAPPED,INFORMATION-TECHNOLOGY,

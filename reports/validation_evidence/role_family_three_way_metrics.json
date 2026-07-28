@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-07-28T19:02:30.243Z",
+  "n_jds": 12,
+  "llm_model": "gpt-4o-mini",
+  "primary_reference": "frozen_human_family",
+  "frozen_human_vs_llm_accuracy": 0.8333,
+  "frozen_human_vs_keyword_accuracy": 0.8333,
+  "llm_vs_keyword_agreement": 1,
+  "adjudicated_human_vs_llm_accuracy": 0.9167,
+  "adjudicated_human_vs_keyword_accuracy": 0.9167,
+  "notes": [
+    "Human-versus-method comparisons use the human label as reference and are reported as accuracy.",
+    "LLM-versus-keyword has no human ground truth side and is reported as agreement, not accuracy.",
+    "Frozen blind labels are primary; adjudicated labels are a sensitivity analysis."
+  ]
+}

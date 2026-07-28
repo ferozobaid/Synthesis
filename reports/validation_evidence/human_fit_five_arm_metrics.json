@@ -1,0 +1,329 @@
+{
+  "generated_at": "2026-07-28T18:50:02.046Z",
+  "mode": "synthetic-pair-human-validation",
+  "n_pairs": 36,
+  "human_label_counts": {
+    "Weak": 15,
+    "Medium": 8,
+    "Strong": 13
+  },
+  "primary_reference": "human_total_0_8",
+  "best_arm_by_spearman_human_total": "hybrid_0_25",
+  "arms": {
+    "structured": {
+      "label": "Rules-only structured",
+      "spearman_human_total": 0.7644,
+      "spearman_human_category": 0.7245,
+      "mean_score_by_human_category": {
+        "Weak": {
+          "n": 15,
+          "mean": 53.4,
+          "min": 31,
+          "max": 82
+        },
+        "Medium": {
+          "n": 8,
+          "mean": 64.13,
+          "min": 40,
+          "max": 89
+        },
+        "Strong": {
+          "n": 13,
+          "mean": 82.23,
+          "min": 72,
+          "max": 89
+        }
+      },
+      "pairwise_by_human_total": {
+        "comparable_pairs": 516,
+        "correct": 419,
+        "ties": 8,
+        "strict_accuracy": 0.812,
+        "tie_adjusted_accuracy": 0.8198
+      },
+      "pairwise_by_human_category": {
+        "comparable_pairs": 419,
+        "correct": 354,
+        "ties": 6,
+        "strict_accuracy": 0.8449,
+        "tie_adjusted_accuracy": 0.852
+      },
+      "descriptive_thresholds": {
+        "weak_max": 63,
+        "medium_max": 66,
+        "correct": 27,
+        "accuracy": 0.75,
+        "confusion_matrix": {
+          "Weak": {
+            "Weak": 12,
+            "Medium": 0,
+            "Strong": 3
+          },
+          "Medium": {
+            "Weak": 3,
+            "Medium": 2,
+            "Strong": 3
+          },
+          "Strong": {
+            "Weak": 0,
+            "Medium": 0,
+            "Strong": 13
+          }
+        }
+      }
+    },
+    "embedding": {
+      "label": "Embedding-only semantic",
+      "spearman_human_total": 0.7609,
+      "spearman_human_category": 0.6615,
+      "mean_score_by_human_category": {
+        "Weak": {
+          "n": 15,
+          "mean": 79.53,
+          "min": 77,
+          "max": 83
+        },
+        "Medium": {
+          "n": 8,
+          "mean": 80.75,
+          "min": 78,
+          "max": 82
+        },
+        "Strong": {
+          "n": 13,
+          "mean": 82.38,
+          "min": 81,
+          "max": 84
+        }
+      },
+      "pairwise_by_human_total": {
+        "comparable_pairs": 516,
+        "correct": 384,
+        "ties": 81,
+        "strict_accuracy": 0.7442,
+        "tie_adjusted_accuracy": 0.8227
+      },
+      "pairwise_by_human_category": {
+        "comparable_pairs": 419,
+        "correct": 310,
+        "ties": 68,
+        "strict_accuracy": 0.7399,
+        "tie_adjusted_accuracy": 0.821
+      },
+      "descriptive_thresholds": {
+        "weak_max": 79,
+        "medium_max": 80,
+        "correct": 24,
+        "accuracy": 0.6667,
+        "confusion_matrix": {
+          "Weak": {
+            "Weak": 10,
+            "Medium": 0,
+            "Strong": 5
+          },
+          "Medium": {
+            "Weak": 2,
+            "Medium": 1,
+            "Strong": 5
+          },
+          "Strong": {
+            "Weak": 0,
+            "Medium": 0,
+            "Strong": 13
+          }
+        }
+      }
+    },
+    "hybrid_0_25": {
+      "label": "Hybrid 0.25 rules / 0.75 semantic",
+      "spearman_human_total": 0.7999,
+      "spearman_human_category": 0.7368,
+      "mean_score_by_human_category": {
+        "Weak": {
+          "n": 15,
+          "mean": 73.33,
+          "min": 66,
+          "max": 83
+        },
+        "Medium": {
+          "n": 8,
+          "mean": 76.88,
+          "min": 69,
+          "max": 84
+        },
+        "Strong": {
+          "n": 13,
+          "mean": 82.38,
+          "min": 80,
+          "max": 84
+        }
+      },
+      "pairwise_by_human_total": {
+        "comparable_pairs": 516,
+        "correct": 426,
+        "ties": 21,
+        "strict_accuracy": 0.8256,
+        "tie_adjusted_accuracy": 0.8459
+      },
+      "pairwise_by_human_category": {
+        "comparable_pairs": 419,
+        "correct": 356,
+        "ties": 14,
+        "strict_accuracy": 0.8496,
+        "tie_adjusted_accuracy": 0.8663
+      },
+      "descriptive_thresholds": {
+        "weak_max": 77,
+        "medium_max": 78,
+        "correct": 28,
+        "accuracy": 0.7778,
+        "confusion_matrix": {
+          "Weak": {
+            "Weak": 13,
+            "Medium": 0,
+            "Strong": 2
+          },
+          "Medium": {
+            "Weak": 3,
+            "Medium": 2,
+            "Strong": 3
+          },
+          "Strong": {
+            "Weak": 0,
+            "Medium": 0,
+            "Strong": 13
+          }
+        }
+      }
+    },
+    "hybrid_0_50": {
+      "label": "Hybrid 0.50 rules / 0.50 semantic",
+      "spearman_human_total": 0.7837,
+      "spearman_human_category": 0.7378,
+      "mean_score_by_human_category": {
+        "Weak": {
+          "n": 15,
+          "mean": 66.6,
+          "min": 55,
+          "max": 83
+        },
+        "Medium": {
+          "n": 8,
+          "mean": 72.63,
+          "min": 59,
+          "max": 86
+        },
+        "Strong": {
+          "n": 13,
+          "mean": 82.69,
+          "min": 77,
+          "max": 86
+        }
+      },
+      "pairwise_by_human_total": {
+        "comparable_pairs": 516,
+        "correct": 422,
+        "ties": 17,
+        "strict_accuracy": 0.8178,
+        "tie_adjusted_accuracy": 0.8343
+      },
+      "pairwise_by_human_category": {
+        "comparable_pairs": 419,
+        "correct": 355,
+        "ties": 14,
+        "strict_accuracy": 0.8473,
+        "tie_adjusted_accuracy": 0.864
+      },
+      "descriptive_thresholds": {
+        "weak_max": 72,
+        "medium_max": 74,
+        "correct": 27,
+        "accuracy": 0.75,
+        "confusion_matrix": {
+          "Weak": {
+            "Weak": 12,
+            "Medium": 1,
+            "Strong": 2
+          },
+          "Medium": {
+            "Weak": 3,
+            "Medium": 2,
+            "Strong": 3
+          },
+          "Strong": {
+            "Weak": 0,
+            "Medium": 0,
+            "Strong": 13
+          }
+        }
+      }
+    },
+    "hybrid_0_75": {
+      "label": "Hybrid 0.75 rules / 0.25 semantic",
+      "spearman_human_total": 0.777,
+      "spearman_human_category": 0.7339,
+      "mean_score_by_human_category": {
+        "Weak": {
+          "n": 15,
+          "mean": 60.2,
+          "min": 43,
+          "max": 82
+        },
+        "Medium": {
+          "n": 8,
+          "mean": 68.38,
+          "min": 50,
+          "max": 87
+        },
+        "Strong": {
+          "n": 13,
+          "mean": 82.38,
+          "min": 75,
+          "max": 87
+        }
+      },
+      "pairwise_by_human_total": {
+        "comparable_pairs": 516,
+        "correct": 423,
+        "ties": 10,
+        "strict_accuracy": 0.8198,
+        "tie_adjusted_accuracy": 0.8295
+      },
+      "pairwise_by_human_category": {
+        "comparable_pairs": 419,
+        "correct": 355,
+        "ties": 9,
+        "strict_accuracy": 0.8473,
+        "tie_adjusted_accuracy": 0.858
+      },
+      "descriptive_thresholds": {
+        "weak_max": 68,
+        "medium_max": 70,
+        "correct": 27,
+        "accuracy": 0.75,
+        "confusion_matrix": {
+          "Weak": {
+            "Weak": 12,
+            "Medium": 0,
+            "Strong": 3
+          },
+          "Medium": {
+            "Weak": 3,
+            "Medium": 2,
+            "Strong": 3
+          },
+          "Strong": {
+            "Weak": 0,
+            "Medium": 0,
+            "Strong": 13
+          }
+        }
+      }
+    }
+  },
+  "notes": [
+    "Hybrid weights are the structured-score share; the remainder is semantic.",
+    "Pair-level blends use raw pair scores, unlike the original family-level proxy's per-resume min-max blend.",
+    "Thresholds are optimized on this same sample and are descriptive only."
+  ]
+}
