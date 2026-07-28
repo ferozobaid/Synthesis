@@ -254,11 +254,26 @@ export default function BehaviouralPage() {
         onComplete={handleVoiceComplete}
       />
 
+      {!interviewStarted && (
+        <div className="page-heading-row behavioural-heading">
+          <div className="page-icon behavioural-heading__icon" aria-hidden="true">
+            ◈
+          </div>
+          <div>
+            <h1 className="page-title">Behavioural Coach</h1>
+            <p className="page-description behavioural-heading__description">
+              Rehearse role-relevant stories and turn your experience into clear,
+              confident evidence.
+            </p>
+          </div>
+        </div>
+      )}
+
       {!interviewStarted ? (
         <section className="behavioural-preflight" aria-labelledby="behavioural-preflight-title">
           <div>
             <SectionLabel style={{ marginBottom: 12 }}>Behavioural interview preflight</SectionLabel>
-            <h1 id="behavioural-preflight-title">Turn your experience into a clear story.</h1>
+            <h2 id="behavioural-preflight-title">Turn your experience into a clear story.</h2>
             <p>
               {targetReady
                 ? "You'll answer a structured set of motivation and experience questions grounded in the role shown below. Use STAR where it helps; your interviewer will keep the conversation moving."

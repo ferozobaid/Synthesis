@@ -117,6 +117,27 @@ describe("Dashboard Achievement Spotlight presentation", () => {
     expect(spotlight).toContain('className="dashboard-spotlight__state"');
   });
 
+  it("makes every readiness result a selectable progressive-disclosure control", () => {
+    expect(spotlight).toContain('type SpotlightView = "overall" | "fit" | "behavioural" | "interview"');
+    expect(spotlight).toContain('aria-label="Inspect Overall Readiness"');
+    expect(spotlight).toContain("aria-pressed={activeView === \"overall\"}");
+    expect(spotlight).toContain("aria-pressed={selected}");
+    expect(spotlight).toContain(
+      'useState<SpotlightView | null>(null)',
+    );
+    expect(spotlight).toContain(
+      'current === "overall" ? null : "overall"',
+    );
+    expect(spotlight).toContain("Choose a readiness result");
+    expect(spotlight).toContain('className="dashboard-spotlight__inspection" aria-live="polite"');
+    expect(styles).toContain(".dashboard-spotlight__module:hover");
+    expect(styles).toContain(".dashboard-spotlight__module:focus-visible");
+    expect(styles).toContain(".dashboard-spotlight__module:active");
+    expect(styles).toContain("0 18px 38px rgba(0, 0, 0, .2)");
+    expect(styles).toContain("0 14px 30px rgba(0, 0, 0, .18)");
+    expect(styles).not.toContain("border-left: 2px solid var(--success);");
+  });
+
   it("keeps the normal dashboard mounted beneath the closed layer", () => {
     expect(dashboard).toContain('<div className="bento-grid">');
     expect(dashboard).toContain("open={spotlightOpen}");
@@ -154,8 +175,15 @@ describe("Dashboard Achievement Spotlight accessibility and responsive contracts
 
   it("defines desktop, tablet, phone, and reduced-motion treatments", () => {
     expect(styles).toContain(
-      "width: min(920px, calc(100vw - 40px));",
+      "width: min(1120px, calc(100vw - 40px));",
     );
+    expect(styles).toContain(
+      "grid-template-columns: repeat(12, minmax(0, 1fr));",
+    );
+    expect(styles).toContain("grid-auto-rows: max-content;");
+    expect(styles).toContain("align-content: start;");
+    expect(styles).toContain("grid-column: 1 / 6;");
+    expect(styles).toContain("grid-column: 6 / -1;");
     expect(styles).toContain("@media (max-width: 768px)");
     expect(styles).toContain("@media (max-width: 480px)");
     expect(styles).toContain("height: 100dvh;");

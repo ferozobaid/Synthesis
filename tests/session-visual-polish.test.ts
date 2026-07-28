@@ -7,6 +7,7 @@ import {
 } from "@/components/readiness-store";
 
 const dashboard = readFileSync("app/dashboard/page.tsx", "utf8");
+const behavioural = readFileSync("app/behavioural/page.tsx", "utf8");
 const styles = readFileSync("app/globals.css", "utf8");
 const caseVoice = readFileSync("components/CaseVoiceInterview.tsx", "utf8");
 const nativeReport = readFileSync(
@@ -33,6 +34,22 @@ describe("session visual polish contracts", () => {
     );
     expect(styles).toContain("@media (max-width: 820px)");
     expect(styles).toContain("@media (max-width: 700px)");
+  });
+
+  it("uses the shared interactive product-page heading on Behavioural preflight", () => {
+    expect(behavioural).toContain(
+      'className="page-heading-row behavioural-heading"',
+    );
+    expect(behavioural).toContain(
+      'className="page-icon behavioural-heading__icon"',
+    );
+    expect(behavioural).toContain(
+      '<h1 className="page-title">Behavioural Coach</h1>',
+    );
+    expect(behavioural).toContain(
+      '<h2 id="behavioural-preflight-title">',
+    );
+    expect(styles).toContain(".page-heading-row:hover .page-icon");
   });
 
   it("presents catalog metadata and outcomes without replacing their contracts", () => {
