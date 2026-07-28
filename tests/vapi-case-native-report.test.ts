@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { redisStore, scorePostCallMock } = vi.hoisted(() => ({
@@ -232,6 +233,60 @@ describe("authenticated report binding, idempotency and fencing", () => {
     expect(stored(json.sessionId)).toEqual(failedSnapshot);
   });
 
+  it("mints one stable outcome identity that survives retries and duplicate delivery", async () => {
+    const { json } = await bootstrap();
+    const req = () => request("http://localhost/api/vapi/case/report", reportPayload(json.sessionId));
+    await reportPOST(req() as any);
+    const minted = stored(json.sessionId).outcomeId;
+    expect(minted).toMatch(/^[0-9a-f]{64}$/);
+
+    // Duplicate deliveries and repeated polls never re-derive the identity.
+    await reportPOST(req() as any);
+    await reportPOST(req() as any);
+    expect(stored(json.sessionId).outcomeId).toBe(minted);
+
+    const poll = async () => {
+      const response = await reportGET(
+        new Request(`http://localhost/api/case/report/${json.sessionId}`, {
+          headers: { "x-report-token": json.reportToken },
+        }) as any,
+        { params: { sessionId: json.sessionId } },
+      );
+      return (await response.json()).outcomeId as string;
+    };
+    expect(await poll()).toBe(minted);
+    expect(await poll()).toBe(minted);
+  });
+
+  it("does not include the mutable report attempt in the outcome identity", async () => {
+    const { json } = await bootstrap();
+    // First delivery fails, so the next one runs as attempt 2.
+    scorePostCallMock.mockResolvedValueOnce({ ok: false, failureCode: "scoring_failed" });
+    await reportPOST(request("http://localhost/api/vapi/case/report", reportPayload(json.sessionId)) as any);
+    const afterFailure = stored(json.sessionId);
+    expect(afterFailure.reportAttempt).toBe(1);
+    expect(afterFailure.outcomeId).toMatch(/^[0-9a-f]{64}$/);
+    // Identity is bound to session + call, so it is independent of attempt count.
+    expect(afterFailure.outcomeId).toBe(
+      createHash("sha256").update(`${json.sessionId}:call-1`).digest("hex"),
+    );
+  });
+
+  it("does not expose an outcome identity to a caller without the capability", async () => {
+    const { json } = await bootstrap();
+    await reportPOST(request("http://localhost/api/vapi/case/report", reportPayload(json.sessionId)) as any);
+    for (const token of ["wrong", ""]) {
+      const response = await reportGET(
+        new Request(`http://localhost/api/case/report/${json.sessionId}`, {
+          headers: { "x-report-token": token },
+        }) as any,
+        { params: { sessionId: json.sessionId } },
+      );
+      expect(response.status).toBe(404);
+      expect(await response.json()).not.toHaveProperty("outcomeId");
+    }
+  });
+
   it("a different call cannot overwrite the bound report", async () => {
     const { json } = await bootstrap();
     await reportPOST(request("http://localhost/api/vapi/case/report", reportPayload(json.sessionId, "call-1")) as any);
@@ -415,8 +470,11 @@ describe("protected Case report polling", () => {
     const projection = await response.json();
     expect(response.status).toBe(200);
     expect(Object.keys(projection).sort()).toEqual([
-      "answers", "caseId", "caseRole", "caseTitle", "caseTrack", "evaluatorType", "failureCode", "missingStages", "observedStages", "partial", "score", "status",
+      "answers", "caseId", "caseRole", "caseTitle", "caseTrack", "evaluatorType", "failureCode", "missingStages", "observedStages", "outcomeId", "partial", "score", "status",
     ]);
+    // Opaque digest, never the raw Vapi call id.
+    expect(projection.outcomeId).toMatch(/^[0-9a-f]{64}$/);
+    expect(projection.outcomeId).not.toContain("call-1");
     // Consulting cases carry no answer projection.
     expect(projection.answers).toEqual([]);
     expect(JSON.stringify(projection)).not.toMatch(

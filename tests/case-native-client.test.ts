@@ -11,7 +11,7 @@ import {
 } from "@/components/CaseVoiceInterview";
 import {
   fetchNativeCaseReport,
-  fullAuthoritativeCaseScore,
+  completedCaseOutcome,
   nativeCaseReportPresentation,
   nativeCaseReportStatusMessage,
   nativeCaseReportSupportingMessage,
@@ -74,6 +74,7 @@ function report(
     observedStages: [],
     missingStages: [],
     score: null,
+    outcomeId: "outcome-fixture",
     failureCode: null,
     ...overrides,
   };
@@ -277,7 +278,7 @@ describe("native Case report status presentation", () => {
     expect(presentation.recommendationFeedback).toHaveLength(1);
     expect(presentation.nextPracticePriorities).toHaveLength(1);
     expect(presentation.readinessUpdated).toBe(true);
-    expect(fullAuthoritativeCaseScore(full)).not.toBeNull();
+    expect(completedCaseOutcome(full)).not.toBeNull();
   });
 
   it("presents only observed feedback and missing stages for a partial report", () => {
@@ -316,7 +317,8 @@ describe("native Case report status presentation", () => {
     expect(presentation.recommendationFeedback).toBeNull();
     expect(presentation.quantitativeFeedback).toBeNull();
     expect(presentation.readinessUpdated).toBe(false);
-    expect(fullAuthoritativeCaseScore(partial)).toBeNull();
+    // No overall score at all: nothing to record.
+    expect(completedCaseOutcome(partial)).toBeNull();
   });
 
   it("defaults a legacy report payload without evaluatorType to the consulting section labels", () => {
@@ -351,7 +353,7 @@ describe("native Case report status presentation", () => {
     expect(presentation.recommendationFeedbackLabel).toBe("Recommendation feedback");
     expect(presentation.quantitativeFeedbackLabel).toBe("Quantitative reasoning feedback");
     expect(presentation.dimensions).toHaveLength(5);
-    expect(fullAuthoritativeCaseScore(legacyFull)).not.toBeNull();
+    expect(completedCaseOutcome(legacyFull)).not.toBeNull();
   });
 
   it("falls back to consulting labels for an unrecognized evaluatorType instead of crashing", () => {

@@ -22,7 +22,7 @@ import { scoreCasePostCall } from "@/lib/voice/case-post-call-scorer";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 import {
   clearPendingNativeCaseReport,
-  fullAuthoritativeCaseScore,
+  completedCaseOutcome,
   readPendingNativeCaseReport,
   writePendingNativeCaseReport,
 } from "@/components/CaseNativeVoiceInterview";
@@ -836,10 +836,11 @@ describe("native client capability recovery", () => {
     expect(readPendingNativeCaseReport(116 * 60 * 1_000, target)).toBeNull();
   });
 
-  it("updates readiness only for a full authoritative report", () => {
+  it("records any scored completed report, marking partials, and never a failed one", () => {
     const base = {
       caseId: AIRPORT,
       caseTitle: "Airport",
+      outcomeId: "outcome-architecture-fixture",
       observedStages: [...CASE_REPORT_STAGES],
       missingStages: [],
       failureCode: null,
@@ -854,8 +855,17 @@ describe("native client capability recovery", () => {
         quantitative_assessment: "Observed quantitative reasoning.",
       },
     } as any;
-    expect(fullAuthoritativeCaseScore({ ...base, status: "done", partial: false })).not.toBeNull();
-    expect(fullAuthoritativeCaseScore({ ...base, status: "done", partial: true })).toBeNull();
-    expect(fullAuthoritativeCaseScore({ ...base, status: "failed", partial: false })).toBeNull();
+    const complete = completedCaseOutcome({ ...base, status: "done", partial: false });
+    expect(complete).not.toBeNull();
+    expect(complete!.partial).toBe(false);
+    // A scored partial IS a real result — it is recorded, flagged provisional.
+    const partial = completedCaseOutcome({ ...base, status: "done", partial: true });
+    expect(partial).not.toBeNull();
+    expect(partial!.partial).toBe(true);
+    // A failed report, and one with no stable identity, are never recorded.
+    expect(completedCaseOutcome({ ...base, status: "failed", partial: false })).toBeNull();
+    expect(
+      completedCaseOutcome({ ...base, status: "done", partial: false, outcomeId: null }),
+    ).toBeNull();
   });
 });

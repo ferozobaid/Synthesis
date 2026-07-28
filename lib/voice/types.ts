@@ -250,6 +250,12 @@ export interface CaseVoiceSession {
   reportFencingToken?: string | null;
   reportProcessingStartedAt?: string | null;
   authoritativeCallId?: string | null;
+  /**
+   * Opaque, stable identity for this completed attempt (see case-outcome.ts).
+   * Minted once when the report is claimed and never re-derived, so retries and
+   * duplicate deliveries cannot create a second identity.
+   */
+  outcomeId?: string | null;
   normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
   finalReport?: CasePostCallReport | null;
   /** Populated instead of finalReport for technical_question_bank rounds. */

@@ -9,6 +9,7 @@ import {
   saveSession,
 } from "@/lib/voice/session-store";
 import { storedCaseVoiceArchitecture } from "@/lib/voice/case-native-config";
+import { caseOutcomeId } from "@/lib/voice/case-outcome";
 import { normalizeVoiceTranscript } from "@/lib/voice/transcript";
 import { mapCaseTranscript } from "@/lib/voice/case-transcript";
 import {
@@ -277,6 +278,11 @@ async function processQuestionBankReport(
   const claimed: CaseVoiceSession = {
     ...record,
     authoritativeCallId: record.authoritativeCallId ?? callId,
+    // Minted once, from the session + the call this report is bound to. Retries
+    // bump reportAttempt but must never change the identity, so it is preserved
+    // whenever it already exists.
+    outcomeId:
+      record.outcomeId ?? caseOutcomeId(sessionId, record.authoritativeCallId ?? callId),
     reportStatus: "processing",
     reportAttempt: attempt,
     reportFencingToken: fencingToken,
@@ -459,6 +465,11 @@ export async function POST(req: NextRequest) {
     const claimed: CaseVoiceSession = {
       ...record,
       authoritativeCallId: record.authoritativeCallId ?? callId,
+      // Minted once, from the session + the call this report is bound to. Retries
+      // bump reportAttempt but must never change the identity, so it is preserved
+      // whenever it already exists.
+      outcomeId:
+        record.outcomeId ?? caseOutcomeId(sessionId, record.authoritativeCallId ?? callId),
       reportStatus: "processing",
       reportAttempt: attempt,
       reportFencingToken: fencingToken,

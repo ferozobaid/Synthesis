@@ -33,8 +33,10 @@ import CaseNativeVoiceInterview, {
   clearPendingNativeCaseReport,
   readPendingNativeCaseReport,
   writePendingNativeCaseReport,
+  type CompletedCaseReport,
   type PendingNativeCaseReport,
 } from "@/components/CaseNativeVoiceInterview";
+import { useReadiness, type CaseOutcome } from "@/components/readiness-store";
 import { InterviewerAvatar } from "@/components/interviewer/InterviewerAvatar";
 import {
   createUserSpeakingTracker,
@@ -130,6 +132,8 @@ export interface CaseVoiceProjection {
   responseSeq: number;
   lastAction: string | null;
   score: CaseScore | null;
+  /** Stable identity for a completed custom-LLM attempt; null until complete. */
+  outcomeId?: string | null;
   exhibits: CaseExhibit[];
   turns: CaseVoiceProjectedTurn[];
   /** Server-owned clock (absent on legacy sessions, which simply have no deadline). */
@@ -761,6 +765,7 @@ function parseProjection(value: unknown): CaseVoiceProjection {
         : projection.turnSeq,
     lastAction: typeof projection.lastAction === "string" ? projection.lastAction : null,
     score: projection.score ?? null,
+    outcomeId: typeof projection.outcomeId === "string" ? projection.outcomeId : null,
     exhibits: uniqueCaseExhibits(projection.exhibits as CaseExhibit[]),
     turns: projection.turns as CaseVoiceProjectedTurn[],
     // Server-owned clock. Anything malformed normalizes to "no deadline" rather
@@ -789,15 +794,35 @@ export async function fetchCaseVoiceProjection(
   return parseProjection(await response.json());
 }
 
+/**
+ * Minimum functional presentation of a case's stored result. Strategy and
+ * Technical read the same per-case contract, so a technical round shows its score
+ * even though it never moves Case readiness. Visual pass is a Codex task.
+ */
+export function caseOutcomeSummary(outcome: CaseOutcome | undefined): string | null {
+  if (!outcome || outcome.latestScore === null) return null;
+  const parts = [`Latest ${outcome.latestScore}/100${outcome.latestWasPartial ? " (provisional)" : ""}`];
+  if (outcome.bestScore !== null && outcome.bestScore !== outcome.latestScore) {
+    parts.push(`Best ${outcome.bestScore}/100${outcome.bestWasPartial ? " (provisional)" : ""}`);
+  }
+  parts.push(`${outcome.attemptCount} attempt${outcome.attemptCount === 1 ? "" : "s"}`);
+  if (outcome.lastCompletedAt > 0) {
+    parts.push(new Date(outcome.lastCompletedAt).toLocaleDateString());
+  }
+  return parts.join(" · ");
+}
+
 /** Shared card grid for any track/role's case list — Strategy and Technical alike. */
 function CaseCardGrid({
   cases,
   selectedCaseId,
   onSelect,
+  outcomes,
 }: {
   cases: PreviewCaseChoice[];
   selectedCaseId: string | null;
   onSelect: (id: string) => void;
+  outcomes: Record<string, CaseOutcome>;
 }) {
   return (
     <div className="case-picker-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
@@ -833,6 +858,19 @@ function CaseCardGrid({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--ink-4)" }}>
                   {caseDurationLabel(entry.maxDurationSeconds)}
                 </span>
+              </div>
+            )}
+            {caseOutcomeSummary(outcomes[entry.id]) && (
+              <div
+                className="case-picker-card__outcome"
+                style={{
+                  marginTop: 8,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10.5,
+                  color: outcomes[entry.id]?.latestWasPartial ? "var(--partial)" : "var(--ink-3)",
+                }}
+              >
+                {caseOutcomeSummary(outcomes[entry.id])}
               </div>
             )}
           </button>
@@ -874,16 +912,16 @@ export default function CaseVoiceInterview({
   onComplete,
 }: {
   onComplete?: (
-    score: CaseScore,
-    context?: {
-      preserveNativeReport?: boolean;
-      contributesToCaseReadiness?: boolean;
-    },
+    outcome: CompletedCaseReport,
+    context?: { preserveNativeReport?: boolean },
   ) => void;
 }) {
   // Native sessions receive their closed-mapped assistant id from bootstrap;
   // only the public Web SDK key is needed before the architecture is known.
   const configured = Boolean(WEB_KEY);
+  // Per-case results so each card can show its own latest/best/attempts.
+  const { state: readinessState } = useReadiness();
+  const caseOutcomes = readinessState.caseOutcomes;
   const [catalogStatus, setCatalogStatus] = useState<CaseCatalogStatus>("loading");
   const [catalog, setCatalog] = useState<PreviewCaseChoice[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -975,24 +1013,34 @@ export default function CaseVoiceInterview({
     setMuted(false);
   }, [setCallIsActive]);
 
-  const reportCompletion = useCallback((score: CaseScore) => {
+  /**
+   * Custom-LLM completion. The FSM only reaches `complete` after running the whole
+   * case, so these are never partial. Without a server outcome id there is no
+   * stable identity to deduplicate against, so nothing is recorded.
+   */
+  const reportCompletion = useCallback((projection: CaseVoiceProjection) => {
     if (completionReportedRef.current) return;
+    if (!projection.score || !projection.outcomeId) return;
     completionReportedRef.current = true;
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
-    onCompleteRef.current?.(score);
+    onCompleteRef.current?.({
+      score: projection.score,
+      partial: false,
+      outcomeId: projection.outcomeId,
+      caseId: projection.caseId,
+      caseTrack: projection.caseTrack === "technical" ? "technical" : "strategy",
+    });
   }, []);
 
-  const reportNativeCompletion = useCallback((score: CaseScore) => {
+  /** Native completion; the outcome (including its track) comes from the report. */
+  const reportNativeCompletion = useCallback((outcome: CompletedCaseReport) => {
     if (completionReportedRef.current) return;
     completionReportedRef.current = true;
     clearCaseVoicePending();
     clearPendingNativeCaseReport();
-    onCompleteRef.current?.(score, {
-      preserveNativeReport: true,
-      contributesToCaseReadiness: nativeCapability?.caseTrack !== "technical",
-    });
-  }, [nativeCapability?.caseTrack]);
+    onCompleteRef.current?.(outcome, { preserveNativeReport: true });
+  }, []);
 
   const expireSession = useCallback(() => {
     startAttemptRef.current += 1;
@@ -1043,7 +1091,7 @@ export default function CaseVoiceInterview({
     const latest = projectionRef.current;
     if (latest?.complete && latest.score) {
       setStatus("completed");
-      reportCompletion(latest.score);
+      reportCompletion(latest);
       return;
     }
     setStatus("ended");
@@ -1330,7 +1378,7 @@ export default function CaseVoiceInterview({
     clearCaseVoicePending();
     if (latest?.complete && latest.score) {
       setStatus("completed");
-      reportCompletion(latest.score);
+      reportCompletion(latest);
     } else {
       setStatus("ended");
       setError(null);
@@ -1438,7 +1486,7 @@ export default function CaseVoiceInterview({
         if (next.complete && next.score) {
           setTimerEndedAt((current) => current ?? Date.parse(next.updatedAt));
           setStatus("completed");
-          if (!callActiveRef.current) reportCompletion(next.score);
+          if (!callActiveRef.current) reportCompletion(next);
           return;
         }
         if (recoveredRef.current && statusRef.current === "recovering") {
@@ -1786,7 +1834,7 @@ export default function CaseVoiceInterview({
 
             {availability.showCases && (
               <>
-                <CaseCardGrid cases={strategyCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <CaseCardGrid cases={strategyCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} outcomes={caseOutcomes} />
                 <StartVoiceInterviewButton
                   canStart={availability.canStart}
                   onStart={() => {
@@ -1874,7 +1922,7 @@ export default function CaseVoiceInterview({
             )}
             {availability.showCases && (
               <>
-                <CaseCardGrid cases={activeRoleCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+                <CaseCardGrid cases={activeRoleCases} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} outcomes={caseOutcomes} />
                 <StartVoiceInterviewButton
                   canStart={availability.canStart}
                   onStart={() => {

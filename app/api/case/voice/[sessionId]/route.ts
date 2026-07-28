@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import { loadSession } from "@/lib/voice/session-store";
 import { caseClockProjection } from "@/lib/voice/case-clock";
+import { caseOutcomeId } from "@/lib/voice/case-outcome";
 import { CASE_STATES } from "@/lib/types";
 
 function tokenMatches(provided: string, storedHashHex: string): boolean {
@@ -63,6 +64,13 @@ export async function GET(
     responseSeq: record.responseSeq ?? record.turnSeq ?? 0,
     lastAction: lastTurn?.action ?? null,
     score: record.score ?? null,
+    // Custom-LLM completions finish in the turn loop rather than the report
+    // webhook, so their stable outcome identity is derived here from the same
+    // session + bound call pair. Null until the case is actually complete.
+    outcomeId:
+      record.session.complete && record.score
+        ? caseOutcomeId(sessionId, record.callId)
+        : null,
     exhibits,
     turns,
     // Server-owned clock. serverNow lets the browser correct for clock skew, and

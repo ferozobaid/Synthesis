@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -496,6 +497,52 @@ describe("Preview LLM case clock", () => {
     )).json();
     // Expiry is derived from server time, with no client involvement.
     expect(after.timedOut).toBe(true);
+  });
+});
+
+describe("Preview LLM custom-LLM outcome identity", () => {
+  const projection = (sessionId: string, token: string) =>
+    projectionGET(
+      new Request("http://localhost/api/case/voice/x", {
+        headers: { "x-case-voice-token": token },
+      }) as never,
+      { params: { sessionId } } as never,
+    );
+
+  it("has no outcome identity until the case is actually complete", async () => {
+    const started = await bootstrap(GYM);
+    const body = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(body.outcomeId).toBeNull();
+  });
+
+  it("derives one stable identity for a completed custom-LLM case", async () => {
+    const started = await bootstrap(GYM);
+    const current = stored(started.sessionId);
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        callId: "call-custom-1",
+        session: { ...current.session, complete: true },
+        score: { overall: 4, dimension_scores: [], strengths: [], improvements: [], next_focus: [] },
+      },
+    });
+
+    const first = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(first.outcomeId).toBe(
+      createHash("sha256").update(`${started.sessionId}:call-custom-1`).digest("hex"),
+    );
+    // Repeated polls return the same identity, so the client records once.
+    const second = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(second.outcomeId).toBe(first.outcomeId);
+    // The raw Vapi call id never crosses the projection.
+    expect(JSON.stringify(second)).not.toContain("call-custom-1");
+  });
+
+  it("does not expose an outcome identity without the projection capability", async () => {
+    const started = await bootstrap(GYM);
+    const response = await projection(started.sessionId, "wrong-token");
+    expect(response.status).toBe(404);
+    expect(await response.json()).not.toHaveProperty("outcomeId");
   });
 });
 

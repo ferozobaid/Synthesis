@@ -6,7 +6,7 @@ import {
   caseWorkedSolutionA11y,
   caseWorkedSolutionControlVisible,
   fetchCaseWorkedSolution,
-  fullAuthoritativeCaseScore,
+  completedCaseOutcome,
   nativeCaseReportPresentation,
   shouldFetchWorkedSolution,
   toggleWorkedSolution,
@@ -26,6 +26,7 @@ function report(overrides: Partial<NativeCaseReportProjection> = {}): NativeCase
     observedStages: [],
     missingStages: [],
     score: null,
+    outcomeId: "outcome-worked-solution-fixture",
     failureCode: null,
     ...overrides,
   };
@@ -160,23 +161,23 @@ describe("worked-solution disclosure state", () => {
 describe("worked solution does not disturb scores or readiness", () => {
   it("leaves the report score projection unchanged when toggled", () => {
     const before = nativeCaseReportPresentation(doneFull);
-    const scoreBefore = fullAuthoritativeCaseScore(doneFull);
+    const scoreBefore = completedCaseOutcome(doneFull);
     // Drive the full open/close cycle on the independent worked-solution state.
     let state: WorkedSolutionState = INITIAL_WORKED_SOLUTION_STATE;
     state = toggleWorkedSolution(state).next;
     state = { ...state, phase: "ready", solution: solutionView() };
     state = toggleWorkedSolution(state).next;
     expect(nativeCaseReportPresentation(doneFull)).toEqual(before);
-    expect(fullAuthoritativeCaseScore(doneFull)).toEqual(scoreBefore);
-    // The full authoritative score (which drives readiness) is still present and equal.
+    expect(completedCaseOutcome(doneFull)).toEqual(scoreBefore);
+    // The recorded outcome (which drives readiness) is still present and equal.
     expect(scoreBefore).not.toBeNull();
   });
 
-  it("does not produce a readiness score for a partial report regardless of the solution", () => {
-    expect(fullAuthoritativeCaseScore(donePartial)).toBeNull();
+  it("does not produce a recordable outcome for an UNSCORED partial report", () => {
+    expect(completedCaseOutcome(donePartial)).toBeNull();
     const state = toggleWorkedSolution(INITIAL_WORKED_SOLUTION_STATE).next;
     expect(state.open).toBe(true);
-    expect(fullAuthoritativeCaseScore(donePartial)).toBeNull();
+    expect(completedCaseOutcome(donePartial)).toBeNull();
   });
 });
 

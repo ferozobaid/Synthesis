@@ -122,6 +122,10 @@ export async function GET(
     missingStages,
     score,
     answers,
+    // Opaque, stable identity for this completed attempt. Same value on every
+    // poll, so the client can record the outcome exactly once. Never the raw
+    // Vapi call id.
+    outcomeId: record.outcomeId ?? null,
     failureCode: record.reportStatus === "failed"
       ? publicCaseReportFailureCode(record.reportErrorCode)
       : null,
