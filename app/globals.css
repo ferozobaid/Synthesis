@@ -1130,6 +1130,66 @@ input::placeholder {
   content: "";
 }
 
+.dashboard-overall-score {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.dashboard-readiness-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dashboard-breakdown-row {
+  display: grid;
+  grid-template-columns: 116px minmax(72px, 1fr) minmax(28px, auto);
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-breakdown-row__label {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.dashboard-breakdown-row__value {
+  min-width: 28px;
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: right;
+}
+
+.dashboard-breakdown-row__status {
+  grid-column: 2 / -1;
+  width: max-content;
+  margin-top: -7px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--partial) 42%, var(--line));
+  background: var(--partial-tint);
+  color: var(--partial);
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.dashboard-breakdown-row.is-provisional .dashboard-breakdown-row__value {
+  color: var(--partial);
+}
+
+.dashboard-breakdown-row.is-pending .dashboard-breakdown-row__value {
+  color: var(--ink-4);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .next-best-action {
   position: relative;
   min-height: 286px;
@@ -2344,10 +2404,17 @@ input::placeholder {
 
 .case-picker-card {
   position: relative;
-  min-height: 148px;
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
   overflow: hidden;
   border-radius: 2px !important;
   box-shadow: none !important;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .case-picker-card::after {
@@ -2368,6 +2435,17 @@ input::placeholder {
   transform: translateY(-2px);
 }
 
+.case-picker-card:focus-visible {
+  border-color: var(--secondary) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px var(--focus-ring) !important;
+}
+
+.case-picker-card:active {
+  transform: translateY(0);
+}
+
 .case-picker-card.is-selected {
   border-color: var(--accent) !important;
   background: var(--accent-tint) !important;
@@ -2378,6 +2456,61 @@ input::placeholder {
   border-color: var(--accent);
   background: var(--accent);
   opacity: 1;
+}
+
+.case-picker-card__meta {
+  display: flex !important;
+  margin-top: 14px !important;
+  flex-wrap: wrap;
+  gap: 7px !important;
+}
+
+.case-picker-card__meta > span {
+  display: inline-flex;
+  min-height: 27px;
+  padding: 5px 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  line-height: 1;
+}
+
+.case-picker-card__meta > span:first-child {
+  color: var(--partial) !important;
+  font-size: 13px !important;
+  letter-spacing: .1em !important;
+}
+
+.case-picker-card__meta > span:last-child::before {
+  margin-right: 5px;
+  color: var(--ink-4);
+  content: "MAX";
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.case-picker-card__outcome {
+  position: relative;
+  z-index: 1;
+  margin-top: auto !important;
+  margin-right: 36px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--success);
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  color: var(--ink-2) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 11px !important;
+  font-variant-numeric: tabular-nums;
+  font-weight: 580;
+  line-height: 1.55;
+}
+
+.case-picker-card__outcome[style*="var(--partial)"] {
+  border-left-color: var(--partial);
+  background: var(--partial-tint);
+  color: var(--partial) !important;
 }
 
 .case-picker-actions button,
@@ -2403,6 +2536,40 @@ input::placeholder {
 .case-transcript-panel,
 .case-exhibits-panel {
   border-radius: 2px !important;
+}
+
+.case-voice-timer {
+  position: relative;
+  flex: 0 1 auto;
+  border-color: var(--line-strong) !important;
+  background:
+    linear-gradient(135deg, var(--surface-elevated), var(--surface-2)) !important;
+  box-shadow: inset 3px 0 0 var(--success);
+  font-variant-numeric: tabular-nums;
+}
+
+.case-voice-timer.is-warning {
+  border-color: color-mix(in srgb, var(--partial) 64%, var(--line)) !important;
+  background:
+    linear-gradient(135deg, var(--partial-tint), var(--surface-2)) !important;
+  box-shadow: inset 3px 0 0 var(--partial);
+}
+
+.case-voice-timer.is-warning::after {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  color: var(--partial);
+  content: "!";
+  font: 700 9px/1 var(--font-mono);
+}
+
+.case-voice-timer > div:last-child {
+  min-width: 7ch;
+  margin-top: 2px;
+  font-size: clamp(14px, 2vw, 17px) !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em;
 }
 
 .case-progress-panel {
@@ -2508,6 +2675,36 @@ input::placeholder {
 .case-native-report > div > section,
 .case-report > div {
   border-radius: 2px !important;
+}
+
+.case-native-report > div:first-child > div[style*="var(--partial)"] {
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--partial) 58%, var(--line));
+  background: var(--partial-tint);
+  line-height: 1;
+}
+
+.case-native-report:has(> div:first-child > div[style*="var(--partial)"]) > section:first-of-type {
+  border-color: color-mix(in srgb, var(--partial) 48%, var(--line)) !important;
+  background:
+    linear-gradient(135deg, var(--partial-tint), transparent 55%),
+    var(--surface) !important;
+  box-shadow: inset 3px 0 0 var(--partial), var(--shadow-sm) !important;
+}
+
+.case-native-report:has(> div:first-child > div[style*="var(--partial)"]) > section:first-of-type > div > div:first-child {
+  color: var(--partial) !important;
+}
+
+.case-native-report > section:first-of-type p[style*="var(--partial)"] {
+  max-width: 650px;
+  margin: 12px 0 0 !important;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--partial) 42%, var(--line));
+  background: color-mix(in srgb, var(--partial-tint) 74%, transparent);
+  color: var(--ink-2) !important;
+  font-weight: 560;
+  line-height: 1.55;
 }
 
 .behavioural-voice-panel {
@@ -2787,11 +2984,16 @@ input::placeholder {
   }
 
   .case-picker-card {
-    min-height: 132px;
+    min-height: 178px;
     padding: 16px !important;
   }
 
+  .case-picker-card__outcome {
+    margin-right: 30px;
+  }
+
   .case-picker-actions button {
+    min-height: 48px;
     width: 100%;
   }
 
@@ -2804,6 +3006,17 @@ input::placeholder {
   .case-voice-statusbar > div:last-child {
     width: 100%;
     margin-left: 0 !important;
+  }
+
+  .case-voice-timer {
+    min-width: 0 !important;
+    flex: 1 1 100%;
+    padding: 9px 12px !important;
+    text-align: left !important;
+  }
+
+  .case-voice-timer > div:last-child {
+    font-size: 17px !important;
   }
 
   .case-voice-statusbar button {
@@ -3147,6 +3360,20 @@ input::placeholder {
   .dashboard-readiness-card {
     min-height: 0;
     padding: 24px !important;
+  }
+
+  .dashboard-readiness-card > div:last-child {
+    gap: 24px !important;
+  }
+
+  .dashboard-overall-score {
+    width: 100%;
+    justify-content: start;
+  }
+
+  .dashboard-breakdown-row {
+    grid-template-columns: 104px minmax(56px, 1fr) minmax(28px, auto);
+    gap: 9px;
   }
 
   .dashboard-header {
@@ -5978,55 +6205,124 @@ html[data-theme="light"] .shero-bottom-fade {
   line-height: 1.65;
 }
 
-/* Session-length selector. Minimum functional styling; visual pass is a Codex task. */
+/* Session-length selector. */
 .behavioural-preflight__modes {
   display: grid;
-  gap: 8px;
+  align-content: start;
+  gap: 10px;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
 .behavioural-preflight__modes legend {
-  padding: 0 0 8px;
+  padding: 0 0 10px;
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: .09em;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .11em;
   text-transform: uppercase;
 }
 
 .behavioural-preflight__modes label {
+  position: relative;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 10px;
+  min-height: 115px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 4px 11px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 15px 16px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .behavioural-preflight__modes label.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--secondary) 72%, var(--line));
+  background:
+    linear-gradient(135deg, var(--secondary-tint), transparent 72%),
+    var(--surface);
+  box-shadow:
+    inset 3px 0 0 var(--secondary),
+    0 8px 22px color-mix(in srgb, var(--paper) 32%, transparent);
+}
+
+.behavioural-preflight__modes label:hover {
+  border-color: var(--line-strong);
+  background-color: var(--surface-elevated);
+  transform: translateY(-1px);
+}
+
+.behavioural-preflight__modes label:active {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transform: translateY(0);
+}
+
+.behavioural-preflight__modes label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow:
+    inset 3px 0 0 var(--secondary),
+    0 0 0 4px var(--focus-ring);
+}
+
+.behavioural-preflight__modes label:has(input[value="focused"])::after {
+  position: absolute;
+  top: 14px;
+  right: 13px;
+  align-self: start;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--secondary) 58%, var(--line));
+  border-radius: 999px;
+  background: var(--secondary-tint);
+  color: var(--secondary);
+  content: "Recommended";
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .behavioural-preflight__modes input {
   grid-row: 1 / span 2;
+  width: 17px;
+  height: 17px;
+  margin: 0;
   accent-color: var(--accent);
 }
 
 .behavioural-preflight__modes strong {
+  grid-column: 2;
   color: var(--ink);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 680;
 }
 
 .behavioural-preflight__modes small {
+  grid-column: 2 / -1;
+  grid-row: 2;
   color: var(--ink-3);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 11.75px;
+  line-height: 1.5;
+}
+
+.behavioural-preflight__modes label:has(input[value="focused"]) strong {
+  padding-right: 78px;
+}
+
+.behavioural-preflight__modes label:has(input:disabled) {
+  cursor: wait;
+  opacity: .62;
 }
 
 .behavioural-preflight__facts {
@@ -6101,6 +6397,10 @@ html[data-theme="light"] .shero-bottom-fade {
   .behavioural-preflight {
     grid-template-columns: 1fr;
     gap: 24px;
+  }
+
+  .behavioural-preflight__modes label {
+    min-height: 88px;
   }
 
   .behavioural-preflight__start {
