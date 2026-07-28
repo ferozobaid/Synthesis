@@ -8,6 +8,7 @@ import { useTheme } from "@/components/theme";
 import {
   isHowItWorksActive,
   isNavigationRouteActive,
+  shouldOpenDashboardSpotlight,
 } from "./navigationState";
 
 const PRODUCT_LINKS = [
@@ -23,6 +24,8 @@ export function HeroNav({
   onCloseMenu,
   onLogo,
   onHowItWorks,
+  onDashboardSpotlight,
+  dashboardSpotlightOpen = false,
   showDashboard = false,
 }: {
   mode: "hero" | "carousel";
@@ -31,6 +34,8 @@ export function HeroNav({
   onCloseMenu: () => void;
   onLogo?: () => void;
   onHowItWorks: () => void;
+  onDashboardSpotlight?: (trigger: HTMLElement) => void;
+  dashboardSpotlightOpen?: boolean;
   showDashboard?: boolean;
 }) {
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -38,6 +43,14 @@ export function HeroNav({
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
   const howItWorksActive = isHowItWorksActive(pathname, mode);
+  const handleDashboardClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+  ) => {
+    if (!shouldOpenDashboardSpotlight(pathname)) return;
+    event.preventDefault();
+    onCloseMenu();
+    onDashboardSpotlight?.(event.currentTarget);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -120,6 +133,15 @@ export function HeroNav({
             <Link
               href="/dashboard"
               className="home-navigation__dashboard"
+              onClick={handleDashboardClick}
+              aria-haspopup={
+                shouldOpenDashboardSpotlight(pathname) ? "dialog" : undefined
+              }
+              aria-expanded={
+                shouldOpenDashboardSpotlight(pathname)
+                  ? dashboardSpotlightOpen
+                  : undefined
+              }
               aria-current={
                 isNavigationRouteActive(pathname, "/dashboard")
                   ? "page"
@@ -195,8 +217,22 @@ export function HeroNav({
           {showDashboard && (
             <Link
               href="/dashboard"
-              onClick={onCloseMenu}
+              onClick={(event) => {
+                if (shouldOpenDashboardSpotlight(pathname)) {
+                  handleDashboardClick(event);
+                  return;
+                }
+                onCloseMenu();
+              }}
               tabIndex={menuOpen ? 0 : -1}
+              aria-haspopup={
+                shouldOpenDashboardSpotlight(pathname) ? "dialog" : undefined
+              }
+              aria-expanded={
+                shouldOpenDashboardSpotlight(pathname)
+                  ? dashboardSpotlightOpen
+                  : undefined
+              }
               aria-current={
                 isNavigationRouteActive(pathname, "/dashboard")
                   ? "page"

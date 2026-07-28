@@ -5,6 +5,8 @@ import { useReadiness, type ModuleResult, type ModuleStatus } from "@/components
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { ModuleCard } from "@/components/ui/ModuleCard";
 import { NextBestAction } from "@/components/ui/NextBestAction";
+import { DashboardAchievementSpotlight } from "@/components/ui/DashboardAchievementSpotlight";
+import { useDashboardSpotlight } from "@/components/ui/DashboardSpotlightContext";
 import { MeterBar, GroundingNote } from "@/components/ui/primitives";
 import { readinessBand } from "@/components/ui/verdict";
 import { isProvisionalCaseResult } from "@/components/ui/dashboardPresentation";
@@ -26,6 +28,10 @@ function statusLine(m: ModuleResult, fallback: string): string {
 
 export default function Dashboard() {
   const { state, overallReadiness, nextBestAction } = useReadiness();
+  const {
+    open: spotlightOpen,
+    close: closeSpotlight,
+  } = useDashboardSpotlight();
   const overall = overallReadiness();
   const band = overall != null ? readinessBand(overall) : null;
   const action = nextBestAction();
@@ -44,7 +50,10 @@ export default function Dashboard() {
   const modulesDone = [state.fit, state.behavioural, state.case].filter((m) => m.status === "done").length;
 
   return (
-    <main className="page-shell dashboard-shell page-enter">
+    <>
+      <main
+        className={`page-shell dashboard-shell page-enter${spotlightOpen ? " is-spotlight-open" : ""}`}
+      >
       {/* header */}
       <div className="dashboard-header" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 32, flexWrap: "wrap" }}>
         <div>
@@ -186,7 +195,22 @@ export default function Dashboard() {
           </GroundingNote>
         </div>
       </div>
-    </main>
+
+      </main>
+
+      <DashboardAchievementSpotlight
+        open={spotlightOpen}
+        overall={overall}
+        band={band}
+        fit={state.fit}
+        behavioural={state.behavioural}
+        interview={state.case}
+        interviewSource={state.interviewSource}
+        modulesDone={modulesDone}
+        role={role}
+        onClose={closeSpotlight}
+      />
+    </>
   );
 }
 
