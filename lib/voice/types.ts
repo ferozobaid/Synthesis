@@ -16,6 +16,7 @@ import type {
   CaseState,
 } from "@/lib/types";
 import type { BehaviouralSummary } from "@/lib/behavioural/runner";
+import type { BehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import type { FrameworkProbeObjective } from "@/lib/fsm/case-framework";
 import type {
   CaseInterviewerCandidateAction,
@@ -122,6 +123,8 @@ export interface BehaviouralVoiceSession {
   session: BehaviouralSession;
   /** The frozen question batch (so question text is stable across turns). */
   questions: BehaviouralQuestion[];
+  /** Session mode that produced `questions`. Absent on pre-mode sessions = "full". */
+  sessionMode?: BehaviouralSessionMode;
   /** Cursor into `questions` — the browser's local `idx`, moved server-side. */
   questionIndex: number;
   createdAt: string;
@@ -247,6 +250,12 @@ export interface CaseVoiceSession {
   reportFencingToken?: string | null;
   reportProcessingStartedAt?: string | null;
   authoritativeCallId?: string | null;
+  /**
+   * Opaque, stable identity for this completed attempt (see case-outcome.ts).
+   * Minted once when the report is claimed and never re-derived, so retries and
+   * duplicate deliveries cannot create a second identity.
+   */
+  outcomeId?: string | null;
   normalizedTranscript?: NormalizedVoiceTranscriptTurn[] | null;
   finalReport?: CasePostCallReport | null;
   /** Populated instead of finalReport for technical_question_bank rounds. */
@@ -263,6 +272,18 @@ export interface CaseVoiceSession {
   /** Readiness is outside the scored FSM and never creates a projected Case turn. */
   readinessStatus?: "awaiting" | "confirmed";
   readinessConfirmedAt?: string | null;
+  /**
+   * Server-owned interview clock. Snapshotted from the catalog at creation so a
+   * later difficulty change never re-times a live session. All optional: legacy
+   * records simply have no deadline and are never enforced against.
+   */
+  maxDurationSeconds?: number;
+  /** Set ONCE when the case actually begins (never during readiness). */
+  caseStartedAt?: string | null;
+  /** caseStartedAt + maxDurationSeconds. The authoritative deadline. */
+  caseExpiresAt?: string | null;
+  /** Persisted observation of expiry. Never the source of truth — see case-clock.ts. */
+  caseTimedOut?: boolean;
   /** Voice-only conversational state; never changes the Case FSM or score. */
   conversationStatus?: "active" | "paused";
   /** Bound to the first valid Vapi call id that successfully advances the session. */

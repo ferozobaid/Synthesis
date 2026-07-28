@@ -5,8 +5,11 @@ import { useReadiness, type ModuleResult, type ModuleStatus } from "@/components
 import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import { ModuleCard } from "@/components/ui/ModuleCard";
 import { NextBestAction } from "@/components/ui/NextBestAction";
+import { DashboardAchievementSpotlight } from "@/components/ui/DashboardAchievementSpotlight";
+import { useDashboardSpotlight } from "@/components/ui/DashboardSpotlightContext";
 import { MeterBar, GroundingNote } from "@/components/ui/primitives";
 import { readinessBand } from "@/components/ui/verdict";
+import { isProvisionalCaseResult } from "@/components/ui/dashboardPresentation";
 
 function badgeFor(status: ModuleStatus): { text: string; color: string; tint: string } {
   switch (status) {
@@ -25,9 +28,22 @@ function statusLine(m: ModuleResult, fallback: string): string {
 
 export default function Dashboard() {
   const { state, overallReadiness, nextBestAction } = useReadiness();
+  const {
+    open: spotlightOpen,
+    activate: activateSpotlight,
+    close: closeSpotlight,
+  } = useDashboardSpotlight();
   const overall = overallReadiness();
   const band = overall != null ? readinessBand(overall) : null;
   const action = nextBestAction();
+  const caseIsProvisional = isProvisionalCaseResult(state.case);
+  const caseBadge = caseIsProvisional
+    ? {
+        text: "Provisional",
+        color: "var(--partial)",
+        tint: "var(--partial-tint)",
+      }
+    : badgeFor(state.case.status);
 
   const role = state.target.role ?? "No role set yet";
   const company = state.target.company;
@@ -35,7 +51,10 @@ export default function Dashboard() {
   const modulesDone = [state.fit, state.behavioural, state.case].filter((m) => m.status === "done").length;
 
   return (
-    <main className="page-shell dashboard-shell page-enter">
+    <>
+      <main
+        className={`page-shell dashboard-shell page-enter${spotlightOpen ? " is-spotlight-open" : ""}`}
+      >
       {/* header */}
       <div className="dashboard-header" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 32, flexWrap: "wrap" }}>
         <div>
@@ -67,8 +86,13 @@ export default function Dashboard() {
 
       <div className="bento-grid">
         {/* readiness card */}
-        <div
+        <button
+          type="button"
           className="col-6 dashboard-readiness-card"
+          aria-haspopup="dialog"
+          aria-expanded={spotlightOpen}
+          aria-label="Open achievement spotlight"
+          onClick={(event) => activateSpotlight(event.currentTarget)}
           style={{
             minWidth: 0,
             background: "var(--surface)",
@@ -82,10 +106,12 @@ export default function Dashboard() {
         >
           <div className="dashboard-readiness-card__geometry" aria-hidden="true" />
           <div style={{ position: "relative", display: "flex", gap: 38, alignItems: "center", flexWrap: "wrap" }}>
-            <ReadinessRing value={overall} size={132} strokeWidth={10} color={band?.color ?? "var(--accent)"} suffix="of 100" />
+            <div className="dashboard-overall-score" aria-label={overall === null ? "Overall readiness pending" : `Overall readiness ${overall} out of 100`}>
+              <ReadinessRing value={overall} size={132} strokeWidth={10} color={band?.color ?? "var(--accent)"} suffix="of 100" />
+            </div>
             <div style={{ flex: 1, minWidth: 180 }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--ink-4)", marginBottom: 8 }}>
-                Overall readiness
+                Overall Readiness
               </div>
               <div
                 style={{
@@ -103,17 +129,22 @@ export default function Dashboard() {
                   {band?.label ?? "Not started"}
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <BreakdownRow label="Resume fit" module={state.fit} color="var(--accent)" />
+              <div className="dashboard-readiness-breakdown" aria-label="Readiness score breakdown">
+                <BreakdownRow label="Fit Analyzer" module={state.fit} color="var(--accent)" />
                 <BreakdownRow label="Behavioural" module={state.behavioural} color="var(--secondary)" />
-                <BreakdownRow label="Case readiness" module={state.case} color="var(--ink)" />
+                <BreakdownRow
+                  label="Interview"
+                  module={state.case}
+                  color="var(--ink)"
+                  provisional={caseIsProvisional}
+                />
               </div>
               <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 18 }}>
                 {modulesDone} of 3 modules complete
               </div>
             </div>
           </div>
-        </div>
+        </button>
 
         {/* next best action */}
         <div className="col-6" style={{ minWidth: 0 }}>
@@ -155,9 +186,9 @@ export default function Dashboard() {
           iconTint="var(--neutral-tint)"
           title="The GRID"
           statusLine={statusLine(state.case, "Enter Case Simulation")}
-          badge={badgeFor(state.case.status)}
+          badge={caseBadge}
           score={state.case.score}
-          scoreLabel="Case Simulation readiness"
+          scoreLabel={caseIsProvisional ? "Provisional interview score" : "Interview readiness"}
           ctaLabel="Open The GRID"
           hoverBorder="var(--ink-3)"
         />
@@ -170,19 +201,51 @@ export default function Dashboard() {
           </GroundingNote>
         </div>
       </div>
-    </main>
+
+      </main>
+
+      <DashboardAchievementSpotlight
+        open={spotlightOpen}
+        overall={overall}
+        band={band}
+        fit={state.fit}
+        behavioural={state.behavioural}
+        interview={state.case}
+        interviewSource={state.interviewSource}
+        modulesDone={modulesDone}
+        role={role}
+        onClose={closeSpotlight}
+      />
+    </>
   );
 }
 
-function BreakdownRow({ label, module, color }: { label: string; module: ModuleResult; color: string }) {
+function BreakdownRow({
+  label,
+  module,
+  color,
+  provisional = false,
+}: {
+  label: string;
+  module: ModuleResult;
+  color: string;
+  provisional?: boolean;
+}) {
   const has = module.score != null;
+  const valueLabel = has
+    ? `${module.score} out of 100${provisional ? ", provisional" : ""}`
+    : "Pending";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-      <span style={{ fontSize: 12, color: "var(--ink-3)", width: 116, flex: "none" }}>{label}</span>
+    <div
+      className={`dashboard-breakdown-row${provisional ? " is-provisional" : ""}${has ? "" : " is-pending"}`}
+      aria-label={`${label}: ${valueLabel}`}
+    >
+      <span className="dashboard-breakdown-row__label">{label}</span>
       <MeterBar value={has ? (module.score as number) : 0} color={color} height={6} muted={!has} />
-      <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink)", width: 22, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-        {has ? module.score : "—"}
+      <span className="dashboard-breakdown-row__value">
+        {has ? module.score : "Pending"}
       </span>
+      {provisional && <span className="dashboard-breakdown-row__status">Provisional</span>}
     </div>
   );
 }

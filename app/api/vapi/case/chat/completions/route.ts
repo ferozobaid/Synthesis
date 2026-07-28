@@ -15,6 +15,7 @@ import {
 import {
   CASE_ALREADY_READY_RESPONSE,
   CASE_NOT_READY_RESPONSE,
+  CASE_TIMED_OUT_RESPONSE,
   CASE_READINESS_PROMPT,
   caseConversationText,
   caseFrameworkFrustrationText,
@@ -75,7 +76,9 @@ import {
   loadSession,
   releaseLock,
   saveSession,
+  updateSession,
 } from "@/lib/voice/session-store";
+import { isCaseExpired, startedCaseClock } from "@/lib/voice/case-clock";
 import type {
   CaseVoiceModelResponse,
   CaseVoicePendingCandidate,
@@ -605,6 +608,22 @@ function nonEmptyLlmFallbackResult(current: CaseVoiceSession): CaseVoiceModelRes
   };
 }
 
+/**
+ * Stable wrap-up for a case past its server deadline. Never advances the FSM and
+ * never scores — the end-of-call report pipeline still runs normally afterwards.
+ */
+function expiredCaseResult(current: CaseVoiceSession): CaseVoiceModelResponse {
+  return {
+    spokenText: CASE_TIMED_OUT_RESPONSE,
+    stage: current.session.fsm_state,
+    action: "fallback",
+    exhibit: null,
+    complete: false,
+    score: null,
+    turnSeq: current.turnSeq ?? 0,
+  };
+}
+
 function concludedUnscoredResult(current: CaseVoiceSession): CaseVoiceModelResponse {
   return {
     spokenText: CASE_CONCLUDED_UNSCORED_RESPONSE,
@@ -1107,6 +1126,10 @@ async function evaluateLlmCandidate(
         ? [...latest.session.exhibits_revealed, application.exhibit.id]
         : latest.session.exhibits_revealed;
       const confirmedReadiness = application.readinessStatus === "confirmed" && latest.readinessStatus === "awaiting";
+      // Start the clock only once readiness is confirmed — never while the
+      // readiness dialogue is still in progress, which must consume no case time.
+      const readinessSettled =
+        (application.readinessStatus ?? latest.readinessStatus) === "confirmed";
       return {
         ...latest,
         session: {
@@ -1123,6 +1146,10 @@ async function evaluateLlmCandidate(
           : latest.openingText,
         readinessStatus: application.readinessStatus ?? latest.readinessStatus,
         readinessConfirmedAt: confirmedReadiness ? timestamp : latest.readinessConfirmedAt,
+        // The interview clock starts at readiness CONFIRMATION, so the readiness
+        // dialogue itself consumes no case time. startedCaseClock keeps any
+        // existing start, so repeated confirmations cannot restart it.
+        ...(readinessSettled ? startedCaseClock(latest, timestamp) : {}),
         conversationStatus: application.conversationStatus,
         turnSeq,
         score: null,
@@ -1182,6 +1209,9 @@ async function evaluateLegacyCandidate(
           : latest.openingText,
         readinessStatus: ready ? "confirmed" : "awaiting",
         readinessConfirmedAt: ready ? new Date().toISOString() : null,
+        // Clock starts only on confirmation; a "not yet ready" turn leaves it unset
+        // so the readiness dialogue consumes no case time.
+        ...(ready ? startedCaseClock(latest, new Date().toISOString()) : {}),
         conversationStatus: "active",
       }),
     };
@@ -1555,6 +1585,26 @@ async function processTurn(
   if (interviewer.mode === "llm" && initial.liveStatus === "concluded_unscored") {
     return {
       result: concludedUnscoredResult(initial),
+      cacheKey: candidate.cacheKey,
+      replayed: true,
+      source: "request_cache",
+    };
+  }
+  // Past the server deadline the case cannot advance. Expiry is derived from
+  // caseExpiresAt, so it holds even if no browser countdown ever fired. The
+  // caseTimedOut observation is persisted at most ONCE; every later expired turn
+  // is a pure read that returns the same wrap-up without mutating the session.
+  if (isCaseExpired(initial, Date.now())) {
+    if (initial.caseTimedOut !== true) {
+      await updateSession(candidate.sessionId, (current) =>
+        current.module === "case" ? { ...current, caseTimedOut: true } : current,
+      ).catch(() => {
+        /* observation only — expiry is derived, so a lost write changes nothing */
+      });
+    }
+    logTurnDiagnostic(candidate, initial.session.fsm_state, "ignored");
+    return {
+      result: expiredCaseResult(initial),
       cacheKey: candidate.cacheKey,
       replayed: true,
       source: "request_cache",

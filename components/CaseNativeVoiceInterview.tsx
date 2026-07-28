@@ -40,6 +40,10 @@ export interface PendingNativeCaseReport {
 
 export interface NativeCaseReportProjection {
   status: ReportStatus;
+  /** Stable identity for this completed attempt. Absent on legacy reports. */
+  outcomeId?: string | null;
+  /** Server ISO instant of report finalization. Absent on legacy reports. */
+  completedAt?: string | null;
   caseId: string;
   caseTrack?: "strategy" | "technical" | null;
   caseRole?: "data_engineering" | "data_analyst" | null;
@@ -182,11 +186,15 @@ export function nativeCaseReportPresentation(
     label: partial ? "Partial Report" : "Case Report",
     caseTitle: report.caseTitle ?? "Case interview",
     partial,
+    // Legacy display flag, retained for report-shape compatibility. It does NOT
+    // decide readiness: both tracks now feed Interview Readiness, and the store's
+    // applyCaseOutcome owns that decision (ordered by authoritative completedAt).
     readinessUpdated:
       report.caseTrack !== "technical" &&
-      !partial &&
-      report.score.overall !== null,
-    overall: partial ? null : report.score.overall,
+      report.score.overall !== null &&
+      !!report.outcomeId,
+    // A partial report shows its real number — marked provisional, never hidden.
+    overall: report.score.overall,
     summary: report.score.summary,
     dimensions: partial
       ? report.score.dimension_scores.filter((dimension) => dimension.score !== null)
@@ -262,23 +270,66 @@ export async function fetchNativeCaseReport(
   return response.json() as Promise<NativeCaseReportProjection>;
 }
 
-export function fullAuthoritativeCaseScore(
+/** A completed, scored attempt ready to be recorded — partial or complete. */
+export interface CompletedCaseReport {
+  score: CaseScore;
+  partial: boolean;
+  outcomeId: string;
+  caseId: string;
+  caseTrack: "strategy" | "technical";
+  /**
+   * Authoritative server completion instant in epoch ms, parsed once here at the
+   * projection boundary, or null when the report carried none. Interview
+   * Readiness orders on this — never on when the browser received the report.
+   */
+  completedAt: number | null;
+}
+
+/** Parse a server ISO instant to epoch ms; null for absent or malformed input. */
+export function parseCompletedAt(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * The scored outcome of a finished report, or null when there is nothing to
+ * record.
+ *
+ * A partial report is a REAL result: it is accepted whenever the model produced
+ * an overall score, and only its `partial` flag distinguishes it. Requiring every
+ * stage to anchor and every dimension to score is what previously caused
+ * completed interviews to silently vanish from readiness.
+ *
+ * Individually unscored dimensions are dropped rather than coerced, so a partial
+ * report never fabricates a number it does not have.
+ */
+export function completedCaseOutcome(
   report: NativeCaseReportProjection,
-): CaseScore | null {
-  if (report.status !== "done" || report.partial !== false || !report.score) return null;
-  if (report.score.overall === null || report.score.dimension_scores.some((d) => d.score === null)) {
-    return null;
-  }
+): CompletedCaseReport | null {
+  if (report.status !== "done" || !report.score) return null;
+  if (report.score.overall === null) return null;
+  // Without a stable identity the client cannot deduplicate, so it must not record.
+  if (!report.outcomeId) return null;
   return {
-    overall: report.score.overall,
-    dimension_scores: report.score.dimension_scores.map((item) => ({
-      dimension: item.dimension,
-      score: item.score as number,
-      justification: item.justification,
-    })),
-    strengths: report.score.strengths,
-    improvements: report.score.improvements,
-    next_focus: report.score.next_focus,
+    partial: report.partial === true,
+    outcomeId: report.outcomeId,
+    completedAt: parseCompletedAt(report.completedAt),
+    caseId: report.caseId,
+    caseTrack: report.caseTrack === "technical" ? "technical" : "strategy",
+    score: {
+      overall: report.score.overall,
+      dimension_scores: report.score.dimension_scores
+        .filter((item) => item.score !== null)
+        .map((item) => ({
+          dimension: item.dimension,
+          score: item.score as number,
+          justification: item.justification,
+        })),
+      strengths: report.score.strengths,
+      improvements: report.score.improvements,
+      next_focus: report.score.next_focus,
+    },
   };
 }
 
@@ -399,7 +450,7 @@ export default function CaseNativeVoiceInterview({
   onReset,
 }: {
   pending: PendingNativeCaseReport;
-  onComplete?: (score: CaseScore) => void;
+  onComplete?: (outcome: CompletedCaseReport) => void;
   onReset: () => void;
 }) {
   const [report, setReport] = useState<NativeCaseReportProjection | null>(null);
@@ -417,11 +468,13 @@ export default function CaseNativeVoiceInterview({
         setReport(next);
         setError(null);
         if (next.status === "done" || next.status === "failed") {
-          const score = fullAuthoritativeCaseScore(next);
+          const outcome = completedCaseOutcome(next);
           clearPendingNativeCaseReport();
-          if (score && !completed.current) {
+          // The store is also idempotent by outcomeId; this ref just avoids a
+          // redundant dispatch within one mounted poller.
+          if (outcome && !completed.current) {
             completed.current = true;
-            onComplete?.(score);
+            onComplete?.(outcome);
           }
           return;
         }
@@ -509,13 +562,21 @@ function NativeCaseReportView({
             <div>
               <div style={{ fontWeight: 600, color: band.color }}>{band.label}</div>
               <p style={bodyStyle}>{presentation.summary}</p>
+              {presentation.partial && (
+                <p style={{ ...bodyStyle, color: "var(--partial)" }}>
+                  Provisional score — this interview ended before every stage was
+                  covered, so it reflects only the evidence available. Run the case
+                  again for a complete assessment.
+                </p>
+              )}
             </div>
           </div>
         ) : (
           <>
             <p style={{ ...bodyStyle, marginTop: 0 }}>{presentation.summary}</p>
             <p style={{ ...bodyStyle, color: "var(--partial)" }}>
-              Readiness was not updated because the available interview evidence was incomplete.
+              No score could be derived from this interview, so nothing was recorded
+              against this case.
             </p>
           </>
         )}

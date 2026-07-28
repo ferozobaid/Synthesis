@@ -9,6 +9,7 @@
  *
  * Live plane only; never imports from offline scripts.
  */
+import type { BehaviouralFocusFamily } from "@/lib/types";
 
 /** The generic, role-agnostic motivation prompt used when no role is known. */
 export const GENERIC_ROLE_MOTIVATION = "Why are you interested in this type of role?";
@@ -145,4 +146,82 @@ export function shouldAskIndustry(
 /** Complete industry-motivation question for a known industry. */
 export function industryMotivationQuestion(industry: string): string {
   return `Why are you interested in working in ${industry.trim()}?`;
+}
+
+/**
+ * Focused-Session question preferences, per coverage family.
+ *
+ * Used ONLY by selectFocusedQuestions to choose which single question represents
+ * a family. Full Session never consults these. Every list is ordered most- to
+ * least-preferred and contains ids from that family only, so a preference that is
+ * unavailable (e.g. the conditional industry question was dropped) simply falls
+ * through to the next candidate.
+ */
+export const DEFAULT_FOCUS_AFFINITY: Record<BehaviouralFocusFamily, string[]> = {
+  introduction: ["tell_me_about_yourself"],
+  motivation: ["role_motivation", "why_this_company", "industry_motivation"],
+  competency: ["data_driven_decision", "cross_functional", "ambiguity"],
+  challenge: ["time_you_failed", "conflict", "tight_deadline"],
+  achievement: ["leadership", "influence_without_authority", "initiative", "greatest_strength"],
+};
+
+/**
+ * Per-role-family overrides, keyed by the labels roleFamilyLabel() returns.
+ * Anything unlisted falls back to DEFAULT_FOCUS_AFFINITY, so an unknown role
+ * still yields a complete, balanced five-question set.
+ */
+const ROLE_FOCUS_AFFINITY: Record<
+  string,
+  Partial<Record<BehaviouralFocusFamily, string[]>>
+> = {
+  "data analytics": { competency: ["data_driven_decision", "ambiguity", "cross_functional"] },
+  "data science": { competency: ["data_driven_decision", "ambiguity", "cross_functional"] },
+  "data engineering": {
+    competency: ["data_driven_decision", "cross_functional", "ambiguity"],
+    challenge: ["tight_deadline", "time_you_failed", "conflict"],
+  },
+  "building AI solutions": {
+    competency: ["data_driven_decision", "ambiguity", "cross_functional"],
+  },
+  "business analysis": { competency: ["data_driven_decision", "cross_functional", "ambiguity"] },
+  finance: { competency: ["data_driven_decision", "ambiguity", "cross_functional"] },
+  consulting: {
+    competency: ["ambiguity", "data_driven_decision", "cross_functional"],
+    challenge: ["tight_deadline", "conflict", "time_you_failed"],
+    achievement: ["influence_without_authority", "leadership", "initiative", "greatest_strength"],
+  },
+  "product management": {
+    competency: ["cross_functional", "data_driven_decision", "ambiguity"],
+    challenge: ["conflict", "time_you_failed", "tight_deadline"],
+    achievement: ["influence_without_authority", "leadership", "initiative", "greatest_strength"],
+  },
+  "product design": {
+    competency: ["cross_functional", "ambiguity", "data_driven_decision"],
+    achievement: ["influence_without_authority", "leadership", "initiative", "greatest_strength"],
+  },
+  "software engineering": {
+    competency: ["cross_functional", "data_driven_decision", "ambiguity"],
+    challenge: ["tight_deadline", "time_you_failed", "conflict"],
+  },
+  marketing: {
+    competency: ["cross_functional", "data_driven_decision", "ambiguity"],
+    achievement: ["initiative", "leadership", "influence_without_authority", "greatest_strength"],
+  },
+  sales: {
+    competency: ["cross_functional", "data_driven_decision", "ambiguity"],
+    challenge: ["tight_deadline", "conflict", "time_you_failed"],
+    achievement: ["initiative", "influence_without_authority", "leadership", "greatest_strength"],
+  },
+};
+
+/**
+ * Ordered question-id preferences for one coverage family, given a role family
+ * label (null when the role is unknown or unrecognised).
+ */
+export function focusFamilyPreference(
+  family: BehaviouralFocusFamily,
+  roleFamily: string | null | undefined,
+): string[] {
+  const override = roleFamily ? ROLE_FOCUS_AFFINITY[roleFamily]?.[family] : undefined;
+  return override ?? DEFAULT_FOCUS_AFFINITY[family];
 }

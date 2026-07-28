@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { startBehavioural } from "@/lib/behavioural/runner";
+import { asBehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import { initSession } from "@/lib/fsm/case-fsm";
 import {
   MOCK_JD_TEXT,
@@ -13,7 +14,11 @@ import { CASE_STATES } from "@/lib/types";
 import type { BehaviouralVoiceSession, CaseVoiceSession } from "@/lib/voice/types";
 import { caseReadinessPrompt } from "@/lib/voice/case-conversation";
 import { CASE_VOICE_LLM_VERSION } from "@/lib/voice/case-interviewer-mode";
-import { isPreviewLlmCaseId, previewLlmCaseCatalogEntry } from "@/lib/voice/case-catalog";
+import {
+  caseMaxDurationSeconds,
+  isPreviewLlmCaseId,
+  previewLlmCaseCatalogEntry,
+} from "@/lib/voice/case-catalog";
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import {
   CASE_VOICE_NATIVE_ORCHESTRATION_VERSION,
@@ -70,6 +75,10 @@ export async function POST(req: NextRequest) {
     // Mirror the existing /api/behavioural route: fall back to the sample JD in
     // mock mode so "why this company" stays grounded without a pasted JD.
     const jdText = jdRaw.trim() ? jdRaw : useMocks() ? MOCK_JD_TEXT : "";
+    // Unknown/absent modes fall back to the existing full flow rather than failing.
+    const sessionMode = asBehaviouralSessionMode(
+      (body as { sessionMode?: unknown }).sessionMode,
+    );
     const started = startBehavioural({
       questionBank: MOCK_QUESTIONS,
       jdText,
@@ -78,6 +87,7 @@ export async function POST(req: NextRequest) {
       // wording even when no JD is pasted; falls back to the parsed JD inside startBehavioural.
       targetRole,
       targetCompany: companyName,
+      sessionMode,
     });
 
     const now = new Date().toISOString();
@@ -95,6 +105,7 @@ export async function POST(req: NextRequest) {
       module: "behavioural",
       session: started.session,
       questions: started.questions,
+      sessionMode: started.sessionMode,
       questionIndex: 0,
       reportStatus: "pending",
       report: null,
@@ -125,6 +136,7 @@ export async function POST(req: NextRequest) {
       // Complete ordered question set (stable ids + text) + the numbered string.
       questions: started.questions.map((q) => ({ id: q.id, question: q.question })),
       questionList,
+      sessionMode: started.sessionMode,
       candidateName: resolvedName,
       targetRole: resolvedRole,
       companyName: resolvedCompany,
@@ -158,6 +170,9 @@ export async function POST(req: NextRequest) {
     }
     const catalogEntry = previewLlmCaseCatalogEntry(resolvedCaseId);
     const architecture = resolveCaseVoiceArchitectureForCase(resolvedCaseId, process.env);
+    // Snapshot the duration at creation so a later catalog/difficulty change can
+    // never re-time an interview that is already running.
+    const maxDurationSeconds = caseMaxDurationSeconds(resolvedCaseId) ?? undefined;
 
     // Readiness is a voice-only pre-case gate. The authored prompt is withheld
     // until the candidate confirms they are ready. The two cases always run the
@@ -200,6 +215,10 @@ export async function POST(req: NextRequest) {
         reportErrorCode: null,
         liveStatus: "active",
         concludedAt: null,
+        maxDurationSeconds,
+        caseStartedAt: null,
+        caseExpiresAt: null,
+        caseTimedOut: false,
         callId: null,
         turnSeq: 0,
         responseSeq: 0,
@@ -244,6 +263,10 @@ export async function POST(req: NextRequest) {
       openingText,
       readinessStatus: "awaiting",
       readinessConfirmedAt: null,
+      maxDurationSeconds,
+      caseStartedAt: null,
+      caseExpiresAt: null,
+      caseTimedOut: false,
       conversationStatus: "active",
       callId: null,
       turnSeq: 0,

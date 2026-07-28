@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { voiceCaseRecord } from "@/lib/voice/voice-case-records";
 import { loadSession } from "@/lib/voice/session-store";
+import { caseClockProjection } from "@/lib/voice/case-clock";
+import { caseOutcomeId } from "@/lib/voice/case-outcome";
 import { CASE_STATES } from "@/lib/types";
 
 function tokenMatches(provided: string, storedHashHex: string): boolean {
@@ -62,8 +64,24 @@ export async function GET(
     responseSeq: record.responseSeq ?? record.turnSeq ?? 0,
     lastAction: lastTurn?.action ?? null,
     score: record.score ?? null,
+    // Custom-LLM completions finish in the turn loop rather than the report
+    // webhook, so their stable outcome identity is derived here from the same
+    // session + bound call pair. Null until the case is actually complete.
+    outcomeId:
+      record.session.complete && record.score
+        ? caseOutcomeId(sessionId, record.callId)
+        : null,
+    // Explicit authoritative completion instant, on the same condition as the
+    // outcome identity. Deliberately its OWN field rather than asking the client
+    // to reinterpret the generic `updatedAt` below, which also moves on
+    // non-completing writes.
+    completedAt:
+      record.session.complete && record.score ? record.updatedAt ?? null : null,
     exhibits,
     turns,
+    // Server-owned clock. serverNow lets the browser correct for clock skew, and
+    // because this endpoint is polled continuously the offset stays accurate.
+    ...caseClockProjection(record, Date.now()),
     updatedAt: record.updatedAt,
   });
 }

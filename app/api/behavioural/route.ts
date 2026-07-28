@@ -11,6 +11,7 @@ import {
   startBehavioural,
   summarizeBehavioural,
 } from "@/lib/behavioural/runner";
+import { asBehaviouralSessionMode } from "@/lib/behavioural/question-gen";
 import type { BehaviouralSession } from "@/lib/types";
 
 // POST /api/behavioural
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
     // motivation wording; startBehavioural falls back to the parsed JD when absent.
     const targetRole = typeof body.targetRole === "string" ? body.targetRole : null;
     const targetCompany = typeof body.targetCompany === "string" ? body.targetCompany : null;
+    // Unknown/absent modes fall back to the existing full flow rather than failing.
+    const sessionMode = asBehaviouralSessionMode(body.sessionMode);
     return NextResponse.json(
       startBehavioural({
         questionBank: MOCK_QUESTIONS,
@@ -37,6 +40,7 @@ export async function POST(req: NextRequest) {
         userId: MOCK_USER_ID,
         targetRole,
         targetCompany,
+        sessionMode,
       }),
     );
   }

@@ -8,3 +8,7 @@ export function isHowItWorksActive(
 ): boolean {
   return pathname === "/" && mode === "carousel";
 }
+
+export function shouldOpenDashboardSpotlight(pathname: string): boolean {
+  return pathname === "/dashboard";
+}

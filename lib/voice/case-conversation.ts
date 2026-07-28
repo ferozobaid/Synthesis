@@ -23,6 +23,13 @@ export function caseReadinessPrompt(caseId: string): string {
 }
 export const CASE_READINESS_CONFIRMED = "Great, let’s begin.";
 export const CASE_NOT_READY_RESPONSE = "No problem. Let me know when you’re ready.";
+/**
+ * Spoken once the interview's maximum duration has elapsed. Stable text: every
+ * late turn on an expired case returns exactly this, so repeated requests can
+ * never advance the case or vary the wrap-up.
+ */
+export const CASE_TIMED_OUT_RESPONSE =
+  "That’s all the time we have for this case. I’ll close the interview here and put your report together.";
 export const CASE_ALREADY_READY_RESPONSE =
   "The case has begun. What would you like to clarify before structuring your approach?";
 export const CASE_OPENING_QUESTION =

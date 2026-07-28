@@ -136,6 +136,17 @@ export interface AnswerBankEntry extends Star {
   created_at: string;
 }
 
+/**
+ * Authored coverage family, used only by the Focused Session to pick one balanced
+ * question per family. Full Session ignores it entirely.
+ */
+export type BehaviouralFocusFamily =
+  | "introduction"
+  | "motivation"
+  | "competency"
+  | "challenge"
+  | "achievement";
+
 export interface BehaviouralQuestion {
   id: string;
   question: string;
@@ -147,6 +158,9 @@ export interface BehaviouralQuestion {
   /** Marks a question that is only asked when its context is present and non-redundant
    *  (e.g. "industry" → dropped at generation time when no distinct industry is known). */
   conditional?: string;
+  /** Authored coverage family (question_bank.json v3+). Optional so older fixtures
+   *  and persisted sessions stay valid; Focused selection falls back when absent. */
+  focus_family?: BehaviouralFocusFamily;
 }
 
 export interface BehaviouralScore {

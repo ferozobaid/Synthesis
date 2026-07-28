@@ -36,12 +36,261 @@ export interface Target {
   resumeText: string;
 }
 
+export type CaseOutcomeTrack = "strategy" | "technical";
+
+/**
+ * One case's accumulated result history. Keyed by caseId so a completed case can
+ * show its OWN score — the single aggregate `case` module cannot identify which
+ * case produced it.
+ */
+export interface CaseOutcome {
+  caseId: string;
+  caseTrack: CaseOutcomeTrack;
+  /** Newest unique attempt, 0..100. Complete or partial. */
+  latestScore: number | null;
+  /** Best attempt under the complete-beats-partial policy (see mergeCaseOutcome). */
+  bestScore: number | null;
+  attemptCount: number;
+  /**
+   * Authoritative server completion instant (epoch ms) of the latest attempt, or
+   * null when the report predates completedAt propagation. NEVER browser arrival
+   * time — Interview Readiness ordering depends on this being server-derived.
+   */
+  lastCompletedAt: number | null;
+  latestWasPartial: boolean;
+  /** True when bestScore came from a partial attempt — never present it as final. */
+  bestWasPartial: boolean;
+  latestOutcomeId: string;
+  /**
+   * Every outcome id already folded in, newest first and bounded. Tracking more
+   * than the latest id means a late poll of an OLDER attempt is also a no-op, not
+   * a phantom new attempt.
+   */
+  recordedOutcomeIds: string[];
+}
+
+/** How many outcome ids to remember per case before dropping the oldest. */
+export const MAX_RECORDED_OUTCOME_IDS = 20;
+
+/**
+ * Which kind of interview produced the current Interview Readiness score.
+ * "technical" is the fallback for a technical-track case this build does not
+ * recognise, so an unknown id degrades to an honest generic label.
+ */
+export type InterviewSourceKind =
+  | "strategy"
+  | "data_analyst_technical"
+  | "data_engineer_technical"
+  | "clickstream_system_design"
+  | "technical";
+
+/** Minimal provenance for the score currently shown as Interview Readiness. */
+export interface InterviewReadinessSource {
+  kind: InterviewSourceKind;
+  caseId: string;
+  /** True when the current score came from a partial (provisional) report. */
+  provisional: boolean;
+  /**
+   * Authoritative server completion instant (epoch ms) of the interview that owns
+   * Interview Readiness, or null when it came from a legacy report with no known
+   * completion time. This is the ordering key: a later-arriving report only wins
+   * if it genuinely finished later.
+   */
+  completedAt: number | null;
+}
+
+const TECHNICAL_SOURCE_KINDS: Record<string, InterviewSourceKind> = {
+  data_analyst_technical_round: "data_analyst_technical",
+  data_engineer_technical_round: "data_engineer_technical",
+  data_engineer_clickstream: "clickstream_system_design",
+};
+
+/** Classify a completed interview for display. Pure and total. */
+export function interviewSourceKind(
+  caseId: string,
+  caseTrack: CaseOutcomeTrack,
+): InterviewSourceKind {
+  if (caseTrack !== "technical") return "strategy";
+  return TECHNICAL_SOURCE_KINDS[caseId] ?? "technical";
+}
+
+const INTERVIEW_SOURCE_LABELS: Record<InterviewSourceKind, string> = {
+  strategy: "Strategy case",
+  data_analyst_technical: "Data Analyst technical",
+  data_engineer_technical: "Data Engineer technical",
+  clickstream_system_design: "Clickstream system design",
+  technical: "Technical interview",
+};
+
+/** Human label for an interview source, e.g. "Data Analyst technical". */
+export function interviewSourceLabel(kind: InterviewSourceKind): string {
+  return INTERVIEW_SOURCE_LABELS[kind] ?? INTERVIEW_SOURCE_LABELS.technical;
+}
+
 export interface ReadinessState {
   target: Target;
   targetSource: TargetSource;
   fit: ModuleResult;
   behavioural: ModuleResult;
+  /**
+   * Interview Readiness: the latest unique completed scored interview, from
+   * EITHER track. Strategy and Technical both feed it, so both reach
+   * overallReadiness() through the unchanged three-module average.
+   */
   case: ModuleResult;
+  /** Per-case results, keyed by caseId. Both tracks live here. */
+  caseOutcomes: Record<string, CaseOutcome>;
+  /** Provenance of the current `case` score, or null before any interview. */
+  interviewSource: InterviewReadinessSource | null;
+}
+
+/** A completed, scored attempt handed to the store. */
+export interface CompletedCaseOutcome {
+  caseId: string;
+  caseTrack: CaseOutcomeTrack;
+  /** Normalized 0..100. */
+  score: number;
+  partial: boolean;
+  outcomeId: string;
+  /**
+   * Authoritative server completion instant (epoch ms), or null when the report
+   * carried none. Required (not optional) so every caller is forced to be
+   * deliberate — silently defaulting to arrival time is the bug this prevents.
+   */
+  completedAt: number | null;
+}
+
+/**
+ * Fold a completed attempt into a case's history.
+ *
+ * Returns null when this outcome id was already recorded — the caller must then
+ * change nothing at all (no attempt count, no timestamps, no readiness write), so
+ * repeated polling and duplicate webhook delivery are true no-ops.
+ *
+ * Best-score policy: a complete attempt always outranks a partial one. A higher
+ * partial score never displaces a complete best, and the first complete attempt
+ * becomes the best even when its number is lower than an earlier partial.
+ */
+export function mergeCaseOutcome(
+  existing: CaseOutcome | undefined,
+  incoming: CompletedCaseOutcome,
+): CaseOutcome | null {
+  if (existing?.recordedOutcomeIds?.includes(incoming.outcomeId)) return null;
+
+  // No Date.now() fallback: an unknown completion time stays unknown rather than
+  // masquerading as "now", which would make a delayed old report look newest.
+  const completedAt = incoming.completedAt;
+  const hadCompleteBest = !!existing && existing.bestScore !== null && !existing.bestWasPartial;
+
+  let bestScore: number;
+  let bestWasPartial: boolean;
+  if (!incoming.partial) {
+    // A complete attempt supersedes any partial best outright; against another
+    // complete best it competes on score.
+    bestScore = hadCompleteBest
+      ? Math.max(existing!.bestScore!, incoming.score)
+      : incoming.score;
+    bestWasPartial = false;
+  } else if (hadCompleteBest) {
+    // A partial can never displace a complete best, however high it scores.
+    bestScore = existing!.bestScore!;
+    bestWasPartial = false;
+  } else {
+    bestScore = Math.max(existing?.bestScore ?? Number.NEGATIVE_INFINITY, incoming.score);
+    bestWasPartial = true;
+  }
+
+  return {
+    caseId: incoming.caseId,
+    caseTrack: incoming.caseTrack,
+    latestScore: incoming.score,
+    bestScore,
+    attemptCount: (existing?.attemptCount ?? 0) + 1,
+    lastCompletedAt: completedAt,
+    latestWasPartial: incoming.partial,
+    bestWasPartial,
+    latestOutcomeId: incoming.outcomeId,
+    recordedOutcomeIds: [
+      incoming.outcomeId,
+      ...(existing?.recordedOutcomeIds ?? []),
+    ].slice(0, MAX_RECORDED_OUTCOME_IDS),
+  };
+}
+
+/**
+ * Dashboard status line for Interview Readiness: which interview produced the
+ * current score, and whether it is complete or provisional. The literal word
+ * "provisional" is load-bearing — components/ui/dashboardPresentation.ts detects
+ * a provisional result from this string.
+ */
+export function caseReadinessStatusLine(outcome: CaseOutcome): string {
+  const source = interviewSourceLabel(
+    interviewSourceKind(outcome.caseId, outcome.caseTrack),
+  );
+  return outcome.latestWasPartial
+    ? `${source} · provisional (partial report)`
+    : `${source} · full report`;
+}
+
+/**
+ * Fold a completed interview into readiness. The single source of truth for the
+ * propagation contract — recordCaseOutcome is a thin setState wrapper around it,
+ * and tests exercise this directly rather than a mirrored copy.
+ *
+ * Both tracks update Interview Readiness. The score is the LATEST unique
+ * completed interview, never an average across tracks and never the highest, so
+ * a technical round finishing after a strategy case replaces it (and vice versa).
+ * Per-case history in `caseOutcomes` keeps its own independent latest/best/attempt
+ * policy and is unaffected by which case currently owns readiness.
+ */
+export function applyCaseOutcome(
+  state: ReadinessState,
+  incoming: CompletedCaseOutcome,
+): ReadinessState {
+  const merged = mergeCaseOutcome(state.caseOutcomes[incoming.caseId], incoming);
+  // Already recorded: change nothing — not the history, not the timestamps, and
+  // not readiness. Returning the identical state also avoids a re-render.
+  if (!merged) return state;
+
+  const next: ReadinessState = {
+    ...state,
+    caseOutcomes: { ...state.caseOutcomes, [incoming.caseId]: merged },
+  };
+
+  // "Latest" means latest by AUTHORITATIVE server completion time, never by when
+  // the browser happened to receive the report. A native report recovered from
+  // localStorage minutes later, or a slow poll, must not displace an interview
+  // that genuinely finished afterwards.
+  const incomingAt = merged.lastCompletedAt;
+  const currentAt = state.interviewSource?.completedAt ?? null;
+  const hasCurrentReadiness = state.case.score !== null;
+
+  if (incomingAt === null) {
+    // Unknown completion time (legacy report): may initialize Interview Readiness
+    // when there is nothing to compare against, but can never displace a result
+    // whose completion time IS known.
+    if (hasCurrentReadiness) return next;
+  } else if (currentAt !== null && incomingAt < currentAt) {
+    return next;
+  }
+
+  return {
+    ...next,
+    case: {
+      ...next.case,
+      status: "done",
+      // Existing 0..100 scale and conventions; no new formula.
+      score: merged.latestScore,
+      statusLine: caseReadinessStatusLine(merged),
+      updatedAt: incomingAt ?? undefined,
+    },
+    interviewSource: {
+      kind: interviewSourceKind(merged.caseId, merged.caseTrack),
+      caseId: merged.caseId,
+      provisional: merged.latestWasPartial,
+      completedAt: incomingAt,
+    },
+  };
 }
 
 const EMPTY_MODULE: ModuleResult = { status: "not_started", score: null };
@@ -52,6 +301,8 @@ export const DEFAULT_READINESS_STATE: ReadinessState = {
   fit: EMPTY_MODULE,
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
+  caseOutcomes: {},
+  interviewSource: null,
 };
 
 const STORAGE_KEY = "synthesis-readiness";
@@ -70,6 +321,12 @@ interface ReadinessContextValue {
     source: Exclude<TargetSource, "unset">,
   ) => void;
   setModule: (key: ModuleKey, patch: Partial<ModuleResult>) => void;
+  /**
+   * The single entry point for a completed case. Idempotent by outcomeId, and the
+   * only place that decides whether a result also moves Case readiness (Strategy
+   * does; Technical never does).
+   */
+  recordCaseOutcome: (outcome: CompletedCaseOutcome) => void;
   reset: () => void;
   seedSample: () => void;
   overallReadiness: () => number | null;
@@ -117,6 +374,8 @@ export const SAMPLE_READINESS_STATE: ReadinessState = {
   fit: EMPTY_MODULE,
   behavioural: EMPTY_MODULE,
   case: EMPTY_MODULE,
+  caseOutcomes: {},
+  interviewSource: null,
 };
 
 function normalized(value: string | null): string {
@@ -184,6 +443,72 @@ function hydrateModule(value: unknown): ModuleResult {
   };
 }
 
+/**
+ * Rebuild the per-case outcome map field by field. A legacy blob with no
+ * `caseOutcomes` key yields {} — it must never disturb the Fit, Behavioural, or
+ * Case module results stored alongside it. Any individual entry that fails
+ * validation is dropped rather than poisoning the whole map.
+ */
+export function hydrateCaseOutcomes(value: unknown): Record<string, CaseOutcome> {
+  if (!isRecord(value)) return {};
+  const outcomes: Record<string, CaseOutcome> = {};
+  for (const [caseId, raw] of Object.entries(value)) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw.caseId !== "string" || !raw.caseId) continue;
+    if (raw.caseTrack !== "strategy" && raw.caseTrack !== "technical") continue;
+    if (typeof raw.latestOutcomeId !== "string" || !raw.latestOutcomeId) continue;
+    if (typeof raw.attemptCount !== "number" || !Number.isFinite(raw.attemptCount)) continue;
+    const numberOrNull = (input: unknown): number | null =>
+      typeof input === "number" && Number.isFinite(input) ? input : null;
+    outcomes[caseId] = {
+      caseId: raw.caseId,
+      caseTrack: raw.caseTrack,
+      latestScore: numberOrNull(raw.latestScore),
+      bestScore: numberOrNull(raw.bestScore),
+      attemptCount: raw.attemptCount,
+      lastCompletedAt: numberOrNull(raw.lastCompletedAt),
+      latestWasPartial: raw.latestWasPartial === true,
+      bestWasPartial: raw.bestWasPartial === true,
+      latestOutcomeId: raw.latestOutcomeId,
+      recordedOutcomeIds: Array.isArray(raw.recordedOutcomeIds)
+        ? raw.recordedOutcomeIds
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+            .slice(0, MAX_RECORDED_OUTCOME_IDS)
+        : [raw.latestOutcomeId],
+    };
+  }
+  return outcomes;
+}
+
+/**
+ * Rebuild the interview-source provenance. Absent (legacy blob) or malformed
+ * yields null, which the dashboard renders as an unattributed score rather than
+ * failing — the score itself lives on `case` and is never lost.
+ */
+export function hydrateInterviewSource(value: unknown): InterviewReadinessSource | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.caseId !== "string" || !value.caseId) return null;
+  const kind = value.kind;
+  const valid =
+    kind === "strategy" ||
+    kind === "data_analyst_technical" ||
+    kind === "data_engineer_technical" ||
+    kind === "clickstream_system_design" ||
+    kind === "technical";
+  if (!valid) return null;
+  return {
+    kind,
+    caseId: value.caseId,
+    provisional: value.provisional === true,
+    // Absent on provenance written before completedAt propagation. Null means
+    // "unknown", which lets any timestamped result take over — the safe direction.
+    completedAt:
+      typeof value.completedAt === "number" && Number.isFinite(value.completedAt)
+        ? value.completedAt
+        : null,
+  };
+}
+
 export function hydrateReadinessState(value: unknown): ReadinessState {
   const parsed = isRecord(value) ? value : {};
   const parsedTarget = isRecord(parsed.target) ? parsed.target : {};
@@ -213,6 +538,8 @@ export function hydrateReadinessState(value: unknown): ReadinessState {
     fit: hydrateModule(parsed.fit),
     behavioural: hydrateModule(parsed.behavioural),
     case: hydrateModule(parsed.case),
+    caseOutcomes: hydrateCaseOutcomes(parsed.caseOutcomes),
+    interviewSource: hydrateInterviewSource(parsed.interviewSource),
   };
 }
 
@@ -288,6 +615,10 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
       ...s,
       [key]: { ...s[key], ...patch, updatedAt: Date.now() },
     }));
+  }, []);
+
+  const recordCaseOutcome = useCallback((outcome: CompletedCaseOutcome) => {
+    setState((s) => applyCaseOutcome(s, outcome));
   }, []);
 
   const reset = useCallback(() => setState(DEFAULT_READINESS_STATE), []);
@@ -367,12 +698,13 @@ export function ReadinessProvider({ children }: { children: React.ReactNode }) {
       setTarget,
       commitTarget,
       setModule,
+      recordCaseOutcome,
       reset,
       seedSample,
       overallReadiness,
       nextBestAction,
     }),
-    [state, hydrated, setTarget, commitTarget, setModule, reset, seedSample, overallReadiness, nextBestAction],
+    [state, hydrated, setTarget, commitTarget, setModule, recordCaseOutcome, reset, seedSample, overallReadiness, nextBestAction],
   );
 
   return <ReadinessContext.Provider value={value}>{children}</ReadinessContext.Provider>;

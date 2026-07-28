@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -87,6 +88,9 @@ vi.mock("@/lib/fsm/case-framework", async (importOriginal) => {
 import { GET as catalogGET } from "@/app/api/case/catalog/route";
 import { POST as chatPOST } from "@/app/api/vapi/case/chat/completions/route";
 import { POST as sessionPOST } from "@/app/api/vapi/session/route";
+import { GET as projectionGET } from "@/app/api/case/voice/[sessionId]/route";
+import { caseClockDeadline } from "@/lib/voice/case-clock";
+import { CASE_TIMED_OUT_RESPONSE } from "@/lib/voice/case-conversation";
 import { getVoiceLlmCaseRecord } from "@/lib/voice/voice-case-records";
 import type { CaseInterviewerDecision } from "@/lib/voice/case-interviewer";
 import type { CaseState } from "@/lib/types";
@@ -243,15 +247,15 @@ beforeEach(() => {
 });
 
 describe("Preview LLM catalog", () => {
-  it("exposes only id, title, description, and track/role classification for all selectable cases in llm mode", async () => {
+  it("exposes only id, title, description, track/role classification, and difficulty/duration for all selectable cases in llm mode", async () => {
     const response = await catalogGET();
     expect(response.status).toBe(200);
     const { cases } = await response.json() as { cases: Array<Record<string, unknown>> };
     expect(cases.map((entry) => entry.id)).toEqual(ALL_CASE_IDS);
     for (const entry of cases) {
       const expectedKeys = entry.track === "technical"
-        ? ["description", "id", "role", "title", "track"]
-        : ["description", "id", "title", "track"];
+        ? ["description", "difficultyStars", "id", "maxDurationSeconds", "role", "title", "track"]
+        : ["description", "difficultyStars", "id", "maxDurationSeconds", "title", "track"];
       expect(Object.keys(entry).sort()).toEqual(expectedKeys);
     }
     expect(cases.find((entry) => entry.id === AIRPORT)).toMatchObject({ track: "strategy" });
@@ -375,6 +379,197 @@ describe("Preview LLM Gym case selection and snapshot", () => {
     );
     expect(response.status).toBe(409);
     expect(completeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Preview LLM case clock", () => {
+  it("snapshots the catalog duration at session creation", async () => {
+    const started = await bootstrap(GYM);
+    // Gym is 4 stars → 15 minutes.
+    expect(stored(started.sessionId)).toMatchObject({
+      maxDurationSeconds: 900,
+      caseStartedAt: null,
+      caseExpiresAt: null,
+    });
+  });
+
+  it("does not start the clock during the readiness dialogue", async () => {
+    const started = await bootstrap(GYM);
+    const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    queueDecision({ candidateAction: "off_topic", confidence: 0.8 });
+    await turn(started.sessionId, "call-not-ready", messages, "Hold on, give me a second.");
+
+    const record = stored(started.sessionId);
+    expect(record.readinessStatus).toBe("awaiting");
+    // Readiness dialogue must consume no case time.
+    expect(record.caseStartedAt ?? null).toBeNull();
+    expect(record.caseExpiresAt ?? null).toBeNull();
+  });
+
+  it("starts the clock once readiness is confirmed and never restarts it", async () => {
+    const started = await bootstrap(GYM);
+    const messages: ChatMessage[] = [{ role: "assistant", content: started.openingPrompt }];
+    queueDecision({ candidateAction: "readiness_confirmed", confidence: 0.9 });
+    await turn(started.sessionId, "call-ready", messages, "I’m ready to begin.");
+
+    const afterReadiness = stored(started.sessionId);
+    expect(afterReadiness.readinessStatus).toBe("confirmed");
+    expect(afterReadiness.caseStartedAt).toBeTruthy();
+    expect(afterReadiness.caseExpiresAt).toBe(
+      caseClockDeadline(afterReadiness.caseStartedAt!, 900),
+    );
+
+    // A further turn must not move the deadline.
+    queueDecision({ candidateAction: "clarifying_question", confidence: 0.8 });
+    await turn(started.sessionId, "call-ready", messages, "What is the target segment?");
+    const later = stored(started.sessionId);
+    expect(later.caseStartedAt).toBe(afterReadiness.caseStartedAt);
+    expect(later.caseExpiresAt).toBe(afterReadiness.caseExpiresAt);
+  });
+
+  it("refuses to advance an expired case and records the timeout once", async () => {
+    const started = await bootstrap(GYM);
+    setStage(started.sessionId, "clarification");
+    const current = stored(started.sessionId);
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        caseStartedAt: "2020-01-01T00:00:00.000Z",
+        caseExpiresAt: "2020-01-01T00:15:00.000Z",
+        caseTimedOut: false,
+      },
+    });
+    const stageBefore = stored(started.sessionId).session.fsm_state;
+    const turnSeqBefore = stored(started.sessionId).turnSeq ?? 0;
+
+    const messages: ChatMessage[] = [{ role: "assistant", content: "Let’s continue." }];
+    const first = await turn(started.sessionId, "call-expired", messages, "Here is my framework.");
+    expect(first).toBe(CASE_TIMED_OUT_RESPONSE);
+
+    const afterFirst = stored(started.sessionId);
+    // Timeout observed exactly once; the FSM never advanced.
+    expect(afterFirst.caseTimedOut).toBe(true);
+    expect(afterFirst.session.fsm_state).toBe(stageBefore);
+    expect(afterFirst.turnSeq ?? 0).toBe(turnSeqBefore);
+    // The model is never consulted for an expired case.
+    expect(completeMock).not.toHaveBeenCalled();
+
+    // Repeated late turns are stable and do not mutate the session further.
+    const snapshotAfterFirst = JSON.stringify(afterFirst);
+    for (let i = 0; i < 3; i++) {
+      const again = await turn(started.sessionId, "call-expired", messages, "Any more time?");
+      expect(again).toBe(CASE_TIMED_OUT_RESPONSE);
+    }
+    expect(JSON.stringify(stored(started.sessionId))).toBe(snapshotAfterFirst);
+    // The deadline was never extended.
+    expect(stored(started.sessionId).caseExpiresAt).toBe("2020-01-01T00:15:00.000Z");
+  });
+
+  it("exposes the clock and derived expiry on the custom-LLM projection", async () => {
+    const started = await bootstrap(GYM);
+    const before = await (await projectionGET(
+      new Request("http://localhost/api/case/voice/x", {
+        headers: { "x-case-voice-token": started.projectionToken },
+      }) as never,
+      { params: { sessionId: started.sessionId } } as never,
+    )).json();
+    expect(before).toMatchObject({
+      maxDurationSeconds: 900,
+      caseStartedAt: null,
+      caseExpiresAt: null,
+      timedOut: false,
+    });
+    expect(typeof before.serverNow).toBe("string");
+
+    const current = stored(started.sessionId);
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        caseStartedAt: "2020-01-01T00:00:00.000Z",
+        caseExpiresAt: "2020-01-01T00:15:00.000Z",
+      },
+    });
+    const after = await (await projectionGET(
+      new Request("http://localhost/api/case/voice/x", {
+        headers: { "x-case-voice-token": started.projectionToken },
+      }) as never,
+      { params: { sessionId: started.sessionId } } as never,
+    )).json();
+    // Expiry is derived from server time, with no client involvement.
+    expect(after.timedOut).toBe(true);
+  });
+});
+
+describe("Preview LLM custom-LLM outcome identity", () => {
+  const projection = (sessionId: string, token: string) =>
+    projectionGET(
+      new Request("http://localhost/api/case/voice/x", {
+        headers: { "x-case-voice-token": token },
+      }) as never,
+      { params: { sessionId } } as never,
+    );
+
+  it("has no outcome identity until the case is actually complete", async () => {
+    const started = await bootstrap(GYM);
+    const body = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(body.outcomeId).toBeNull();
+  });
+
+  it("derives one stable identity for a completed custom-LLM case", async () => {
+    const started = await bootstrap(GYM);
+    const current = stored(started.sessionId);
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        callId: "call-custom-1",
+        session: { ...current.session, complete: true },
+        score: { overall: 4, dimension_scores: [], strengths: [], improvements: [], next_focus: [] },
+      },
+    });
+
+    const first = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(first.outcomeId).toBe(
+      createHash("sha256").update(`${started.sessionId}:call-custom-1`).digest("hex"),
+    );
+    // Repeated polls return the same identity, so the client records once.
+    const second = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(second.outcomeId).toBe(first.outcomeId);
+    // The raw Vapi call id never crosses the projection.
+    expect(JSON.stringify(second)).not.toContain("call-custom-1");
+  });
+
+  it("exposes an authoritative completedAt only once the case is complete", async () => {
+    const started = await bootstrap(GYM);
+
+    // Live, incomplete: no completion instant yet.
+    const live = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(live.completedAt).toBeNull();
+
+    const current = stored(started.sessionId);
+    const finishedAt = "2026-07-27T10:00:00.000Z";
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        callId: "call-custom-2",
+        session: { ...current.session, complete: true },
+        score: { overall: 4, dimension_scores: [], strengths: [], improvements: [], next_focus: [] },
+        updatedAt: finishedAt,
+      },
+    });
+
+    const done = await (await projection(started.sessionId, started.projectionToken)).json();
+    // Comes from the persisted server record, not from request time.
+    expect(done.completedAt).toBe(finishedAt);
+    // Stable across polls, so ordering cannot drift with arrival time.
+    const again = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(again.completedAt).toBe(finishedAt);
+  });
+
+  it("does not expose an outcome identity without the projection capability", async () => {
+    const started = await bootstrap(GYM);
+    const response = await projection(started.sessionId, "wrong-token");
+    expect(response.status).toBe(404);
+    expect(await response.json()).not.toHaveProperty("outcomeId");
   });
 });
 

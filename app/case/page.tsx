@@ -6,28 +6,37 @@ import { useRouter } from "next/navigation";
 import type { CaseScore } from "@/lib/types";
 import { useReadiness } from "@/components/readiness-store";
 import CaseVoiceInterview from "@/components/CaseVoiceInterview";
+import type { CompletedCaseReport } from "@/components/CaseNativeVoiceInterview";
 import { VerdictBanner } from "@/components/ui/VerdictBanner";
 import { SectionLabel, MeterBar } from "@/components/ui/primitives";
 import { to100, readinessBand } from "@/components/ui/verdict";
 
 export default function CasePage() {
   const router = useRouter();
-  const { setModule } = useReadiness();
+  const { recordCaseOutcome } = useReadiness();
   const [voiceScore, setVoiceScore] = useState<CaseScore | null>(null);
 
+  /**
+   * Every completed case — Strategy or Technical, native or custom-LLM, partial or
+   * complete — is recorded here against its own caseId.
+   *
+   * Both tracks feed Interview Readiness, which holds the interview with the
+   * latest authoritative server completion time (`completedAt`), so a report that
+   * merely ARRIVES late cannot displace one that genuinely finished after it.
+   * Recording is idempotent by outcomeId, so repeated polls are no-ops.
+   */
   function completeVoiceInterview(
-    finalScore: CaseScore,
-    context?: {
-      preserveNativeReport?: boolean;
-      contributesToCaseReadiness?: boolean;
-    },
+    outcome: CompletedCaseReport,
+    context?: { preserveNativeReport?: boolean },
   ) {
-    if (context?.contributesToCaseReadiness === false) return;
-    if (!context?.preserveNativeReport) setVoiceScore(finalScore);
-    setModule("case", {
-      status: "done",
-      score: to100(finalScore.overall),
-      statusLine: "1 voice case · full report",
+    if (!context?.preserveNativeReport) setVoiceScore(outcome.score);
+    recordCaseOutcome({
+      caseId: outcome.caseId,
+      caseTrack: outcome.caseTrack,
+      score: to100(outcome.score.overall),
+      partial: outcome.partial,
+      outcomeId: outcome.outcomeId,
+      completedAt: outcome.completedAt,
     });
   }
 

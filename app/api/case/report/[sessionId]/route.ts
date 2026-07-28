@@ -122,6 +122,15 @@ export async function GET(
     missingStages,
     score,
     answers,
+    // Opaque, stable identity for this completed attempt. Same value on every
+    // poll, so the client can record the outcome exactly once. Never the raw
+    // Vapi call id.
+    outcomeId: record.outcomeId ?? null,
+    // Authoritative completion instant: the server clock at report finalization,
+    // written alongside reportStatus: "done". The browser must order Interview
+    // Readiness by THIS, never by when a poll happened to resolve — a report
+    // recovered minutes later is still older than one finalized after it.
+    completedAt: record.reportStatus === "done" ? record.updatedAt ?? null : null,
     failureCode: record.reportStatus === "failed"
       ? publicCaseReportFailureCode(record.reportErrorCode)
       : null,

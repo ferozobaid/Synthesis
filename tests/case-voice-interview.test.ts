@@ -5,7 +5,7 @@ import {
   CASE_VOICE_TRANSCRIPT_DEFAULT_EXPANDED,
   CaseProjectionUnavailableError,
   caseVoiceControls,
-  caseVoiceElapsedMilliseconds,
+  caseVoiceProjectionClock,
   caseVoiceEndedNotice,
   caseVoiceEndedReason,
   formatCaseVoiceElapsed,
@@ -25,6 +25,7 @@ import {
   type PendingCaseVoiceCapability,
   type PreviewCaseChoice,
 } from "@/components/CaseVoiceInterview";
+import { caseClockRemainingMs } from "@/lib/voice/case-clock-sync";
 import { PREVIEW_LLM_CASES } from "@/lib/voice/case-catalog";
 import type { CaseExhibit, CaseScore } from "@/lib/types";
 
@@ -418,14 +419,60 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
     ]);
   });
 
-  it("uses the backend readiness timestamp and freezes the interview timer", () => {
-    const startedAt = "2026-07-17T12:00:00.000Z";
-    const now = Date.parse("2026-07-17T12:03:40.000Z");
-    const endedAt = Date.parse("2026-07-17T12:02:05.000Z");
+  it("counts down from the server deadline carried on the projection", () => {
+    const projection = {
+      caseStartedAt: "2026-07-17T12:00:00.000Z",
+      caseExpiresAt: "2026-07-17T12:10:00.000Z",
+      maxDurationSeconds: 600,
+      serverNow: "2026-07-17T12:00:00.000Z",
+      timedOut: false,
+    } as unknown as Parameters<typeof caseVoiceProjectionClock>[0];
 
-    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(null, now))).toBe("00:00");
-    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(startedAt, now))).toBe("03:40");
-    expect(formatCaseVoiceElapsed(caseVoiceElapsedMilliseconds(startedAt, now, endedAt))).toBe("02:05");
+    const snapshot = caseVoiceProjectionClock(projection);
+    expect(snapshot?.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
+
+    // No skew: 6m20s elapsed of 10m leaves 03:40.
+    expect(
+      formatCaseVoiceElapsed(
+        caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:06:20.000Z"), 0)!,
+      ),
+    ).toBe("03:40");
+    // Past the deadline the countdown floors at zero rather than going negative.
+    expect(
+      caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:11:00.000Z"), 0),
+    ).toBe(0);
+    // A session with no server clock yields no snapshot and therefore no countdown.
+    expect(caseVoiceProjectionClock(null)).toBeNull();
+  });
+
+  it("carries the server clock through projection parsing", async () => {
+    const response = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        caseId: "airport_profitability",
+        caseTitle: "Airport Profitability",
+        openingText: "Let's begin.",
+        stage: "clarification",
+        complete: false,
+        turnSeq: 0,
+        exhibits: [],
+        turns: [],
+        updatedAt: "2026-07-17T12:00:00.000Z",
+        maxDurationSeconds: 600,
+        caseStartedAt: "2026-07-17T12:00:00.000Z",
+        caseExpiresAt: "2026-07-17T12:10:00.000Z",
+        serverNow: "2026-07-17T12:00:00.000Z",
+        timedOut: false,
+      }),
+    } as unknown as Response;
+
+    const projection = await fetchCaseVoiceProjection(
+      { sessionId: "s", projectionToken: "t" },
+      (async () => response) as unknown as typeof fetch,
+    );
+    expect(projection.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
+    expect(caseVoiceProjectionClock(projection)?.maxDurationSeconds).toBe(600);
   });
 
   it("extracts an ended reason without requiring transcript or call content", () => {
