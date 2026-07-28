@@ -30,6 +30,7 @@ export default function Dashboard() {
   const { state, overallReadiness, nextBestAction } = useReadiness();
   const {
     open: spotlightOpen,
+    activate: activateSpotlight,
     close: closeSpotlight,
   } = useDashboardSpotlight();
   const overall = overallReadiness();
@@ -85,8 +86,13 @@ export default function Dashboard() {
 
       <div className="bento-grid">
         {/* readiness card */}
-        <div
+        <button
+          type="button"
           className="col-6 dashboard-readiness-card"
+          aria-haspopup="dialog"
+          aria-expanded={spotlightOpen}
+          aria-label="Open achievement spotlight"
+          onClick={(event) => activateSpotlight(event.currentTarget)}
           style={{
             minWidth: 0,
             background: "var(--surface)",
@@ -138,7 +144,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </button>
 
         {/* next best action */}
         <div className="col-6" style={{ minWidth: 0 }}>

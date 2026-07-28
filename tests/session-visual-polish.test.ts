@@ -22,6 +22,16 @@ describe("session visual polish contracts", () => {
       '.behavioural-preflight__modes label:has(input[value="focused"])::after',
     );
     expect(styles).toContain('content: "Recommended";');
+    expect(styles).toContain(
+      ".behavioural-preflight__modes input:checked",
+    );
+    expect(styles).toContain(
+      'content: "02 / Focused practice";',
+    );
+    expect(styles).toContain(
+      ".behavioural-preflight__modes label.is-selected::before",
+    );
+    expect(styles).toContain("@media (max-width: 820px)");
     expect(styles).toContain("@media (max-width: 700px)");
   });
 

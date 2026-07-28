@@ -1092,8 +1092,25 @@ input::placeholder {
 
 .dashboard-readiness-card {
   position: relative;
+  width: 100%;
   min-height: 318px;
+  appearance: none;
   background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.dashboard-readiness-card:focus-visible {
+  border-color: var(--accent) !important;
+  outline: 3px solid var(--focus, var(--accent));
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px var(--focus-ring), 9px 9px 0 var(--accent-tint) !important;
+}
+
+.dashboard-readiness-card:active {
+  transform: translateY(0) scale(.995);
 }
 
 .dashboard-readiness-card__geometry {
@@ -6676,12 +6693,18 @@ html[data-theme="light"] .shero-bottom-fade {
   background: var(--line-strong);
 }
 
+.product-experience .behavioural-page-shell {
+  width: min(100%, 1120px);
+}
+
 .behavioural-preflight {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr);
-  gap: 30px 38px;
   margin-bottom: 28px;
-  padding: clamp(24px, 4vw, 38px);
+  padding: clamp(28px, 4vw, 46px);
+  overflow: hidden;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 30px 24px;
   border: 1px solid color-mix(in srgb, var(--ink) 18%, var(--line));
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -6690,18 +6713,36 @@ html[data-theme="light"] .shero-bottom-fade {
   -webkit-backdrop-filter: blur(16px);
 }
 
+.behavioural-preflight::before {
+  position: absolute;
+  top: -132px;
+  right: -84px;
+  width: 310px;
+  height: 310px;
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.behavioural-preflight > div:first-child {
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+}
+
 .behavioural-preflight h1 {
-  max-width: 650px;
+  max-width: 780px;
   margin: 0;
   color: var(--ink);
-  font-size: clamp(30px, 4.7vw, 48px);
+  font-size: clamp(34px, 5vw, 58px);
   font-weight: 690;
-  letter-spacing: -.055em;
-  line-height: 1;
+  letter-spacing: -.06em;
+  line-height: .96;
 }
 
 .behavioural-preflight p {
-  max-width: 650px;
+  max-width: 760px;
   margin: 18px 0 0;
   color: var(--ink-3);
   font-size: 14px;
@@ -6710,16 +6751,21 @@ html[data-theme="light"] .shero-bottom-fade {
 
 /* Session-length selector. */
 .behavioural-preflight__modes {
+  position: relative;
+  z-index: 1;
   display: grid;
-  align-content: start;
-  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: stretch;
+  gap: 16px;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
 .behavioural-preflight__modes legend {
-  padding: 0 0 10px;
+  grid-column: 1 / -1;
+  padding: 0 0 2px;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -6731,16 +6777,20 @@ html[data-theme="light"] .shero-bottom-fade {
 .behavioural-preflight__modes label {
   position: relative;
   display: grid;
-  min-height: 115px;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  gap: 4px 11px;
-  align-items: center;
-  padding: 15px 16px;
+  min-height: 232px;
+  padding: 24px 26px;
+  overflow: hidden;
+  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-rows: 46px minmax(58px, 1fr) auto;
+  gap: 22px 14px;
+  align-items: start;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+  border-radius: 2px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 92%, transparent), color-mix(in srgb, var(--surface) 86%, transparent));
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
+  isolation: isolate;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
@@ -6748,43 +6798,67 @@ html[data-theme="light"] .shero-bottom-fade {
     transform 160ms ease;
 }
 
+.behavioural-preflight__modes label::before {
+  position: absolute;
+  z-index: -1;
+  right: 22px;
+  bottom: 22px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line-strong);
+  content: "";
+  opacity: .5;
+  transform: rotate(45deg);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
 .behavioural-preflight__modes label.is-selected {
-  border-color: color-mix(in srgb, var(--secondary) 72%, var(--line));
+  border-color: var(--accent);
   background:
-    linear-gradient(135deg, var(--secondary-tint), transparent 72%),
+    linear-gradient(135deg, var(--accent-tint), transparent 76%),
     var(--surface);
   box-shadow:
-    inset 3px 0 0 var(--secondary),
+    inset 3px 0 0 var(--accent),
     0 8px 22px color-mix(in srgb, var(--paper) 32%, transparent);
+}
+
+.behavioural-preflight__modes label.is-selected::before {
+  border-color: var(--accent);
+  background: var(--accent);
+  opacity: 1;
+  transform: rotate(45deg) scale(.88);
 }
 
 .behavioural-preflight__modes label:hover {
   border-color: var(--line-strong);
   background-color: var(--surface-elevated);
-  transform: translateY(-1px);
+  box-shadow: 7px 7px 0 var(--line-strong);
+  transform: translate(-2px, -2px);
 }
 
 .behavioural-preflight__modes label:active {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-  transform: translateY(0);
+  box-shadow: 3px 3px 0 var(--line-strong);
+  transform: translate(1px, 1px);
 }
 
 .behavioural-preflight__modes label:focus-within {
-  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+  outline: 3px solid var(--focus, var(--accent));
   outline-offset: 3px;
-  box-shadow:
-    inset 3px 0 0 var(--secondary),
-    0 0 0 4px var(--focus-ring);
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 .behavioural-preflight__modes label:has(input[value="focused"])::after {
   position: absolute;
-  top: 14px;
-  right: 13px;
+  top: 27px;
+  right: 26px;
   align-self: start;
-  padding: 4px 7px;
+  padding: 5px 8px;
   border: 1px solid color-mix(in srgb, var(--secondary) 58%, var(--line));
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--secondary-tint);
   color: var(--secondary);
   content: "Recommended";
@@ -6797,30 +6871,64 @@ html[data-theme="light"] .shero-bottom-fade {
 }
 
 .behavioural-preflight__modes input {
-  grid-row: 1 / span 2;
-  width: 17px;
-  height: 17px;
+  grid-row: 1;
+  grid-column: 1;
+  width: 44px;
+  height: 44px;
   margin: 0;
-  accent-color: var(--accent);
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.behavioural-preflight__modes input:checked {
+  border-color: var(--accent);
+  background:
+    radial-gradient(circle, var(--ink) 0 22%, transparent 25%),
+    var(--accent-tint);
+  box-shadow: inset 0 0 0 6px var(--surface);
 }
 
 .behavioural-preflight__modes strong {
-  grid-column: 2;
+  grid-row: 2;
+  grid-column: 1 / -1;
+  align-self: end;
   color: var(--ink);
-  font-size: 14px;
-  font-weight: 680;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 670;
+  letter-spacing: -.045em;
+  line-height: 1.04;
+}
+
+.behavioural-preflight__modes strong::before {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--ink-4);
+  content: "01 / Full interview";
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.behavioural-preflight__modes label:has(input[value="focused"]) strong::before {
+  content: "02 / Focused practice";
 }
 
 .behavioural-preflight__modes small {
-  grid-column: 2 / -1;
-  grid-row: 2;
+  max-width: calc(100% - 62px);
+  grid-column: 1 / -1;
+  grid-row: 3;
   color: var(--ink-3);
-  font-size: 11.75px;
-  line-height: 1.5;
-}
-
-.behavioural-preflight__modes label:has(input[value="focused"]) strong {
-  padding-right: 78px;
+  font-size: 12.5px;
+  line-height: 1.58;
 }
 
 .behavioural-preflight__modes label:has(input:disabled) {
@@ -6830,7 +6938,8 @@ html[data-theme="light"] .shero-bottom-fade {
 
 .behavioural-preflight__facts {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-column: 1 / 8;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   border-top: 1px solid var(--line);
 }
@@ -6839,8 +6948,14 @@ html[data-theme="light"] .shero-bottom-fade {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 5px 18px;
-  padding: 15px 0;
+  min-height: 82px;
+  padding: 17px 18px 15px 0;
   border-bottom: 1px solid var(--line);
+}
+
+.behavioural-preflight__facts > div + div {
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
 }
 
 .behavioural-preflight__facts span,
@@ -6896,18 +7011,69 @@ html[data-theme="light"] .shero-bottom-fade {
   opacity: .55;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 820px) {
   .behavioural-preflight {
     grid-template-columns: 1fr;
     gap: 24px;
   }
 
+  .behavioural-preflight > div:first-child,
+  .behavioural-preflight__modes,
+  .behavioural-preflight__facts,
+  .behavioural-preflight > .behavioural-preflight__actions {
+    grid-column: 1 / -1;
+  }
+
+  .behavioural-preflight > .behavioural-preflight__actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .product-experience .behavioural-page-shell {
+    width: 100%;
+  }
+
+  .behavioural-preflight {
+    padding: 24px 20px;
+  }
+
+  .behavioural-preflight__modes {
+    grid-template-columns: 1fr;
+  }
+
+  .behavioural-preflight__modes legend {
+    grid-column: 1;
+  }
+
   .behavioural-preflight__modes label {
-    min-height: 88px;
+    min-height: 208px;
+  }
+
+  .behavioural-preflight__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .behavioural-preflight__facts > div + div {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .behavioural-preflight__start {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .behavioural-preflight__modes label,
+  .behavioural-preflight__modes label::before,
+  .behavioural-preflight__modes input {
+    transition: none;
+  }
+
+  .behavioural-preflight__modes label:hover,
+  .behavioural-preflight__modes label:active {
+    transform: none;
   }
 }
 
@@ -8475,7 +8641,9 @@ html[data-theme="light"] .product-experience .next-best-action__cta {
 
 .behavioural-preflight__actions {
   display: flex;
-  grid-column: 1 / -1;
+  grid-column: 8 / -1;
+  align-self: end;
+  justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;

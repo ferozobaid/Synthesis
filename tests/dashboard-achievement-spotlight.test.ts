@@ -38,6 +38,14 @@ describe("Dashboard Achievement Spotlight navigation", () => {
     expect(spotlight).not.toContain("fetch(");
   });
 
+  it("opens the same Spotlight from the Overall Readiness card", () => {
+    expect(dashboard).toContain('aria-label="Open achievement spotlight"');
+    expect(dashboard).toContain('aria-haspopup="dialog"');
+    expect(dashboard).toContain("activateSpotlight(event.currentTarget)");
+    expect(chrome).toContain("activate: toggleSpotlight");
+    expect(styles).toContain(".dashboard-readiness-card:focus-visible");
+  });
+
   it("leaves every unrelated navigation destination unchanged", () => {
     expect(navigation).toContain(
       '{ label: "Fit", mobileLabel: "Fit Analyzer", href: "/fit" }',

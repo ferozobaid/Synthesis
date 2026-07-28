@@ -46,9 +46,10 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   const spotlightControl = useMemo(
     () => ({
       open: spotlightOpen,
+      activate: toggleSpotlight,
       close: closeSpotlight,
     }),
-    [closeSpotlight, spotlightOpen],
+    [closeSpotlight, spotlightOpen, toggleSpotlight],
   );
 
   useEffect(() => {

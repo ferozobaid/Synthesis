@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 
 export interface DashboardSpotlightControl {
   open: boolean;
+  activate: (trigger: HTMLElement) => void;
   close: () => void;
 }
 
