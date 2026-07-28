@@ -74,7 +74,7 @@ export const PREVIEW_LLM_CASES: readonly PreviewLlmCaseCatalogEntry[] = [
       "Five short scenario questions on data modeling, batch pipelines, debugging, performance, and schema evolution.",
     track: "technical",
     role: "data_engineering",
-    difficultyStars: 5,
+    difficultyStars: 4,
   },
   {
     id: "data_analyst_technical_round",
@@ -83,7 +83,7 @@ export const PREVIEW_LLM_CASES: readonly PreviewLlmCaseCatalogEntry[] = [
       "Five short scenario questions on SQL analysis, metric definition, dashboards, diagnostics, and experimentation.",
     track: "technical",
     role: "data_analyst",
-    difficultyStars: 5,
+    difficultyStars: 3,
   },
 ] as const;
 

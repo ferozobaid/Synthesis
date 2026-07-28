@@ -14,8 +14,8 @@ const EXPECTED: Record<string, { stars: CaseDifficultyStars; seconds: number }> 
   airport_profitability: { stars: 3, seconds: 600 },
   gcc_premium_gym_market_entry: { stars: 4, seconds: 900 },
   data_engineer_clickstream: { stars: 5, seconds: 1200 },
-  data_analyst_technical_round: { stars: 5, seconds: 1200 },
-  data_engineer_technical_round: { stars: 5, seconds: 1200 },
+  data_analyst_technical_round: { stars: 3, seconds: 600 },
+  data_engineer_technical_round: { stars: 4, seconds: 900 },
 };
 
 describe("case difficulty configuration", () => {
