@@ -71,6 +71,12 @@ export async function GET(
       record.session.complete && record.score
         ? caseOutcomeId(sessionId, record.callId)
         : null,
+    // Explicit authoritative completion instant, on the same condition as the
+    // outcome identity. Deliberately its OWN field rather than asking the client
+    // to reinterpret the generic `updatedAt` below, which also moves on
+    // non-completing writes.
+    completedAt:
+      record.session.complete && record.score ? record.updatedAt ?? null : null,
     exhibits,
     turns,
     // Server-owned clock. serverNow lets the browser correct for clock skew, and

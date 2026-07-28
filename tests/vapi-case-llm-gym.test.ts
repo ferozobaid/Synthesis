@@ -538,6 +538,33 @@ describe("Preview LLM custom-LLM outcome identity", () => {
     expect(JSON.stringify(second)).not.toContain("call-custom-1");
   });
 
+  it("exposes an authoritative completedAt only once the case is complete", async () => {
+    const started = await bootstrap(GYM);
+
+    // Live, incomplete: no completion instant yet.
+    const live = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(live.completedAt).toBeNull();
+
+    const current = stored(started.sessionId);
+    const finishedAt = "2026-07-27T10:00:00.000Z";
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        callId: "call-custom-2",
+        session: { ...current.session, complete: true },
+        score: { overall: 4, dimension_scores: [], strengths: [], improvements: [], next_focus: [] },
+        updatedAt: finishedAt,
+      },
+    });
+
+    const done = await (await projection(started.sessionId, started.projectionToken)).json();
+    // Comes from the persisted server record, not from request time.
+    expect(done.completedAt).toBe(finishedAt);
+    // Stable across polls, so ordering cannot drift with arrival time.
+    const again = await (await projection(started.sessionId, started.projectionToken)).json();
+    expect(again.completedAt).toBe(finishedAt);
+  });
+
   it("does not expose an outcome identity without the projection capability", async () => {
     const started = await bootstrap(GYM);
     const response = await projection(started.sessionId, "wrong-token");

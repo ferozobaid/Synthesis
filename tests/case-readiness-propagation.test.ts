@@ -84,7 +84,7 @@ describe("case outcome recording", () => {
       expect(state.case.score).toBe(80);
       expect(state.case.statusLine).toBe("Strategy case · full report");
       expect(state.interviewSource).toEqual({
-        kind: "strategy", caseId: STRATEGY, provisional: false,
+        kind: "strategy", caseId: STRATEGY, provisional: false, completedAt: 1_000,
       });
       expect(state.caseOutcomes[STRATEGY].latestScore).toBe(80);
     });
@@ -181,7 +181,7 @@ describe("case outcome recording", () => {
           attempt({ caseId, caseTrack: track as "strategy" | "technical", outcomeId: `k-${index}` }),
         );
         expect(state.interviewSource, caseId).toEqual({
-          kind: expected, caseId, provisional: false,
+          kind: expected, caseId, provisional: false, completedAt: 1_000,
         });
         expect(state.case.statusLine, caseId).toContain(
           interviewSourceLabel(expected as never),
@@ -306,6 +306,150 @@ describe("case outcome recording", () => {
     });
   });
 
+  describe("authoritative completion ordering", () => {
+    /** Server ISO instants: the Strategy case genuinely finished FIRST. */
+    const STRATEGY_DONE = "2026-07-27T10:00:00.000Z";
+    const TECHNICAL_DONE = "2026-07-27T10:30:00.000Z";
+
+    it("the native adapter carries the server completedAt into the outcome", () => {
+      const outcome = completedCaseOutcome(report({ completedAt: STRATEGY_DONE }));
+      expect(outcome?.completedAt).toBe(Date.parse(STRATEGY_DONE));
+    });
+
+    it("a native report with no completedAt yields null, never a wall-clock stand-in", () => {
+      // Null — explicitly not "roughly now", which is what made a delayed old
+      // report look newest before this fix.
+      expect(completedCaseOutcome(report({ completedAt: null }))?.completedAt).toBeNull();
+      expect(completedCaseOutcome(report({ completedAt: undefined }))?.completedAt).toBeNull();
+      expect(completedCaseOutcome(report({ completedAt: "not-a-date" }))?.completedAt).toBeNull();
+      // And the per-case history keeps it unknown rather than inventing a time.
+      const state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({ outcomeId: "no-time", completedAt: null }),
+      );
+      expect(state.caseOutcomes[STRATEGY].lastCompletedAt).toBeNull();
+    });
+
+    it("an older native report recovered AFTER a newer technical result cannot displace it", () => {
+      // The technical round finished at 10:30 and was recorded first.
+      let state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical", score: 88,
+          outcomeId: "t-live", completedAt: Date.parse(TECHNICAL_DONE),
+        }),
+      );
+      expect(state.case.score).toBe(88);
+
+      // The strategy report finished at 10:00 but is only recovered from
+      // localStorage now — arriving last, yet genuinely older.
+      const recovered = completedCaseOutcome(
+        report({ completedAt: STRATEGY_DONE, outcomeId: "s-recovered" }),
+      )!;
+      state = record(state, {
+        caseId: recovered.caseId,
+        caseTrack: recovered.caseTrack,
+        score: 31,
+        partial: recovered.partial,
+        outcomeId: recovered.outcomeId,
+        completedAt: recovered.completedAt,
+      });
+
+      // Its own history is recorded...
+      expect(state.caseOutcomes[STRATEGY].latestScore).toBe(31);
+      expect(state.caseOutcomes[STRATEGY].attemptCount).toBe(1);
+      // ...but Interview Readiness still belongs to the newer technical round.
+      expect(state.case.score).toBe(88);
+      expect(state.interviewSource?.kind).toBe("data_analyst_technical");
+      expect(state.interviewSource?.completedAt).toBe(Date.parse(TECHNICAL_DONE));
+    });
+
+    it("a late-arriving older custom-LLM result also cannot displace a newer one", () => {
+      let state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({ score: 75, outcomeId: "s-new", completedAt: Date.parse(TECHNICAL_DONE) }),
+      );
+      state = record(
+        state,
+        attempt({
+          caseId: "gcc_premium_gym_market_entry", score: 20,
+          outcomeId: "s-old", completedAt: Date.parse(STRATEGY_DONE),
+        }),
+      );
+      expect(state.caseOutcomes["gcc_premium_gym_market_entry"].latestScore).toBe(20);
+      expect(state.case.score).toBe(75);
+    });
+
+    it("a genuinely newer result does replace the incumbent, in both directions", () => {
+      // Technical incumbent, newer Strategy wins.
+      let state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical", score: 90,
+          outcomeId: "t-a", completedAt: Date.parse(STRATEGY_DONE),
+        }),
+      );
+      state = record(
+        state,
+        attempt({ score: 44, outcomeId: "s-a", completedAt: Date.parse(TECHNICAL_DONE) }),
+      );
+      expect(state.case.score).toBe(44);
+      expect(state.interviewSource?.kind).toBe("strategy");
+
+      // Strategy incumbent, newer Technical wins.
+      state = record(
+        state,
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical", score: 61,
+          outcomeId: "t-b", completedAt: Date.parse(TECHNICAL_DONE) + 60_000,
+        }),
+      );
+      expect(state.case.score).toBe(61);
+      expect(state.interviewSource?.kind).toBe("data_analyst_technical");
+    });
+
+    it("a legacy outcome without completedAt may initialize readiness but never overwrite it", () => {
+      // Nothing yet: a legacy result is better than no readiness at all.
+      let state = record(
+        DEFAULT_READINESS_STATE,
+        attempt({ score: 50, outcomeId: "legacy-1", completedAt: null }),
+      );
+      expect(state.case.score).toBe(50);
+      expect(state.interviewSource?.completedAt).toBeNull();
+
+      // A timestamped result takes over from the unknown-time incumbent.
+      state = record(
+        state,
+        attempt({
+          caseId: TECHNICAL, caseTrack: "technical", score: 66,
+          outcomeId: "t-known", completedAt: Date.parse(STRATEGY_DONE),
+        }),
+      );
+      expect(state.case.score).toBe(66);
+
+      // A second legacy result can no longer displace a known-time incumbent.
+      state = record(
+        state,
+        attempt({
+          caseId: "gcc_premium_gym_market_entry", score: 99,
+          outcomeId: "legacy-2", completedAt: null,
+        }),
+      );
+      expect(state.caseOutcomes["gcc_premium_gym_market_entry"].latestScore).toBe(99);
+      expect(state.case.score).toBe(66);
+      expect(state.interviewSource?.kind).toBe("data_analyst_technical");
+    });
+
+    it("duplicate outcomeIds stay no-ops regardless of completedAt", () => {
+      const first = record(DEFAULT_READINESS_STATE, attempt({ completedAt: 5_000 }));
+      // Same id replayed with a LATER timestamp must still change nothing.
+      const again = record(first, attempt({ completedAt: 9_999 }));
+      expect(again).toBe(first);
+      expect(again.caseOutcomes[STRATEGY].attemptCount).toBe(1);
+      expect(again.interviewSource?.completedAt).toBe(5_000);
+    });
+  });
+
   describe("report → outcome mapping (native and custom-LLM)", () => {
     it("accepts a complete report", () => {
       const outcome = completedCaseOutcome(report());
@@ -374,9 +518,13 @@ describe("case outcome recording", () => {
       expect(hydrateInterviewSource(undefined)).toBeNull();
       expect(hydrateInterviewSource({ kind: "nope", caseId: "x" })).toBeNull();
       expect(hydrateInterviewSource({ kind: "strategy" })).toBeNull();
+      // Provenance written before completedAt propagation hydrates as unknown.
       expect(hydrateInterviewSource({ kind: "strategy", caseId: "x" })).toEqual({
-        kind: "strategy", caseId: "x", provisional: false,
+        kind: "strategy", caseId: "x", provisional: false, completedAt: null,
       });
+      expect(
+        hydrateInterviewSource({ kind: "strategy", caseId: "x", completedAt: 42 }),
+      ).toEqual({ kind: "strategy", caseId: "x", provisional: false, completedAt: 42 });
     });
 
     it("round-trips a stored outcome map", () => {

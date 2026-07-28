@@ -470,11 +470,15 @@ describe("protected Case report polling", () => {
     const projection = await response.json();
     expect(response.status).toBe(200);
     expect(Object.keys(projection).sort()).toEqual([
-      "answers", "caseId", "caseRole", "caseTitle", "caseTrack", "evaluatorType", "failureCode", "missingStages", "observedStages", "outcomeId", "partial", "score", "status",
+      "answers", "caseId", "caseRole", "caseTitle", "caseTrack", "completedAt", "evaluatorType", "failureCode", "missingStages", "observedStages", "outcomeId", "partial", "score", "status",
     ]);
     // Opaque digest, never the raw Vapi call id.
     expect(projection.outcomeId).toMatch(/^[0-9a-f]{64}$/);
     expect(projection.outcomeId).not.toContain("call-1");
+    // Authoritative completion instant, straight from the persisted server record
+    // written at finalization — never the time this poll happened to resolve.
+    expect(projection.completedAt).toBe(stored(json.sessionId).updatedAt);
+    expect(Date.parse(projection.completedAt)).toBeGreaterThan(0);
     // Consulting cases carry no answer projection.
     expect(projection.answers).toEqual([]);
     expect(JSON.stringify(projection)).not.toMatch(

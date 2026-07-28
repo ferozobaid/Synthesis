@@ -32,6 +32,7 @@ import { nativeCaseBrief } from "@/lib/voice/native-case-brief";
 import CaseNativeVoiceInterview, {
   clearPendingNativeCaseReport,
   readPendingNativeCaseReport,
+  parseCompletedAt,
   writePendingNativeCaseReport,
   type CompletedCaseReport,
   type PendingNativeCaseReport,
@@ -134,6 +135,8 @@ export interface CaseVoiceProjection {
   score: CaseScore | null;
   /** Stable identity for a completed custom-LLM attempt; null until complete. */
   outcomeId?: string | null;
+  /** Server ISO instant of completion; null until the case is complete. */
+  completedAt?: string | null;
   exhibits: CaseExhibit[];
   turns: CaseVoiceProjectedTurn[];
   /** Server-owned clock (absent on legacy sessions, which simply have no deadline). */
@@ -766,6 +769,8 @@ function parseProjection(value: unknown): CaseVoiceProjection {
     lastAction: typeof projection.lastAction === "string" ? projection.lastAction : null,
     score: projection.score ?? null,
     outcomeId: typeof projection.outcomeId === "string" ? projection.outcomeId : null,
+    completedAt:
+      typeof projection.completedAt === "string" ? projection.completedAt : null,
     exhibits: uniqueCaseExhibits(projection.exhibits as CaseExhibit[]),
     turns: projection.turns as CaseVoiceProjectedTurn[],
     // Server-owned clock. Anything malformed normalizes to "no deadline" rather
@@ -806,7 +811,7 @@ export function caseOutcomeSummary(outcome: CaseOutcome | undefined): string | n
     parts.push(`Best ${outcome.bestScore}/100${outcome.bestWasPartial ? " (provisional)" : ""}`);
   }
   parts.push(`${outcome.attemptCount} attempt${outcome.attemptCount === 1 ? "" : "s"}`);
-  if (outcome.lastCompletedAt > 0) {
+  if (outcome.lastCompletedAt != null && outcome.lastCompletedAt > 0) {
     parts.push(new Date(outcome.lastCompletedAt).toLocaleDateString());
   }
   return parts.join(" · ");
@@ -1028,6 +1033,8 @@ export default function CaseVoiceInterview({
       score: projection.score,
       partial: false,
       outcomeId: projection.outcomeId,
+      // Parsed once here, at the projection-to-outcome boundary.
+      completedAt: parseCompletedAt(projection.completedAt),
       caseId: projection.caseId,
       caseTrack: projection.caseTrack === "technical" ? "technical" : "strategy",
     });

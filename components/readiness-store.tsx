@@ -51,7 +51,12 @@ export interface CaseOutcome {
   /** Best attempt under the complete-beats-partial policy (see mergeCaseOutcome). */
   bestScore: number | null;
   attemptCount: number;
-  lastCompletedAt: number;
+  /**
+   * Authoritative server completion instant (epoch ms) of the latest attempt, or
+   * null when the report predates completedAt propagation. NEVER browser arrival
+   * time — Interview Readiness ordering depends on this being server-derived.
+   */
+  lastCompletedAt: number | null;
   latestWasPartial: boolean;
   /** True when bestScore came from a partial attempt — never present it as final. */
   bestWasPartial: boolean;
@@ -85,6 +90,13 @@ export interface InterviewReadinessSource {
   caseId: string;
   /** True when the current score came from a partial (provisional) report. */
   provisional: boolean;
+  /**
+   * Authoritative server completion instant (epoch ms) of the interview that owns
+   * Interview Readiness, or null when it came from a legacy report with no known
+   * completion time. This is the ordering key: a later-arriving report only wins
+   * if it genuinely finished later.
+   */
+  completedAt: number | null;
 }
 
 const TECHNICAL_SOURCE_KINDS: Record<string, InterviewSourceKind> = {
@@ -140,7 +152,12 @@ export interface CompletedCaseOutcome {
   score: number;
   partial: boolean;
   outcomeId: string;
-  completedAt?: number;
+  /**
+   * Authoritative server completion instant (epoch ms), or null when the report
+   * carried none. Required (not optional) so every caller is forced to be
+   * deliberate — silently defaulting to arrival time is the bug this prevents.
+   */
+  completedAt: number | null;
 }
 
 /**
@@ -160,7 +177,9 @@ export function mergeCaseOutcome(
 ): CaseOutcome | null {
   if (existing?.recordedOutcomeIds?.includes(incoming.outcomeId)) return null;
 
-  const completedAt = incoming.completedAt ?? Date.now();
+  // No Date.now() fallback: an unknown completion time stays unknown rather than
+  // masquerading as "now", which would make a delayed old report look newest.
+  const completedAt = incoming.completedAt;
   const hadCompleteBest = !!existing && existing.bestScore !== null && !existing.bestWasPartial;
 
   let bestScore: number;
@@ -238,9 +257,22 @@ export function applyCaseOutcome(
     caseOutcomes: { ...state.caseOutcomes, [incoming.caseId]: merged },
   };
 
-  // "Latest" means latest in time. An out-of-order arrival still records its
-  // per-case history but must not displace a more recent interview's score.
-  if (merged.lastCompletedAt < (state.case.updatedAt ?? 0)) return next;
+  // "Latest" means latest by AUTHORITATIVE server completion time, never by when
+  // the browser happened to receive the report. A native report recovered from
+  // localStorage minutes later, or a slow poll, must not displace an interview
+  // that genuinely finished afterwards.
+  const incomingAt = merged.lastCompletedAt;
+  const currentAt = state.interviewSource?.completedAt ?? null;
+  const hasCurrentReadiness = state.case.score !== null;
+
+  if (incomingAt === null) {
+    // Unknown completion time (legacy report): may initialize Interview Readiness
+    // when there is nothing to compare against, but can never displace a result
+    // whose completion time IS known.
+    if (hasCurrentReadiness) return next;
+  } else if (currentAt !== null && incomingAt < currentAt) {
+    return next;
+  }
 
   return {
     ...next,
@@ -250,12 +282,13 @@ export function applyCaseOutcome(
       // Existing 0..100 scale and conventions; no new formula.
       score: merged.latestScore,
       statusLine: caseReadinessStatusLine(merged),
-      updatedAt: merged.lastCompletedAt,
+      updatedAt: incomingAt ?? undefined,
     },
     interviewSource: {
       kind: interviewSourceKind(merged.caseId, merged.caseTrack),
       caseId: merged.caseId,
       provisional: merged.latestWasPartial,
+      completedAt: incomingAt,
     },
   };
 }
@@ -433,7 +466,7 @@ export function hydrateCaseOutcomes(value: unknown): Record<string, CaseOutcome>
       latestScore: numberOrNull(raw.latestScore),
       bestScore: numberOrNull(raw.bestScore),
       attemptCount: raw.attemptCount,
-      lastCompletedAt: numberOrNull(raw.lastCompletedAt) ?? 0,
+      lastCompletedAt: numberOrNull(raw.lastCompletedAt),
       latestWasPartial: raw.latestWasPartial === true,
       bestWasPartial: raw.bestWasPartial === true,
       latestOutcomeId: raw.latestOutcomeId,
@@ -463,7 +496,17 @@ export function hydrateInterviewSource(value: unknown): InterviewReadinessSource
     kind === "clickstream_system_design" ||
     kind === "technical";
   if (!valid) return null;
-  return { kind, caseId: value.caseId, provisional: value.provisional === true };
+  return {
+    kind,
+    caseId: value.caseId,
+    provisional: value.provisional === true,
+    // Absent on provenance written before completedAt propagation. Null means
+    // "unknown", which lets any timestamped result take over — the safe direction.
+    completedAt:
+      typeof value.completedAt === "number" && Number.isFinite(value.completedAt)
+        ? value.completedAt
+        : null,
+  };
 }
 
 export function hydrateReadinessState(value: unknown): ReadinessState {

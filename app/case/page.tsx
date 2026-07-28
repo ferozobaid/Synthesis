@@ -18,9 +18,12 @@ export default function CasePage() {
 
   /**
    * Every completed case — Strategy or Technical, native or custom-LLM, partial or
-   * complete — is recorded here against its own caseId. The store decides whether
-   * it also moves Case readiness (Strategy does, Technical never does) and is
-   * idempotent by outcomeId, so repeated polls are no-ops.
+   * complete — is recorded here against its own caseId.
+   *
+   * Both tracks feed Interview Readiness, which holds the interview with the
+   * latest authoritative server completion time (`completedAt`), so a report that
+   * merely ARRIVES late cannot displace one that genuinely finished after it.
+   * Recording is idempotent by outcomeId, so repeated polls are no-ops.
    */
   function completeVoiceInterview(
     outcome: CompletedCaseReport,
@@ -33,6 +36,7 @@ export default function CasePage() {
       score: to100(outcome.score.overall),
       partial: outcome.partial,
       outcomeId: outcome.outcomeId,
+      completedAt: outcome.completedAt,
     });
   }
 

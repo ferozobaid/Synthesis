@@ -42,6 +42,8 @@ export interface NativeCaseReportProjection {
   status: ReportStatus;
   /** Stable identity for this completed attempt. Absent on legacy reports. */
   outcomeId?: string | null;
+  /** Server ISO instant of report finalization. Absent on legacy reports. */
+  completedAt?: string | null;
   caseId: string;
   caseTrack?: "strategy" | "technical" | null;
   caseRole?: "data_engineering" | "data_analyst" | null;
@@ -184,8 +186,9 @@ export function nativeCaseReportPresentation(
     label: partial ? "Partial Report" : "Case Report",
     caseTitle: report.caseTitle ?? "Case interview",
     partial,
-    // Strategy results move Case readiness; technical rounds are recorded against
-    // their own case and never do. A partial no longer blocks either.
+    // Legacy display flag, retained for report-shape compatibility. It does NOT
+    // decide readiness: both tracks now feed Interview Readiness, and the store's
+    // applyCaseOutcome owns that decision (ordered by authoritative completedAt).
     readinessUpdated:
       report.caseTrack !== "technical" &&
       report.score.overall !== null &&
@@ -274,6 +277,19 @@ export interface CompletedCaseReport {
   outcomeId: string;
   caseId: string;
   caseTrack: "strategy" | "technical";
+  /**
+   * Authoritative server completion instant in epoch ms, parsed once here at the
+   * projection boundary, or null when the report carried none. Interview
+   * Readiness orders on this — never on when the browser received the report.
+   */
+  completedAt: number | null;
+}
+
+/** Parse a server ISO instant to epoch ms; null for absent or malformed input. */
+export function parseCompletedAt(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /**
@@ -298,6 +314,7 @@ export function completedCaseOutcome(
   return {
     partial: report.partial === true,
     outcomeId: report.outcomeId,
+    completedAt: parseCompletedAt(report.completedAt),
     caseId: report.caseId,
     caseTrack: report.caseTrack === "technical" ? "technical" : "strategy",
     score: {
