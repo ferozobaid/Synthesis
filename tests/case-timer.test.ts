@@ -68,6 +68,15 @@ describe("case countdown", () => {
       expect(formatCaseVoiceElapsed(caseClockRemainingMs(snapshot(), now, 0)!)).toBe("08:40");
     });
 
+    it("begins at 20:00 for a 1200s case — the visible timer tracks only the server deadline, never the buffered Vapi limit", () => {
+      const twentyMinute = snapshot({
+        maxDurationSeconds: 1200,
+        caseExpiresAt: "2026-07-17T12:20:00.000Z",
+      });
+      expect(formatCaseVoiceElapsed(caseClockRemainingMs(twentyMinute, Date.parse(START), 0)!))
+        .toBe("20:00");
+    });
+
     it("floors at zero past the deadline instead of going negative", () => {
       expect(caseClockRemainingMs(snapshot(), Date.parse("2026-07-17T12:30:00.000Z"), 0)).toBe(0);
     });

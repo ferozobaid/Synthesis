@@ -341,9 +341,29 @@ export function readCaseVoicePending(
   }
 }
 
+/**
+ * Outer Vapi call-duration safety net, in seconds, added ONLY to the value sent
+ * to `vapi.start()` — never to the server-authoritative deadline, clock API,
+ * countdown, card label, warnings, or session snapshot.
+ *
+ * Vapi's `maxDurationSeconds` is enforced from call CONNECT, while the
+ * Synthesis case clock starts later — at readiness confirmation (custom-LLM)
+ * or at anchor-detected case opening (native). Without this buffer, Vapi can
+ * hard-end the call before the candidate's countdown reaches zero, cutting a
+ * 15/20-minute case short. The buffer covers connect time, the readiness
+ * exchange, and (for native) the time to speak the case opening plus the
+ * clock-start round trip.
+ */
+export const VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS = 180;
+
+/** The value to send Vapi for `maxDurationSeconds`: the case duration plus the safety buffer. */
+export function vapiMaxDurationSeconds(caseMaxDurationSeconds: number): number {
+  return caseMaxDurationSeconds + VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS;
+}
+
 export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
   return {
-    maxDurationSeconds: bootstrap.maxDurationSeconds,
+    maxDurationSeconds: vapiMaxDurationSeconds(bootstrap.maxDurationSeconds),
     variableValues: {
       sessionId: bootstrap.sessionId,
       openingPrompt: bootstrap.openingPrompt,
@@ -357,7 +377,7 @@ export function nativeCaseVoiceStartOverrides(
   bootstrap: Pick<NativeCaseBootstrap, "sessionId" | "caseId" | "maxDurationSeconds">,
 ) {
   return {
-    maxDurationSeconds: bootstrap.maxDurationSeconds,
+    maxDurationSeconds: vapiMaxDurationSeconds(bootstrap.maxDurationSeconds),
     variableValues: {
       sessionId: bootstrap.sessionId,
       caseId: bootstrap.caseId,
