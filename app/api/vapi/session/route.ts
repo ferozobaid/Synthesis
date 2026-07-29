@@ -240,6 +240,7 @@ export async function POST(req: NextRequest) {
         caseRole: record.caseRole ?? null,
         caseTitle: record.selectedCaseTitle,
         caseDescription: record.selectedCaseDescription ?? null,
+        maxDurationSeconds,
         candidateName: candidateName ?? null,
       });
     }
@@ -297,6 +298,7 @@ export async function POST(req: NextRequest) {
       caseRole: record.caseRole ?? null,
       caseTitle: c.title,
       caseDescription: catalogEntry?.description ?? null,
+      maxDurationSeconds,
       stage: voiceSession.fsm_state,
       stageIndex: CASE_STATES.indexOf(voiceSession.fsm_state),
       candidateName: candidateName ?? null,

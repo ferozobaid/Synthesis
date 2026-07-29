@@ -6,6 +6,7 @@ import {
   CaseProjectionUnavailableError,
   caseVoiceControls,
   caseVoiceProjectionClock,
+  caseDurationLabel,
   caseVoiceEndedNotice,
   caseVoiceEndedReason,
   formatCaseVoiceElapsed,
@@ -21,6 +22,8 @@ import {
   shouldApplyCaseProjection,
   uniqueCaseExhibits,
   writeCaseVoicePending,
+  VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS,
+  vapiMaxDurationSeconds,
   type CaseVoiceProjection,
   type PendingCaseVoiceCapability,
   type PreviewCaseChoice,
@@ -238,16 +241,21 @@ afterEach(() => {
 });
 
 describe("CaseVoiceInterview Vapi start contract", () => {
-  it("passes only the selected-case bootstrap variables and session metadata to Vapi", () => {
+  it("passes only the selected-case bootstrap variables and session metadata to Vapi, with the outer safety buffer added to the duration", () => {
     const bootstrap = {
       sessionId: "case-session-1",
       projectionToken: "never-forward-this-token",
       openingPrompt: "Here is the authored opening.",
       caseId: "airport_profitability",
       caseTitle: "Airport Profitability",
+      maxDurationSeconds: 900,
     };
 
     expect(caseVoiceStartOverrides(bootstrap)).toEqual({
+      // The server-authoritative deadline (900s) plus the 180s Vapi safety
+      // buffer, since Vapi's call clock starts at connect while the
+      // Synthesis case clock starts later, at readiness confirmation.
+      maxDurationSeconds: 1080,
       variableValues: {
         sessionId: "case-session-1",
         openingPrompt: "Here is the authored opening.",
@@ -256,6 +264,30 @@ describe("CaseVoiceInterview Vapi start contract", () => {
       metadata: { sessionId: "case-session-1", caseId: "airport_profitability" },
     });
     expect(JSON.stringify(caseVoiceStartOverrides(bootstrap))).not.toContain("never-forward-this-token");
+  });
+
+  it("buffers the outer Vapi duration for a 20-minute case too, without touching the server deadline", () => {
+    const bootstrap = {
+      sessionId: "case-session-2",
+      projectionToken: "never-forward-this-token",
+      openingPrompt: "Here is the authored opening.",
+      caseId: "data_engineer_clickstream",
+      caseTitle: "Clickstream Data Pipeline",
+      maxDurationSeconds: 1200,
+    };
+
+    expect(caseVoiceStartOverrides(bootstrap).maxDurationSeconds).toBe(1380);
+  });
+
+  it("exposes the safety-buffer constant and helper used to compute the outer Vapi limit", () => {
+    expect(VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS).toBe(180);
+    expect(vapiMaxDurationSeconds(900)).toBe(1080);
+    expect(vapiMaxDurationSeconds(1200)).toBe(1380);
+  });
+
+  it("renders the updated case-card duration from catalog seconds — unaffected by the Vapi safety buffer", () => {
+    expect(caseDurationLabel(900)).toBe("15 min");
+    expect(caseDurationLabel(1200)).toBe("20 min");
   });
 
   it("exposes explicit Start, mute/unmute, and End control states", () => {
@@ -422,24 +454,32 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
   it("counts down from the server deadline carried on the projection", () => {
     const projection = {
       caseStartedAt: "2026-07-17T12:00:00.000Z",
-      caseExpiresAt: "2026-07-17T12:10:00.000Z",
-      maxDurationSeconds: 600,
+      caseExpiresAt: "2026-07-17T12:15:00.000Z",
+      maxDurationSeconds: 900,
       serverNow: "2026-07-17T12:00:00.000Z",
       timedOut: false,
     } as unknown as Parameters<typeof caseVoiceProjectionClock>[0];
 
     const snapshot = caseVoiceProjectionClock(projection);
-    expect(snapshot?.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
+    expect(snapshot?.caseExpiresAt).toBe("2026-07-17T12:15:00.000Z");
 
-    // No skew: 6m20s elapsed of 10m leaves 03:40.
+    // The visible timer starts at 15:00 — the server-authoritative 900s
+    // deadline, never the buffered value sent to Vapi's outer call limit.
+    expect(
+      formatCaseVoiceElapsed(
+        caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:00:00.000Z"), 0)!,
+      ),
+    ).toBe("15:00");
+
+    // No skew: 6m20s elapsed of 15m leaves 08:40.
     expect(
       formatCaseVoiceElapsed(
         caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:06:20.000Z"), 0)!,
       ),
-    ).toBe("03:40");
+    ).toBe("08:40");
     // Past the deadline the countdown floors at zero rather than going negative.
     expect(
-      caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:11:00.000Z"), 0),
+      caseClockRemainingMs(snapshot, Date.parse("2026-07-17T12:16:00.000Z"), 0),
     ).toBe(0);
     // A session with no server clock yields no snapshot and therefore no countdown.
     expect(caseVoiceProjectionClock(null)).toBeNull();
@@ -459,9 +499,9 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
         exhibits: [],
         turns: [],
         updatedAt: "2026-07-17T12:00:00.000Z",
-        maxDurationSeconds: 600,
+        maxDurationSeconds: 900,
         caseStartedAt: "2026-07-17T12:00:00.000Z",
-        caseExpiresAt: "2026-07-17T12:10:00.000Z",
+        caseExpiresAt: "2026-07-17T12:15:00.000Z",
         serverNow: "2026-07-17T12:00:00.000Z",
         timedOut: false,
       }),
@@ -471,8 +511,8 @@ describe("CaseVoiceInterview protected projection synchronization", () => {
       { sessionId: "s", projectionToken: "t" },
       (async () => response) as unknown as typeof fetch,
     );
-    expect(projection.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
-    expect(caseVoiceProjectionClock(projection)?.maxDurationSeconds).toBe(600);
+    expect(projection.caseExpiresAt).toBe("2026-07-17T12:15:00.000Z");
+    expect(caseVoiceProjectionClock(projection)?.maxDurationSeconds).toBe(900);
   });
 
   it("extracts an ended reason without requiring transcript or call content", () => {

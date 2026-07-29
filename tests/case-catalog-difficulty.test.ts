@@ -6,21 +6,26 @@ import {
   type CaseDifficultyStars,
 } from "@/lib/voice/case-catalog";
 import { GET as catalogGET } from "@/app/api/case/catalog/route";
+import { caseClockDeadline } from "@/lib/voice/case-clock";
 
 const SUPPORTED_STARS: CaseDifficultyStars[] = [3, 4, 5];
+const PREVIOUSLY_TEN_MINUTE_CASE_IDS = [
+  "airport_profitability",
+  "data_analyst_technical_round",
+] as const;
 
 /** The locked assignment. A change here must be a deliberate product decision. */
 const EXPECTED: Record<string, { stars: CaseDifficultyStars; seconds: number }> = {
-  airport_profitability: { stars: 3, seconds: 600 },
+  airport_profitability: { stars: 3, seconds: 900 },
   gcc_premium_gym_market_entry: { stars: 4, seconds: 900 },
   data_engineer_clickstream: { stars: 5, seconds: 1200 },
-  data_analyst_technical_round: { stars: 3, seconds: 600 },
+  data_analyst_technical_round: { stars: 3, seconds: 900 },
   data_engineer_technical_round: { stars: 4, seconds: 900 },
 };
 
 describe("case difficulty configuration", () => {
-  it("maps the three supported ratings to 10 / 15 / 20 minutes", () => {
-    expect(DIFFICULTY_DURATION_SECONDS).toEqual({ 3: 600, 4: 900, 5: 1200 });
+  it("maps the three supported ratings to 15 / 15 / 20 minutes", () => {
+    expect(DIFFICULTY_DURATION_SECONDS).toEqual({ 3: 900, 4: 900, 5: 1200 });
   });
 
   it("gives every catalog case a supported difficulty and a derived duration", () => {
@@ -43,6 +48,22 @@ describe("case difficulty configuration", () => {
       expect(entry?.difficultyStars, caseId).toBe(expected.stars);
       expect(caseMaxDurationSeconds(caseId), caseId).toBe(expected.seconds);
     }
+  });
+
+  it("gives every previously 10-minute case a 15-minute deadline without changing its stars", () => {
+    for (const caseId of PREVIOUSLY_TEN_MINUTE_CASE_IDS) {
+      const entry = PREVIEW_LLM_CASES.find((item) => item.id === caseId);
+      expect(entry?.difficultyStars, caseId).toBe(3);
+      expect(caseMaxDurationSeconds(caseId), caseId).toBe(900);
+      expect(caseClockDeadline("2026-07-29T12:00:00.000Z", caseMaxDurationSeconds(caseId)))
+        .toBe("2026-07-29T12:15:00.000Z");
+    }
+  });
+
+  it("leaves the existing 15-minute and 20-minute cases unchanged", () => {
+    expect(caseMaxDurationSeconds("gcc_premium_gym_market_entry")).toBe(900);
+    expect(caseMaxDurationSeconds("data_engineer_technical_round")).toBe(900);
+    expect(caseMaxDurationSeconds("data_engineer_clickstream")).toBe(1200);
   });
 
   it("has no duration for an unknown case id", () => {

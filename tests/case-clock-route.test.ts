@@ -55,7 +55,7 @@ function seed(patch: Partial<CaseVoiceSession> = {}, sessionId = SESSION_ID): vo
       architecture: "vapi_native",
       reportTokenHash: hashReportToken(TOKEN),
       reportStatus: "pending",
-      maxDurationSeconds: 600,
+      maxDurationSeconds: 900,
       caseStartedAt: null,
       caseExpiresAt: null,
       caseTimedOut: false,
@@ -111,7 +111,7 @@ describe("case clock endpoint", () => {
       const body = await (await clockGET(req(TOKEN) as never, ctx() as never)).json();
       expect(body.caseStartedAt).toBeNull();
       expect(body.caseExpiresAt).toBeNull();
-      expect(body.maxDurationSeconds).toBe(600);
+      expect(body.maxDurationSeconds).toBe(900);
       expect(body.timedOut).toBe(false);
       expect(typeof body.serverNow).toBe("string");
       expect(stored().caseStartedAt).toBeNull();
@@ -121,8 +121,25 @@ describe("case clock endpoint", () => {
       seed();
       const body = await (await clockPOST(req(TOKEN) as never, ctx() as never)).json();
       expect(body.caseStartedAt).not.toBeNull();
-      expect(body.caseExpiresAt).toBe(caseClockDeadline(body.caseStartedAt, 600));
+      expect(body.caseExpiresAt).toBe(caseClockDeadline(body.caseStartedAt, 900));
       expect(stored().caseStartedAt).toBe(body.caseStartedAt);
+    });
+
+    it("does not expire the native session when 10 of its 15 minutes have elapsed", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(START);
+      seed();
+      const started = await (await clockPOST(req(TOKEN) as never, ctx() as never)).json();
+      expect(started.caseExpiresAt).toBe("2026-07-17T12:15:00.000Z");
+
+      vi.setSystemTime(Date.parse(START) + 10 * 60_000);
+      const atTenMinutes = await (await clockGET(req(TOKEN) as never, ctx() as never)).json();
+      expect(atTenMinutes.timedOut).toBe(false);
+
+      vi.setSystemTime(Date.parse(START) + 15 * 60_000);
+      const atFifteenMinutes = await (await clockGET(req(TOKEN) as never, ctx() as never)).json();
+      expect(atFifteenMinutes.timedOut).toBe(true);
+      vi.useRealTimers();
     });
 
     it("returns the ORIGINAL deadline on repeated starts", async () => {
@@ -137,12 +154,18 @@ describe("case clock endpoint", () => {
       expect(stored().caseStartedAt).toBe(first.caseStartedAt);
     });
 
-    it("restores the same deadline on a later read (refresh / remount)", async () => {
+    it("restores the correct remaining time on a later read (refresh / remount)", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(START);
       seed();
       const started = await (await clockPOST(req(TOKEN) as never, ctx() as never)).json();
+      vi.setSystemTime(Date.parse(START) + 5 * 60_000);
       const restored = await (await clockGET(req(TOKEN) as never, ctx() as never)).json();
       expect(restored.caseStartedAt).toBe(started.caseStartedAt);
       expect(restored.caseExpiresAt).toBe(started.caseExpiresAt);
+      expect(Date.parse(restored.caseExpiresAt) - Date.parse(restored.serverNow)).toBe(10 * 60_000);
+      expect(restored.timedOut).toBe(false);
+      vi.useRealTimers();
     });
 
     it("has no deadline when the session predates duration snapshotting", async () => {
@@ -174,7 +197,7 @@ describe("case clock endpoint", () => {
   describe("expiry", () => {
     const expired = {
       caseStartedAt: "2020-01-01T00:00:00.000Z",
-      caseExpiresAt: "2020-01-01T00:10:00.000Z",
+      caseExpiresAt: "2020-01-01T00:15:00.000Z",
     };
 
     it("reports expiry from server time alone, with no client involvement", async () => {

@@ -17,11 +17,11 @@ import {
 } from "@/components/CaseVoiceInterview";
 
 const START = "2026-07-17T12:00:00.000Z";
-const EXPIRES = "2026-07-17T12:10:00.000Z";
+const EXPIRES = "2026-07-17T12:15:00.000Z";
 
 function snapshot(patch: Partial<CaseClockSnapshot> = {}): CaseClockSnapshot {
   return {
-    maxDurationSeconds: 600,
+    maxDurationSeconds: 900,
     caseStartedAt: START,
     caseExpiresAt: EXPIRES,
     serverNow: START,
@@ -61,9 +61,20 @@ function manualScheduler() {
 
 describe("case countdown", () => {
   describe("remaining time", () => {
-    it("counts down from the server deadline", () => {
+    it("begins at 15:00 and counts down from the server deadline", () => {
+      expect(formatCaseVoiceElapsed(caseClockRemainingMs(snapshot(), Date.parse(START), 0)!))
+        .toBe("15:00");
       const now = Date.parse("2026-07-17T12:06:20.000Z");
-      expect(formatCaseVoiceElapsed(caseClockRemainingMs(snapshot(), now, 0)!)).toBe("03:40");
+      expect(formatCaseVoiceElapsed(caseClockRemainingMs(snapshot(), now, 0)!)).toBe("08:40");
+    });
+
+    it("begins at 20:00 for a 1200s case — the visible timer tracks only the server deadline, never the buffered Vapi limit", () => {
+      const twentyMinute = snapshot({
+        maxDurationSeconds: 1200,
+        caseExpiresAt: "2026-07-17T12:20:00.000Z",
+      });
+      expect(formatCaseVoiceElapsed(caseClockRemainingMs(twentyMinute, Date.parse(START), 0)!))
+        .toBe("20:00");
     });
 
     it("floors at zero past the deadline instead of going negative", () => {
@@ -85,7 +96,7 @@ describe("case countdown", () => {
       expect(offsetBehind).toBe(90_000);
       expect(
         formatCaseVoiceElapsed(caseClockRemainingMs(behind, trueNow - 90_000, offsetBehind)!),
-      ).toBe("05:00");
+      ).toBe("10:00");
 
       // Browser is 90s AHEAD of the server.
       const ahead = snapshot({ serverNow: "2026-07-17T12:05:00.000Z" });
@@ -93,7 +104,7 @@ describe("case countdown", () => {
       expect(offsetAhead).toBe(-90_000);
       expect(
         formatCaseVoiceElapsed(caseClockRemainingMs(ahead, trueNow + 90_000, offsetAhead)!),
-      ).toBe("05:00");
+      ).toBe("10:00");
     });
   });
 
@@ -103,7 +114,7 @@ describe("case countdown", () => {
     });
 
     it("raises each threshold exactly once as time drains", () => {
-      const readings = [600_000, 301_000, 300_000, 200_000, 120_000, 61_000, 60_000, 30_000, 0];
+      const readings = [900_000, 301_000, 300_000, 200_000, 120_000, 61_000, 60_000, 30_000, 0];
       const raised: number[] = [];
       let previous: number | null = null;
       for (const remaining of readings) {
@@ -114,12 +125,12 @@ describe("case countdown", () => {
     });
 
     it("raises nothing above the first threshold and nothing without a deadline", () => {
-      expect(crossedCaseTimerWarnings(null, 600_000)).toEqual([]);
-      expect(crossedCaseTimerWarnings(600_000, null)).toEqual([]);
+      expect(crossedCaseTimerWarnings(null, 900_000)).toEqual([]);
+      expect(crossedCaseTimerWarnings(900_000, null)).toEqual([]);
     });
 
     it("reports the tightest band currently entered", () => {
-      expect(caseTimerWarningThreshold(600_000)).toBeNull();
+      expect(caseTimerWarningThreshold(900_000)).toBeNull();
       expect(caseTimerWarningThreshold(240_000)).toBe(300_000);
       expect(caseTimerWarningThreshold(90_000)).toBe(120_000);
       expect(caseTimerWarningThreshold(30_000)).toBe(60_000);

@@ -140,7 +140,16 @@ function stored(sessionId: string): CaseVoiceSession {
 async function bootstrap(caseId: string = GYM) {
   const response = await sessionPOST(sessionRequest({ module: "case", caseId }) as never);
   expect(response.status).toBe(200);
-  return await response.json() as { sessionId: string; projectionToken: string; openingPrompt: string; caseId: string; caseTitle: string };
+  return await response.json() as {
+    architecture: "custom_llm" | "vapi_native";
+    sessionId: string;
+    projectionToken: string;
+    reportToken: string;
+    openingPrompt: string;
+    caseId: string;
+    caseTitle: string;
+    maxDurationSeconds: number;
+  };
 }
 
 function modelDecision(overrides: Partial<CaseInterviewerDecision> = {}): CaseInterviewerDecision {
@@ -174,9 +183,12 @@ async function turn(
   callId: string,
   messages: ChatMessage[],
   candidateText: string,
+  caseId: string = GYM,
 ): Promise<string> {
   messages.push({ role: "user", content: candidateText });
-  const text = await spokenText(await chatPOST(request(body(sessionId, callId, messages), authHeader) as never));
+  const text = await spokenText(
+    await chatPOST(request(body(sessionId, callId, messages, caseId), authHeader) as never),
+  );
   messages.push({ role: "assistant", content: text });
   return text;
 }
@@ -244,6 +256,9 @@ beforeEach(() => {
   process.env.CASE_VOICE_REVISION_WINDOW_MS = "0";
   delete process.env.VERCEL_ENV;
   delete process.env.CASE_VOICE_CONTROLLER_MODE;
+  delete process.env.CASE_VOICE_ARCHITECTURE;
+  delete process.env.VAPI_AIRPORT_ASSISTANT_ID;
+  delete process.env.VAPI_DATA_ANALYST_TECHNICAL_ROUND_ASSISTANT_ID;
 });
 
 describe("Preview LLM catalog", () => {
@@ -383,6 +398,21 @@ describe("Preview LLM Gym case selection and snapshot", () => {
 });
 
 describe("Preview LLM case clock", () => {
+  it("snapshots a 15-minute expiry for both cases that previously used 10 minutes", async () => {
+    const airport = await bootstrap(AIRPORT);
+    process.env.VAPI_DATA_ANALYST_TECHNICAL_ROUND_ASSISTANT_ID = "data-analyst-assistant";
+    const dataAnalyst = await bootstrap(DA_ROUND);
+
+    expect(airport.architecture).toBe("custom_llm");
+    expect(dataAnalyst.architecture).toBe("vapi_native");
+    for (const started of [airport, dataAnalyst]) {
+      expect(started.maxDurationSeconds, started.caseId).toBe(900);
+      expect(stored(started.sessionId).maxDurationSeconds, started.caseId).toBe(900);
+      expect(caseClockDeadline("2026-07-29T12:00:00.000Z", stored(started.sessionId).maxDurationSeconds))
+        .toBe("2026-07-29T12:15:00.000Z");
+    }
+  });
+
   it("snapshots the catalog duration at session creation", async () => {
     const started = await bootstrap(GYM);
     // Gym is 4 stars → 15 minutes.
@@ -425,6 +455,35 @@ describe("Preview LLM case clock", () => {
     const later = stored(started.sessionId);
     expect(later.caseStartedAt).toBe(afterReadiness.caseStartedAt);
     expect(later.caseExpiresAt).toBe(afterReadiness.caseExpiresAt);
+  });
+
+  it("allows a previously 10-minute custom-LLM case to continue after 10 minutes", async () => {
+    const started = await bootstrap(AIRPORT);
+    setStage(started.sessionId, "clarification");
+    const current = stored(started.sessionId);
+    const now = Date.now();
+    const caseStartedAt = new Date(now - 10 * 60_000).toISOString();
+    redisStore.set(`voice-session:${started.sessionId}`, {
+      value: {
+        ...current,
+        caseStartedAt,
+        caseExpiresAt: caseClockDeadline(caseStartedAt, 900),
+        caseTimedOut: false,
+      },
+    });
+
+    const messages: ChatMessage[] = [{ role: "assistant", content: "Let’s continue." }];
+    queueDecision({ candidateAction: "clarifying_question", confidence: 0.9 });
+    const response = await turn(
+      started.sessionId,
+      "call-airport-ten-minutes",
+      messages,
+      "I would clarify the revenue baseline.",
+      AIRPORT,
+    );
+
+    expect(response).not.toBe(CASE_TIMED_OUT_RESPONSE);
+    expect(stored(started.sessionId).caseTimedOut).toBe(false);
   });
 
   it("refuses to advance an expired case and records the timeout once", async () => {

@@ -6,6 +6,8 @@ import {
   nativeCaseVoiceTranscriptLine,
   shouldPreserveNativeCaseReportAfterStartFailure,
   startCaseVoiceSdkCall,
+  VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS,
+  vapiMaxDurationSeconds,
   type CaseBootstrap,
   type NativeCaseBootstrap,
 } from "@/components/CaseVoiceInterview";
@@ -38,6 +40,7 @@ const nativeBootstrap: NativeCaseBootstrap = {
   reportStatus: "pending",
   caseId: "airport_profitability",
   caseTitle: "Airport Profitability",
+  maxDurationSeconds: 900,
 };
 
 const pending: PendingNativeCaseReport = {
@@ -87,6 +90,9 @@ describe("native Case Voice client start contract", () => {
     expect(contract).toEqual({
       assistantId: "server-owned-airport-assistant",
       overrides: {
+        // Vapi's outer safety limit is the 900s Synthesis deadline plus the
+        // buffer — never the bare server-authoritative duration.
+        maxDurationSeconds: 1080,
         variableValues: {
           sessionId: "native-session-1",
           caseId: "airport_profitability",
@@ -94,6 +100,27 @@ describe("native Case Voice client start contract", () => {
       },
     });
     expect(JSON.stringify(contract)).not.toContain(nativeBootstrap.reportToken);
+  });
+
+  it("buffers the outer Vapi limit by exactly the safety constant for both a 900s and a 1200s case", () => {
+    expect(VAPI_CASE_DURATION_SAFETY_BUFFER_SECONDS).toBe(180);
+    expect(vapiMaxDurationSeconds(900)).toBe(1080);
+    expect(vapiMaxDurationSeconds(1200)).toBe(1380);
+
+    const fifteenMinuteCase: NativeCaseBootstrap = { ...nativeBootstrap, maxDurationSeconds: 900 };
+    const twentyMinuteCase: NativeCaseBootstrap = {
+      ...nativeBootstrap,
+      caseId: "data_engineer_clickstream",
+      maxDurationSeconds: 1200,
+    };
+    expect(
+      caseVoiceCallStartContract(fifteenMinuteCase, "deprecated-custom-assistant").overrides
+        .maxDurationSeconds,
+    ).toBe(1080);
+    expect(
+      caseVoiceCallStartContract(twentyMinuteCase, "deprecated-custom-assistant").overrides
+        .maxDurationSeconds,
+    ).toBe(1380);
   });
 
   it("starts the Web SDK exactly once with the server-returned native contract", async () => {
@@ -140,7 +167,7 @@ describe("native Case Voice client start contract", () => {
     expect(JSON.stringify(start.mock.calls)).not.toContain(nativeBootstrap.reportToken);
   });
 
-  it("keeps the custom-LLM Vapi contract isolated and unchanged", () => {
+  it("keeps the custom-LLM Vapi contract isolated and applies the buffered duration", () => {
     const custom: CaseBootstrap = {
       architecture: "custom_llm",
       sessionId: "custom-session-1",
@@ -148,11 +175,14 @@ describe("native Case Voice client start contract", () => {
       openingPrompt: "Authored opening",
       caseId: "airport_profitability",
       caseTitle: "Airport Profitability",
+      maxDurationSeconds: 900,
     };
 
     expect(caseVoiceCallStartContract(custom, "custom-assistant")).toEqual({
       assistantId: "custom-assistant",
       overrides: {
+        // 900s server deadline + the 180s outer safety buffer, not the bare 900.
+        maxDurationSeconds: 1080,
         variableValues: {
           sessionId: "custom-session-1",
           openingPrompt: "Authored opening",
@@ -164,6 +194,12 @@ describe("native Case Voice client start contract", () => {
         },
       },
     });
+
+    const twentyMinuteCustom: CaseBootstrap = { ...custom, maxDurationSeconds: 1200 };
+    expect(
+      caseVoiceCallStartContract(twentyMinuteCustom, "custom-assistant").overrides
+        .maxDurationSeconds,
+    ).toBe(1380);
   });
 
   it("retains the report capability across call end and enables polling only afterward", () => {
