@@ -16,6 +16,41 @@ Interview preparation is normally scattered across a resume checklist, a stack o
 
 **Principal workflow:** a candidate lands on Synthesis, optionally sets a target role, then moves through any combination of the four practice experiences below. Each experience produces its own report; the Readiness Dashboard aggregates them into one status view so the candidate knows what to work on next.
 
+## Product Tour
+
+<p align="center">
+  <img src="docs/assets/screenshots/synthesis-hero.webp" alt="Synthesis landing page reading 'Prepare for the interview. Become ready for the room.' with quick links to Analyze my fit, Practice behavioural, and Run a case." width="100%">
+</p>
+<p align="center"><sub><strong>Synthesis landing</strong> — one preparation environment for resume fit, behavioural interviews, and live case practice.</sub></p>
+
+<p align="center">
+  <img src="docs/assets/screenshots/fit-analyzer.webp" alt="Resume Fit Analyzer results screen showing a fit score of 78, a list of matched, partial, and missing requirements, and prioritized next steps." width="100%">
+</p>
+<p align="center"><sub><strong>Resume Fit Analyzer</strong> — role alignment, evidence mapping, and improvement guidance.</sub></p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screenshots/behavioural-coach.webp" alt="Behavioural Coach preflight screen with session-length options (full interview vs. focused practice) and a Start behavioural interview button." width="100%">
+      <p align="center"><sub><strong>Behavioural Coach</strong> — structured voice practice with synchronized prompts and feedback.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screenshots/strategy-case.webp" alt="Strategy Case Simulator case-selection screen showing the Airport Profitability and GCC Premium Gym Market Entry cases with difficulty rating and time limit." width="100%">
+      <p align="center"><sub><strong>Strategy Case Simulator</strong> — timed interactive case practice with structured progression.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screenshots/technical-round.webp" alt="Technical Interview Round case-selection screen for the Data Engineering track, showing the Clickstream Data Pipeline and Data Engineer Technical Round cases." width="100%">
+      <p align="center"><sub><strong>Technical Rounds</strong> — role-specific Data Analyst and Data Engineer practice.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screenshots/readiness-dashboard.webp" alt="Readiness Dashboard showing overall readiness status alongside Resume Fit, Behavioural, and Grid module cards." width="100%">
+      <p align="center"><sub><strong>Readiness Dashboard</strong> — consolidated progress and interview-readiness tracking.</sub></p>
+    </td>
+  </tr>
+</table>
+
 ## Product Experiences
 
 ### Resume Fit Analyzer (`/fit`)
