@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { useMocks } from "@/lib/config";
+import { embeddingsModelRevision, useMocks } from "@/lib/config";
 
 const originalUseMocks = process.env.SYNTHESIS_USE_MOCKS;
 const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
+const originalEmbeddingRevision = process.env.EMBEDDINGS_MODEL_REVISION;
 
 afterEach(() => {
   if (originalUseMocks === undefined) delete process.env.SYNTHESIS_USE_MOCKS;
@@ -10,6 +11,21 @@ afterEach(() => {
 
   if (originalAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
   else process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
+
+  if (originalEmbeddingRevision === undefined) delete process.env.EMBEDDINGS_MODEL_REVISION;
+  else process.env.EMBEDDINGS_MODEL_REVISION = originalEmbeddingRevision;
+});
+
+describe("embeddingsModelRevision", () => {
+  it("uses the pinned default and honours an explicit revision", () => {
+    delete process.env.EMBEDDINGS_MODEL_REVISION;
+    expect(embeddingsModelRevision()).toBe(
+      "ea104dacec62c0de699686887e3f920caeb4f3e3",
+    );
+
+    process.env.EMBEDDINGS_MODEL_REVISION = "test-revision";
+    expect(embeddingsModelRevision()).toBe("test-revision");
+  });
 });
 
 describe("useMocks", () => {

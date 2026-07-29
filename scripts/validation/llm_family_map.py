@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-LLM-assisted posting-to-family mapper for the validation study.
+Authoritative LLM posting-to-family mapper for the validation study.
 
 Offline validation tooling only. The mapper classifies a LinkedIn posting into
 one of the 21 retained resume families plus UNMAPPED. The scoped validation then
 filters those cached labels down to INFORMATION-TECHNOLOGY, FINANCE, and
-CONSULTANT; the mapper itself intentionally remains 22-way so future human
-checks can benchmark the full mapping task.
+CONSULTANT. Cached outputs make repeated validation runs reproducible and avoid
+unnecessary API calls.
 """
 
 from __future__ import annotations

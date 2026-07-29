@@ -1,24 +1,14 @@
 /**
- * Pure ranking helpers for the fit-scorer validation harness — OFFLINE PLANE.
+ * Family-score normalization for code Fit validation - OFFLINE PLANE ONLY.
  *
- * Deterministic, side-effect-free, and unit-tested (tests/validation-rank.test.ts).
- * Kept separate from score_resumes.ts so the scoring logic that feeds the headline
- * top-1/top-3 numbers is independently verifiable.
+ * Code validation compares one resume across several JD families. It
+ * independently min-max normalizes the structured and semantic family-average
+ * score maps before blending them. This is intentionally different from the
+ * production and 54-pair workflows, which blend raw scores for one resume-JD
+ * pair.
  */
 
-export interface Ranked {
-  family: string;
-  score: number;
-}
-
-/** Stable descending rank: highest score first, ties broken by family name (a→z). */
-export function rankDesc(scores: Record<string, number>): Ranked[] {
-  return Object.entries(scores)
-    .map(([family, score]) => ({ family, score }))
-    .sort((a, b) => b.score - a.score || a.family.localeCompare(b.family));
-}
-
-/** Min-max normalize a score map into 0..1. All-equal maps collapse to 0.5. */
+/** Min-max normalize one family-score map into 0..1. */
 export function minMax(scores: Record<string, number>): Record<string, number> {
   const vals = Object.values(scores);
   if (vals.length === 0) return {};
@@ -30,31 +20,24 @@ export function minMax(scores: Record<string, number>): Record<string, number> {
   return out;
 }
 
-/**
- * Blend two score maps (the ablation's "combined" arm): min-max each arm so the
- * structured 0–100 scale and the embeddings cosine are comparable, then weight.
- * `wA` is the weight on `a` (structured); `b` (embeddings) gets `1 - wA`.
- */
+/** Blend independently normalized structured and semantic family-score maps. */
 export function combine(
-  a: Record<string, number>,
-  b: Record<string, number>,
-  wA = 0.5,
+  structured: Record<string, number>,
+  semantic: Record<string, number>,
+  structuredWeight: number,
 ): Record<string, number> {
-  const na = minMax(a);
-  const nb = minMax(b);
+  const normalizedStructured = minMax(structured);
+  const normalizedSemantic = minMax(semantic);
   const out: Record<string, number> = {};
-  for (const k of new Set([...Object.keys(na), ...Object.keys(nb)])) {
-    out[k] = wA * (na[k] ?? 0) + (1 - wA) * (nb[k] ?? 0);
+  for (
+    const family of new Set([
+      ...Object.keys(normalizedStructured),
+      ...Object.keys(normalizedSemantic),
+    ])
+  ) {
+    out[family] =
+      structuredWeight * (normalizedStructured[family] ?? 0) +
+      (1 - structuredWeight) * (normalizedSemantic[family] ?? 0);
   }
   return out;
-}
-
-/** The top-ranked family, or null for an empty map. */
-export function top1(ranked: Ranked[]): string | null {
-  return ranked.length ? ranked[0].family : null;
-}
-
-/** Whether `label` appears within the top-k of a ranking. */
-export function inTopK(ranked: Ranked[], label: string, k: number): boolean {
-  return ranked.slice(0, k).some((r) => r.family === label);
 }

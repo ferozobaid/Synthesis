@@ -1,0 +1,62 @@
+{
+  "study": "Synthesis Fit Analyzer blinded human validation",
+  "created_at": "2026-07-29T04:57:41.842Z",
+  "reviewer_sessions": 1,
+  "target_pairs": 54,
+  "source": {
+    "resumes": "scripts/validation/.artifacts/resumes.scoped.jsonl",
+    "resumes_sha256": "8b9bdf0447c9d37032a6ab483be094aed7bd32b4b4703fca344f81bb85af9c3f",
+    "jds": "scripts/validation/.artifacts/jds.scoped.jsonl",
+    "jds_sha256": "384990b2437ff28f31274252e0600c4383b44a661fcebfca710042375db31f6e",
+    "note": "These are the same frozen real-data artifacts used by code Fit validation."
+  },
+  "eligibility": "JD parser extracts at least three total must-have plus nice-to-have requirements.",
+  "sampling": {
+    "seed": "synthesis-human-validation-54-v1",
+    "eligible_resumes": 353,
+    "eligible_jds": 269,
+    "candidate_resume_pool": 108,
+    "candidate_jd_pool": 54,
+    "candidate_pairs": 5832,
+    "final_pairs": 54,
+    "quotas": "Six pairs per JD family x LOW/MID/HIGH band: four same-source-family and two cross-family.",
+    "band_definition": "Terciles of the mean within-JD-family percentile rank across all five arm scores.",
+    "uniqueness": "Each final pair uses a unique resume and a unique JD.",
+    "within_cell_priority": "Pairs with greater disagreement across the five arm scores are selected first, with deterministic seeded ordering as the tie-breaker."
+  },
+  "arms": [
+    "structured",
+    "embedding",
+    "hybrid_0_25",
+    "hybrid_0_5",
+    "hybrid_0_75"
+  ],
+  "arm_label_thresholds": {
+    "source": "Pre-specified three-level validation mapping derived from the product's 45 and 65 cut points; the product's 65-79 and 80+ presentation bands are combined as STRONG.",
+    "WEAK": "score < 45",
+    "MEDIUM": "45 <= score < 65",
+    "STRONG": "score >= 65"
+  },
+  "embedding": {
+    "backend": "strict local BGE",
+    "model": "Xenova/bge-small-en-v1.5",
+    "fallback_allowed": false
+  },
+  "human_rubric": {
+    "dimensions": {
+      "core_requirements_0_to_2": "0 = few core requirements met; 1 = some met with meaningful gaps; 2 = most important requirements met.",
+      "evidence_quality_0_to_2": "0 = little relevant evidence; 1 = adjacent or weakly supported evidence; 2 = direct, specific, relevant evidence.",
+      "seniority_scope_0_to_2": "0 = material level or scope mismatch; 1 = partly comparable; 2 = comparable responsibility and complexity.",
+      "gating_requirements_0_to_2": "0 = a clear gating requirement is absent; 1 = uncertain or partially met; 2 = no material gating gap is evident."
+    },
+    "label_rule": {
+      "WEAK": "Total 0-2.",
+      "MEDIUM": "Total 3-5, or any total when gating_requirements_0_to_2 is 0.",
+      "STRONG": "Total 6-8 and gating_requirements_0_to_2 is at least 1."
+    }
+  },
+  "blinding": "reviewer.csv and review_packet.md contain no arm scores, arm labels, source-family fields, or selection bands.",
+  "reviewer_csv_sha256": "199cd9ddbf569cb051de62b1b5d7dce2f4678e1c38f7dc7070647df5944b7736",
+  "hidden_key_sha256": "5545aa74d580bcb61b5a1f59cc62410b0d43bf66b35cf277e44ea34a7bd843c4",
+  "hybrid_formula": "For each resume-JD pair, hybrid arms directly blend the raw 0-100 structured and semantic scores. No min-max normalization or calibration is applied."
+}

@@ -27,7 +27,9 @@ npm test
 ```
 
 To run against live services, copy `.env.local.template` to `.env.local` and fill
-in the relevant keys. Absent keys, the app falls back to mock mode.
+in the relevant keys. Absent Claude credentials, model-backed interview flows
+use their configured mock paths. Fit scoring remains local: it uses
+`hybrid_0_25` when BGE is enabled and structured scoring otherwise.
 
 For semantic fit scoring, set:
 
@@ -47,6 +49,28 @@ EMBEDDINGS_MODEL=Xenova/bge-small-en-v1.5
   maintenance. Offline scripts are never imported by the live plane.
 
 A guard test asserts no `/scripts` import appears in `/app` or `/lib`.
+
+---
+
+## Fit Validation
+
+The active offline validation has two complementary workflows:
+
+- **Scoped code validation:** a large-sample occupational-family proxy. It
+  averages pair scores by JD family, independently min-max normalizes the
+  structured and semantic family-score maps, and compares three hybrid weights.
+- **54-pair validation:** a blinded pair-level comparison. It directly blends
+  raw structured and semantic scores for each pair, matching the production
+  hybrid formula. It does not apply min-max normalization or calibration.
+
+The full scoped code run requires strict local BGE and records sampling,
+implementation, requested-revision, and packaged-model hashes in its evidence
+manifest. Sampled and non-default parser-gate experiments write isolated
+diagnostic artifacts and cannot replace publishable scoped results. Raw
+generated datasets, reviewer material, and pair-level outputs remain offline
+and gitignored; de-identified summary evidence is tracked under
+`reports/fit-validation/`. See `scripts/validation/README.md` for commands and
+limitations.
 
 ---
 

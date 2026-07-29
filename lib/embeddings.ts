@@ -9,7 +9,11 @@
  * helpers. O*NET itself stays a local JSON dictionary, not a vector index.
  */
 import { EMBEDDING_DIM, type Embedding } from "@/lib/types";
-import { embeddingsEnabled, embeddingsModel } from "@/lib/config";
+import {
+  embeddingsEnabled,
+  embeddingsModel,
+  embeddingsModelRevision,
+} from "@/lib/config";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -88,6 +92,7 @@ async function defaultExtractorLoader(): Promise<Extractor> {
 
   return mod.pipeline("feature-extraction", model, {
     quantized: true,
+    revision: embeddingsModelRevision(),
   }) as Promise<Extractor>;
 }
 

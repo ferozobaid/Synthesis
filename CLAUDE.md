@@ -107,8 +107,19 @@ Key files:
 - `app/api/fit/analyze/route.ts` - Fit Analyzer API route.
 
 Validation artifacts under `scripts/validation/.artifacts/` are generated and
-gitignored. The current validation report is generated from
-`metrics.scoped.json`.
+gitignored. The active workflows are:
+
+- scoped code validation: family-average structured and semantic maps are
+  independently min-max normalized before hybrid blending;
+- 54-pair validation: raw pair-level structured and semantic scores are blended
+  directly, matching production.
+
+The main scoped run requires strict BGE and writes
+`validation_manifest.scoped.json`, including sampling, implementation, requested
+revision, and packaged-model hashes. Sampled and non-default parser-gate runs
+are diagnostic-only and must not overwrite scoped artifacts. The current
+validation report is generated from the scoped metrics/manifest and the
+completed `human54` metrics/manifest.
 
 ---
 

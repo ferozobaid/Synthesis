@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import struct
@@ -21,6 +22,7 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
 ART = HERE / ".artifacts"
 SCOPED_FAMILIES = ["CONSULTANT", "FINANCE", "INFORMATION-TECHNOLOGY"]
 
@@ -39,6 +41,112 @@ def read_jd_parse_diagnostics(smoke: bool) -> dict[str, Any] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def verify_repo_file(description: str, relative_path: Any, expected_hash: Any) -> None:
+    if not isinstance(relative_path, str) or not relative_path:
+        raise SystemExit(f"Validation manifest is missing {description} path.")
+    if not isinstance(expected_hash, str) or not expected_hash:
+        raise SystemExit(f"Validation manifest is missing {description} hash.")
+    repo = REPO.resolve()
+    path = (repo / relative_path).resolve()
+    try:
+        path.relative_to(repo)
+    except ValueError as exc:
+        raise SystemExit(f"Validation manifest {description} escapes the repository.") from exc
+    if not path.exists():
+        raise SystemExit(f"Validation manifest {description} file is missing: {path}")
+    if sha256_file(path) != expected_hash:
+        raise SystemExit(f"Validation manifest {description} hash does not match: {path}")
+
+
+def read_validation_manifest(smoke: bool, result_path: Path) -> dict[str, Any]:
+    suffix = "smoke" if smoke else "scoped"
+    path = ART / f"validation_manifest.{suffix}.json"
+    if not path.exists():
+        raise SystemExit(
+            f"Missing {path}. Re-run score_resumes.ts so the scoring backend "
+            "and input hashes are recorded."
+        )
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    expected_mode = "smoke" if smoke else "scoped-real-jd"
+    if manifest.get("mode") != expected_mode:
+        raise SystemExit(
+            f"{path} records mode {manifest.get('mode')!r}; expected "
+            f"{expected_mode!r}. Diagnostic runs cannot publish scoped metrics."
+        )
+    if manifest.get("diagnostic_parameters") is not None:
+        raise SystemExit(f"{path} contains diagnostic parameters and cannot publish metrics.")
+    embedding = manifest.get("embedding") or {}
+    expected_backend = "mock" if smoke else "bge"
+    if embedding.get("backend") != expected_backend:
+        raise SystemExit(
+            f"{path} records embedding backend {embedding.get('backend')!r}; "
+            f"expected {expected_backend!r} for this validation mode."
+        )
+    if embedding.get("fallback_allowed") is not False:
+        raise SystemExit(f"{path} must record fallback_allowed=false.")
+    if not smoke:
+        if not embedding.get("requested_revision"):
+            raise SystemExit(f"{path} must record the requested BGE revision.")
+        if embedding.get("revision_enforced_for_remote_loading") is not True:
+            raise SystemExit(f"{path} must enforce the requested BGE revision.")
+        if embedding.get("source") == "packaged-local":
+            if not embedding.get("model_bundle_sha256"):
+                raise SystemExit(f"{path} must record the packaged BGE bundle hash.")
+            model_files = embedding.get("model_files_sha256") or {}
+            if not model_files:
+                raise SystemExit(f"{path} must record packaged BGE file hashes.")
+            bundle_hash = hashlib.sha256(
+                json.dumps(model_files, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if embedding.get("model_bundle_sha256") != bundle_hash:
+                raise SystemExit(f"{path} packaged BGE bundle hash is inconsistent.")
+            for relative_path, expected_hash in model_files.items():
+                verify_repo_file("packaged BGE model", relative_path, expected_hash)
+        elif embedding.get("source") != "remote-or-cache":
+            raise SystemExit(f"{path} records an unsupported BGE source.")
+    recorded_hash = (manifest.get("output") or {}).get("results_sha256")
+    actual_hash = sha256_file(result_path)
+    if recorded_hash != actual_hash:
+        raise SystemExit(
+            f"{result_path} does not match the manifest hash. Re-run "
+            "score_resumes.ts before generating metrics."
+        )
+    output = manifest.get("output") or {}
+    result_rows = sum(1 for line in result_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    if output.get("result_rows") != result_rows:
+        raise SystemExit(f"{path} result row count does not match {result_path}.")
+    inputs = manifest.get("inputs") or {}
+    if not smoke and inputs.get("resume_source_rows") != inputs.get("resume_rows"):
+        raise SystemExit(f"{path} contains a sampled resume subset and cannot publish scoped metrics.")
+    verify_repo_file("resume input", inputs.get("resumes"), inputs.get("resumes_sha256"))
+    verify_repo_file("JD input", inputs.get("jds"), inputs.get("jds_sha256"))
+    verify_repo_file(
+        "sampling report",
+        inputs.get("sampling_report"),
+        inputs.get("sampling_report_sha256"),
+    )
+    parser_gate = manifest.get("parser_gate") or {}
+    verify_repo_file(
+        "JD parser diagnostics",
+        parser_gate.get("diagnostics"),
+        parser_gate.get("diagnostics_sha256"),
+    )
+    implementation_files = manifest.get("implementation_sha256") or {}
+    if not implementation_files:
+        raise SystemExit(f"{path} must record scoring implementation hashes.")
+    for relative_path, expected_hash in implementation_files.items():
+        verify_repo_file("scoring implementation", relative_path, expected_hash)
+    return manifest
 
 
 def metrics_for(rows: list[dict[str, Any]], arm: str, labels: list[str]) -> dict[str, Any]:
@@ -227,6 +335,7 @@ def main() -> None:
     if not result_path.exists():
         raise SystemExit(f"Missing {result_path}. Run score_resumes.ts first.")
 
+    validation_manifest = read_validation_manifest(smoke, result_path)
     rows = [json.loads(line) for line in result_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
         raise SystemExit(f"No rows in {result_path}")
@@ -246,6 +355,7 @@ def main() -> None:
         "labels": labels,
         "jd_counts": rows[0].get("jd_counts", {}),
         "jd_parse_diagnostics": read_jd_parse_diagnostics(smoke),
+        "validation_manifest": validation_manifest,
         "arms": arm_metrics,
         "best_arm": best_arm,
     }

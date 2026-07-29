@@ -1,75 +1,121 @@
-# Human Validation Protocol
+# 54-Pair Fit Validation Protocol
 
-This protocol covers two distinct blinded checks. Do not open the generated
-`*_key.*` files until all human labels have been saved.
+This protocol covers the active blinded resume-to-JD pair study. Review only
+the generated `reviewer.csv` or `review_packet.md`. Do not open the hidden key
+until every rubric judgment has been completed and frozen.
 
-## A. Resume-to-JD pair assessment
+## Evidence Rules
 
-Review only evidence explicitly present in the resume and JD. Do not infer
-skills, experience, education, or seniority that are not written down.
+Use only evidence explicitly present in the resume and JD. Do not infer skills,
+experience, education, seniority, credentials, or authorization that are not
+written down.
 
-- **STRONG:** The resume clearly meets most important must-haves, includes
-  relevant evidence, and has no critical gap that would normally prevent
-  consideration.
-- **MEDIUM:** The resume meets some important requirements or has credible
-  transferable experience, but has at least one meaningful gap or weakly
-  evidenced must-have.
+- **STRONG:** The resume clearly meets most important requirements, includes
+  direct relevant evidence, and has no material gating gap.
+- **MEDIUM:** The resume meets some important requirements or shows credible
+  transferable experience, but has a meaningful gap or weakly evidenced
+  must-have.
 - **WEAK:** The resume targets a substantially different role or misses several
-  important must-haves, including any clear gating requirement.
+  important requirements.
 
-Apply these calibration rules when the label is not obvious:
+Additional rules:
 
-- Treat a JD requirement as **gating** when the role clearly depends on a
-  specific degree, certification, work authorization, domain, tool, or technical
-  stack. Missing a gating requirement should usually prevent a STRONG label
-  unless the resume shows direct equivalent experience.
-- Treat transferable experience as evidence for MEDIUM when the resume shows
-  adjacent work, similar responsibilities, or credible learning readiness but
-  does not directly show the JD's central tools, domain, or tasks.
+- Treat a requirement as gating when the role clearly depends on a specific
+  degree, certification, work authorization, domain, tool, or technical stack.
+- Transferable experience can support MEDIUM when the resume shows adjacent
+  work or similar responsibilities without direct evidence of the JD's central
+  tools, domain, or tasks.
 - Use STRONG for transferable cases only when the resume shows direct evidence
-  of doing the same kind of work at a comparable level, even if the exact job
-  title or employer domain differs.
-- Do not let soft skills alone outweigh missing role-specific requirements.
-  Communication, teamwork, stakeholder management, and problem solving can
-  strengthen a label, but they should not convert a role mismatch into STRONG.
-- For software, data, analytics, or technical roles, missing the main named
-  tools or methods should be recorded as a critical gap. Examples include no
-  SQL/Python/R for a data role, no PHP/JavaScript/MySQL for a web-development
-  role, or no Oracle/financial-technology evidence for a role centered on those
-  systems.
+  of comparable work at a comparable level.
+- Do not let soft skills outweigh missing role-specific requirements.
+- Missing the central tools or methods for a technical role must materially
+  reduce the rubric score.
 
-Use `human_confidence_1_to_3` as follows: 1 = uncertain, 2 = reasonably sure,
-3 = clear judgment. In `key_matching_evidence`, cite the most relevant resume
-evidence. In `critical_gaps`, identify the most decision-relevant missing
-requirement. Complete every row before analyzing results.
+## Frozen Rubric
 
-Use confidence 1 as a review flag, especially when the label is STRONG or WEAK.
-It means the final report should avoid treating that row as decisive evidence by
-itself.
+Score each dimension from 0 to 2:
 
-The analysis compares the ordinal human labels against structured, semantic,
-hybrid, and currently deployed scores using rank correlation and mean score by
-label. A production-method change requires the full scoped study, a reasonable
-spread of all three labels, and a consistent improvement--not the smoke pilot.
+- `core_requirements_0_to_2`: coverage of the JD's important requirements.
+- `evidence_quality_0_to_2`: directness and specificity of resume evidence.
+- `seniority_scope_0_to_2`: comparability of responsibility and complexity.
+- `gating_requirements_0_to_2`: whether material gating requirements are met.
 
-## B. Mapper comparison
+Sum the four dimensions into `human_total_0_to_8`.
 
-Classify each posting by its primary job function, not the employer's industry
-and not a single incidental keyword. Choose exactly one value from the allowed
-family list; use `UNMAPPED` when none is a defensible fit.
+- Total 0-2: `WEAK`
+- Total 3-5: `MEDIUM`
+- Total 6-8: `STRONG`
+- A zero on `gating_requirements_0_to_2` caps the label at `MEDIUM`.
 
-The review CSV hides both mapper outputs. The analysis uses the human family as
-the reference and reports keyword and LLM accuracy, plus which mapper wins on
-their disagreements. Because disagreement rows are intentionally prioritized,
-report disagreement-focused accuracy separately and do not present it as an
-unbiased estimate of all postings.
+## Study Design
 
-## Minimum evidence standard
+- Exactly 54 analyzable pairs.
+- Three JD families: Consultant, Finance, and Information Technology.
+- Six pairs per JD-family by LOW/MID/HIGH selection-band cell.
+- Four same-source-family and two cross-family pairs per cell.
+- Every final resume and JD is unique.
+- One blinded review session.
+- Five hidden scoring arms: structured, embedding, hybrid 0.25, hybrid 0.50,
+  and hybrid 0.75.
+- Strict local BGE embeddings with no fallback.
 
-- Pilot: all 9 local pairs and all 3 local mapper rows; workflow check only.
-- Main pair study: 24-36 blinded pairs, with representation across all three fit
-  bands where the sampled evidence supports that distribution.
-- Mapper check: 20-30 postings, prioritizing disagreements but retaining some
-  agreement rows as controls.
-- Preserve the review CSVs, key JSONL files, metrics JSON, date, and reviewer
-  name together for an auditable record.
+The selection bands are terciles of the mean within-JD-family percentile rank
+across all five arm scores. Within each cell, the selection prioritizes pairs
+with greater disagreement across arms. The design supports method comparison
+and does not estimate natural production prevalence.
+
+## Pair-Level Scoring
+
+The structured and semantic arms each produce a raw 0-100 score for one
+resume-JD pair. Each hybrid arm directly blends those raw pair scores:
+
+```text
+hybrid = structured_weight * structured
+       + (1 - structured_weight) * semantic
+```
+
+No min-max normalization, score transformation, or calibration is applied.
+
+The pre-specified three-level validation mapping translates arm scores into
+diagnostic labels:
+
+- score below 45: `WEAK`
+- score from 45 through 64: `MEDIUM`
+- score 65 or above: `STRONG`
+
+This mapping uses the product's 45 and 65 cut points but combines the product's
+65-79 and 80+ presentation bands as `STRONG`; it does not test the 80 cut point
+separately. The mapping was recorded before unblinding and was not tuned to the
+study. Threshold-based label metrics are secondary to rank correlation and
+pairwise ordering because the five arms occupy different raw score ranges.
+
+## Workflow
+
+Prepare the blinded sample and hidden scores:
+
+```bash
+npm run validate:human54 -- --prepare
+```
+
+Complete all rubric judgments without opening `hidden_key.jsonl`. Store the
+judgments as a JSON array, then apply and freeze them:
+
+```bash
+npm run validate:human54 -- --apply-labels scripts/validation/.artifacts/human54/labels.json
+```
+
+After the freeze record exists, merge the hidden scores and calculate metrics:
+
+```bash
+npm run validate:human54 -- --finalize
+```
+
+The final comparison file is:
+
+```text
+scripts/validation/.artifacts/human54/comparison.csv
+```
+
+Preserve the reviewer file, completed review, label source, hidden key, freeze
+record, comparison, metrics, manifest, and audit together. All raw study
+artifacts remain offline and gitignored.
