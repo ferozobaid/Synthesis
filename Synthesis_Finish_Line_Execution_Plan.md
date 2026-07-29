@@ -2,6 +2,11 @@
 
 *Solo completion plan from deployed MVP to final submission*
 
+> **Historical planning record:** dates, pending-work statements, validation
+> targets, and recommendations in this file describe an earlier execution
+> phase. Use `source-of-truth.md` and `scripts/validation/README.md` for current
+> Fit Analyzer decisions and completed validation.
+
 > **Note:** This is the markdown mirror of `Synthesis_Finish_Line_Execution_Plan.docx`
 > (dated 13 July 2026), committed so cloud agents can read it. If this file and the
 > `.docx` diverge, treat the most recently edited one as authoritative and reconcile.

@@ -40,7 +40,7 @@ Use this only when you are ready for live Claude calls.
 | `SYNTHESIS_MODEL_MODE` | `default` | Uses the locked Haiku model. |
 | `EMBEDDINGS_ENABLED` | `true` | Enables the packaged BGE semantic scoring path. |
 | `EMBEDDINGS_MODEL` | `Xenova/bge-small-en-v1.5` | Selects the supported 384-dimensional BGE model. |
-| `EMBEDDINGS_MODEL_REVISION` | `ea104dacec62c0de699686887e3f920caeb4f3e3` | Pins the model files downloaded during the build. |
+| `EMBEDDINGS_MODEL_REVISION` | `ea104dacec62c0de699686887e3f920caeb4f3e3` | Pins model files downloaded during the build and any remote runtime model load. |
 | `BGE_INFERENCE_CONCURRENCY` | `2` | Bounds concurrent ONNX inference work per function instance. |
 
 Mock mode is controlled by `useMocks()`:

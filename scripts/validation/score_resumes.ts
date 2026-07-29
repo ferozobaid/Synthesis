@@ -4,16 +4,21 @@
  * Scores the same frozen resume x posting-level-JD split with:
  *   - structured: current deterministic rules scoreFit()
  *   - embedding : requirement-level semantic evidence retrieval
- *   - hybrid    : per-resume min-max blend of structured + embedding
+ *   - hybrid    : per-resume family-normalized blend of structured + embedding
  *
- * The semantic scorer lives in lib/ for future production reuse, but this phase
- * only calls it from validation; /api/fit/analyze remains rules-only.
+ * The main scoped study requires strict local BGE embeddings and never falls
+ * back to mock vectors. Smoke mode uses an explicitly identified deterministic
+ * mock backend. Production and 54-pair validation blend raw pair scores instead
+ * of family-normalized score maps.
  */
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { embeddingsEnabled } from "@/lib/config";
+import { embeddingsModel, embeddingsModelRevision } from "@/lib/config";
+import { BGE_QUERY_PREFIX, embedBatchStrict, mockEmbed } from "@/lib/embeddings";
 import { scoreFit } from "@/lib/matching";
 import {
   indexJDRequirements,
@@ -23,20 +28,30 @@ import {
 } from "@/lib/matching-semantic";
 import { parseJD } from "@/lib/parsers/jd-parser";
 import { parseResume } from "@/lib/parsers/resume-parser";
-import type { JDRequirements, ParsedResume } from "@/lib/types";
+import type { Embedding, JDRequirements, ParsedResume } from "@/lib/types";
+import { combine } from "./rank";
+import { resolveValidationRun } from "./run-mode";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = join(HERE, "..", "..");
 const ART = join(HERE, ".artifacts");
-const smoke = process.argv.includes("--smoke") || process.argv.includes("--fixtures");
-const suffix = smoke ? "smoke" : "scoped";
+const run = resolveValidationRun(process.argv.slice(2));
+const smoke = run.smoke;
+const suffix = run.outputSuffix;
 
-const resumePath = join(ART, `resumes.${suffix}.jsonl`);
-const jdPath = join(ART, `jds.${suffix}.jsonl`);
+const resumePath = join(ART, `resumes.${run.inputSuffix}.jsonl`);
+const jdPath = join(ART, `jds.${run.inputSuffix}.jsonl`);
 const outPath = join(ART, `results.${suffix}.jsonl`);
 const jdDiagnosticsPath = join(ART, `jd_parse_diagnostics.${suffix}.json`);
+const manifestPath = join(ART, `validation_manifest.${suffix}.json`);
 
 const HYBRID_STRUCTURED_WEIGHTS = [0.25, 0.5, 0.75] as const;
-const DEFAULT_MIN_JD_REQUIREMENTS = smoke ? 0 : 3;
+const PACKAGED_MODEL_FILES = [
+  "config.json",
+  "tokenizer.json",
+  "tokenizer_config.json",
+  "onnx/model_quantized.onnx",
+] as const;
 
 function loadDotenv(): void {
   const path = join(HERE, "..", "..", ".env.local");
@@ -87,20 +102,6 @@ function readJsonl<T>(path: string): T[] {
     .map((line) => JSON.parse(line) as T);
 }
 
-function sampleArg(): number | null {
-  const i = process.argv.indexOf("--sample");
-  if (i === -1) return null;
-  const n = parseInt(process.argv[i + 1] ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-function intArg(flag: string, fallback: number): number {
-  const i = process.argv.indexOf(flag);
-  if (i === -1) return fallback;
-  const n = parseInt(process.argv[i + 1] ?? "", 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
 function stratifiedSample<T extends { category: string }>(rows: T[], n: number): T[] {
   const seen = new Map<string, number>();
   const out: T[] = [];
@@ -116,34 +117,6 @@ function stratifiedSample<T extends { category: string }>(rows: T[], n: number):
 
 function average(values: number[]): number {
   return values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
-}
-
-function minMax(scores: Record<string, number>): Record<string, number> {
-  const values = Object.values(scores);
-  if (!values.length) return {};
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
-  const span = hi - lo;
-  const out: Record<string, number> = {};
-  for (const [family, value] of Object.entries(scores)) {
-    out[family] = span === 0 ? 0.5 : (value - lo) / span;
-  }
-  return out;
-}
-
-function blend(
-  structured: Record<string, number>,
-  embedding: Record<string, number>,
-  structuredWeight: number,
-): Record<string, number> {
-  const s = minMax(structured);
-  const e = minMax(embedding);
-  const out: Record<string, number> = {};
-  for (const family of new Set([...Object.keys(s), ...Object.keys(e)])) {
-    out[family] =
-      structuredWeight * (s[family] ?? 0) + (1 - structuredWeight) * (e[family] ?? 0);
-  }
-  return out;
 }
 
 function requirementCount(parsed: JDRequirements): number {
@@ -208,6 +181,16 @@ function buildJDParseDiagnostics(rows: ParsedJDCandidate[], minJDRequirements: n
   };
 }
 
+async function validationEmbedBatch(
+  texts: string[],
+  opts: { query?: boolean } = {},
+): Promise<Embedding[]> {
+  if (!smoke) return embedBatchStrict(texts, opts);
+  return texts.map((text) =>
+    mockEmbed(opts.query ? `${BGE_QUERY_PREFIX}${text}` : text),
+  );
+}
+
 async function prepareJDs(
   rows: JDRow[],
   minJDRequirements: number,
@@ -227,7 +210,9 @@ async function prepareJDs(
   const out: PreparedJD[] = [];
   let n = 0;
   for (const row of keptRows) {
-    const semantic = await indexJDRequirements(row.parsed);
+    const semantic = await indexJDRequirements(row.parsed, {
+      embedBatcher: validationEmbedBatch,
+    });
     out.push({ ...row, semantic });
     if (++n % 25 === 0) console.log(`  indexed ${n}/${keptRows.length} JDs`);
   }
@@ -239,11 +224,103 @@ async function prepareResumes(rows: ResumeRow[]): Promise<PreparedResume[]> {
   let n = 0;
   for (const row of rows) {
     const parsed = parseResume(row.raw_text);
-    const semantic = await indexResumeEvidence(parsed);
+    const semantic = await indexResumeEvidence(parsed, {
+      embedBatcher: validationEmbedBatch,
+    });
     out.push({ ...row, parsed, semantic });
     if (++n % 50 === 0) console.log(`  indexed ${n}/${rows.length} resumes`);
   }
   return out;
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function sha256Text(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function repoPath(path: string): string {
+  return relative(REPO, path).replaceAll("\\", "/");
+}
+
+function currentCommit(): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: REPO,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function worktreeDirty(): boolean | null {
+  try {
+    return (
+      execFileSync("git", ["status", "--porcelain"], {
+        cwd: REPO,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim().length > 0
+    );
+  } catch {
+    return null;
+  }
+}
+
+function implementationFiles(): Record<string, string> {
+  const paths = [
+    join(REPO, "scripts", "validation", "score_resumes.ts"),
+    join(REPO, "scripts", "validation", "rank.ts"),
+    join(REPO, "scripts", "validation", "run-mode.ts"),
+    join(REPO, "scripts", "validation", "prepare_data.py"),
+    join(REPO, "scripts", "validation", "llm_family_map.py"),
+    join(REPO, "scripts", "validation", "validate_matching.py"),
+    join(REPO, "lib", "config.ts"),
+    join(REPO, "lib", "embeddings.ts"),
+    join(REPO, "lib", "matching.ts"),
+    join(REPO, "lib", "matching-semantic.ts"),
+    join(REPO, "lib", "onet.ts"),
+    join(REPO, "lib", "types.ts"),
+    join(REPO, "lib", "data", "onet-taxonomy.json"),
+    join(REPO, "lib", "parsers", "resume-parser.ts"),
+    join(REPO, "lib", "parsers", "jd-parser.ts"),
+    join(REPO, "package-lock.json"),
+  ];
+  return Object.fromEntries(paths.map((path) => [repoPath(path), sha256File(path)]));
+}
+
+function packagedModelEvidence(): {
+  source: "packaged-local" | "remote-or-cache";
+  bundle_sha256: string | null;
+  files_sha256: Record<string, string>;
+} {
+  const modelRoot = join(REPO, "models", ...embeddingsModel().split("/"));
+  const configPath = join(modelRoot, "config.json");
+  if (!existsSync(configPath)) {
+    return {
+      source: "remote-or-cache",
+      bundle_sha256: null,
+      files_sha256: {},
+    };
+  }
+  const files = Object.fromEntries(
+    PACKAGED_MODEL_FILES.map((relativePath) => {
+      const path = join(modelRoot, ...relativePath.split("/"));
+      if (!existsSync(path)) {
+        throw new Error(`Packaged BGE model is incomplete: missing ${path}`);
+      }
+      return [repoPath(path), sha256File(path)];
+    }),
+  );
+  return {
+    source: "packaged-local",
+    bundle_sha256: sha256Text(JSON.stringify(files)),
+    files_sha256: files,
+  };
 }
 
 async function main(): Promise<void> {
@@ -254,18 +331,26 @@ async function main(): Promise<void> {
     );
   }
 
-  let resumeRows = readJsonl<ResumeRow>(resumePath);
-  const sample = sampleArg();
-  if (sample) {
-    resumeRows = stratifiedSample(resumeRows, sample);
-    console.log(`Stratified resume sample: <=${sample}/family -> ${resumeRows.length}`);
+  const sourceResumeRows = readJsonl<ResumeRow>(resumePath);
+  let resumeRows = sourceResumeRows;
+  if (run.samplePerFamily !== null) {
+    resumeRows = stratifiedSample(resumeRows, run.samplePerFamily);
+    console.log(
+      `Stratified resume sample: <=${run.samplePerFamily}/family -> ${resumeRows.length}`,
+    );
   }
   const jdRows = readJsonl<JDRow>(jdPath);
-  const minJDRequirements = intArg("--min-jd-requirements", DEFAULT_MIN_JD_REQUIREMENTS);
+  const minJDRequirements = run.minJDRequirements;
 
   console.log(
     `Scoring ${resumeRows.length} resumes x ${jdRows.length} real JDs ` +
-      `(${smoke ? "smoke" : "scoped"}, embeddings: ${embeddingsEnabled() ? "enabled" : "MOCK"}).`,
+      `(${
+        smoke
+          ? "smoke, explicit mock embeddings"
+          : run.diagnostic
+            ? `diagnostic ${suffix.replace("diagnostic-", "")}, strict local BGE`
+            : "scoped, strict local BGE"
+      }).`,
   );
 
   console.log("Indexing JDs...");
@@ -312,7 +397,11 @@ async function main(): Promise<void> {
       embedding,
     };
     for (const weight of HYBRID_STRUCTURED_WEIGHTS) {
-      row[`hybrid_${String(weight).replace(".", "_")}`] = blend(structured, embedding, weight);
+      row[`hybrid_${String(weight).replace(".", "_")}`] = combine(
+        structured,
+        embedding,
+        weight,
+      );
     }
     lines.push(JSON.stringify(row));
 
@@ -320,7 +409,71 @@ async function main(): Promise<void> {
   }
 
   writeFileSync(outPath, lines.join("\n") + "\n");
+  const samplingReportPath = join(ART, `sampling_report.${run.inputSuffix}.json`);
+  const modelEvidence = smoke ? null : packagedModelEvidence();
+  const manifest = {
+    schema_version: 1,
+    mode: run.mode,
+    diagnostic_parameters: run.diagnostic
+      ? {
+          sample_per_family: run.samplePerFamily,
+          min_jd_requirements: minJDRequirements,
+        }
+      : null,
+    generated_at: new Date().toISOString(),
+    git_commit: currentCommit(),
+    git_worktree_dirty: worktreeDirty(),
+    implementation_sha256: implementationFiles(),
+    evaluation_unit:
+      "One resume is scored against every retained JD; pair scores are averaged by JD family.",
+    scoring: {
+      structured: "scoreFit() raw 0-100 pair scores averaged by JD family",
+      embedding:
+        "scoreSemanticIndexed() raw 0-100 pair scores averaged by JD family",
+      hybrids:
+        "Structured and semantic family-average score maps are independently min-max normalized per resume, then blended.",
+      structured_weights: HYBRID_STRUCTURED_WEIGHTS,
+    },
+    embedding: {
+      backend: smoke ? "mock" : "bge",
+      model: smoke ? "deterministic-test-vector" : embeddingsModel(),
+      requested_revision: smoke ? null : embeddingsModelRevision(),
+      revision_enforced_for_remote_loading: !smoke,
+      source: smoke ? "deterministic-test-vector" : modelEvidence!.source,
+      model_bundle_sha256: smoke ? null : modelEvidence!.bundle_sha256,
+      model_files_sha256: smoke ? {} : modelEvidence!.files_sha256,
+      fallback_allowed: false,
+    },
+    parser_gate: {
+      minimum_requirements_per_jd: minJDRequirements,
+      diagnostics: repoPath(jdDiagnosticsPath),
+      diagnostics_sha256: sha256File(jdDiagnosticsPath),
+    },
+    inputs: {
+      resumes: repoPath(resumePath),
+      resumes_sha256: sha256File(resumePath),
+      resume_source_rows: sourceResumeRows.length,
+      resume_rows: resumeRows.length,
+      selected_resume_ids_sha256: sha256Text(
+        `${resumeRows.map((row) => row.id).join("\n")}\n`,
+      ),
+      jds: repoPath(jdPath),
+      jds_sha256: sha256File(jdPath),
+      jd_rows: jdRows.length,
+      sampling_report:
+        existsSync(samplingReportPath) ? repoPath(samplingReportPath) : null,
+      sampling_report_sha256:
+        existsSync(samplingReportPath) ? sha256File(samplingReportPath) : null,
+    },
+    output: {
+      results: repoPath(outPath),
+      results_sha256: sha256File(outPath),
+      result_rows: lines.length,
+    },
+  };
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   console.log(`\nWrote ${outPath}`);
+  console.log(`Evidence manifest -> ${manifestPath}`);
 }
 
 main().catch((error) => {

@@ -1,0 +1,447 @@
+{
+  "mode": "scoped-real-jd",
+  "n_resumes": 353,
+  "labels": [
+    "CONSULTANT",
+    "FINANCE",
+    "INFORMATION-TECHNOLOGY"
+  ],
+  "jd_counts": {
+    "CONSULTANT": 95,
+    "FINANCE": 94,
+    "INFORMATION-TECHNOLOGY": 80
+  },
+  "jd_parse_diagnostics": {
+    "mode": "scoped-real-jd",
+    "min_jd_requirements": 3,
+    "total": 300,
+    "kept": 269,
+    "dropped": 31,
+    "original_counts": {
+      "CONSULTANT": 100,
+      "FINANCE": 100,
+      "INFORMATION-TECHNOLOGY": 100
+    },
+    "kept_counts": {
+      "CONSULTANT": 95,
+      "FINANCE": 94,
+      "INFORMATION-TECHNOLOGY": 80
+    },
+    "families": {
+      "CONSULTANT": {
+        "total": 100,
+        "kept": 95,
+        "dropped": 5,
+        "zero_requirement": 0,
+        "one_requirement": 2,
+        "two_requirements": 3,
+        "min": 1,
+        "max": 22,
+        "mean": 12.65,
+        "median": 14,
+        "dropped_examples": [
+          {
+            "job_id": "3884920412",
+            "title": "OneStream Consultant",
+            "company_name": "Ztek Consulting",
+            "requirement_count": 2
+          },
+          {
+            "job_id": "3884933297",
+            "title": "Sr. SAP S/4 Hana Customer Service Consultant",
+            "company_name": "MAK Technologies LLC",
+            "requirement_count": 2
+          },
+          {
+            "job_id": "3886899493",
+            "title": "Bigdata Consultant",
+            "company_name": "SysMind",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3887101384",
+            "title": "PKI solutions Consultant",
+            "company_name": "Prudent Technologies and Consulting, Inc.",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3887713414",
+            "title": "Presales Consultant",
+            "company_name": "apexanalytix",
+            "requirement_count": 2
+          }
+        ]
+      },
+      "FINANCE": {
+        "total": 100,
+        "kept": 94,
+        "dropped": 6,
+        "zero_requirement": 0,
+        "one_requirement": 4,
+        "two_requirements": 2,
+        "min": 1,
+        "max": 24,
+        "mean": 13.22,
+        "median": 14,
+        "dropped_examples": [
+          {
+            "job_id": "3884434020",
+            "title": "Tableau Developer",
+            "company_name": "VDart",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3884435053",
+            "title": "Financial Consultant",
+            "company_name": "Creed Agency",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3884914341",
+            "title": "Information Technology Financial Analyst",
+            "company_name": "Computech Corporation",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3884940248",
+            "title": "Finance and Admin Manager",
+            "company_name": "Hampden Park Capital & Consulting",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3885104403",
+            "title": "Financial Advisor",
+            "company_name": "LRC Aviation Advisors",
+            "requirement_count": 2
+          }
+        ]
+      },
+      "INFORMATION-TECHNOLOGY": {
+        "total": 100,
+        "kept": 80,
+        "dropped": 20,
+        "zero_requirement": 3,
+        "one_requirement": 9,
+        "two_requirements": 8,
+        "min": 0,
+        "max": 22,
+        "mean": 8.96,
+        "median": 7.5,
+        "dropped_examples": [
+          {
+            "job_id": "133130219",
+            "title": "Software Engineer",
+            "company_name": "",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "266825034",
+            "title": "Software Support Specialist",
+            "company_name": "Recruitment Design",
+            "requirement_count": 2
+          },
+          {
+            "job_id": "3795134838",
+            "title": "backend Java developer",
+            "company_name": "TekisHub Consulting Services",
+            "requirement_count": 2
+          },
+          {
+            "job_id": "3840166122",
+            "title": "Senior Salesforce Developer",
+            "company_name": "Tanisha Systems, Inc",
+            "requirement_count": 1
+          },
+          {
+            "job_id": "3841003722",
+            "title": "Senior Data Engineer/Analyst - Full Time",
+            "company_name": "",
+            "requirement_count": 1
+          }
+        ]
+      }
+    }
+  },
+  "validation_manifest": {
+    "schema_version": 1,
+    "mode": "scoped-real-jd",
+    "diagnostic_parameters": null,
+    "generated_at": "2026-07-29T17:32:50.826Z",
+    "git_commit": "40d0cf867e66d7def54b98f3331baa2a89a6fec8",
+    "git_worktree_dirty": true,
+    "implementation_sha256": {
+      "scripts/validation/score_resumes.ts": "cd91261d3f1c9d53bb7dc4b716747abb3364af3f1663a157b4720d23180128a8",
+      "scripts/validation/rank.ts": "b6d12d79f9f6f3130ac7bff038fa012194f087942cfe04cc8f6c269158fa8a59",
+      "scripts/validation/run-mode.ts": "7746e1c4c56a20d011a755d413d8d8aab41a6ba823117d001a402a3ef8e17ea0",
+      "scripts/validation/prepare_data.py": "3416d7ca477e71ddb43010f83ccdd9c67a89499d0c309aa2835bf14faad6a399",
+      "scripts/validation/llm_family_map.py": "f86046941ec4b8dce6487ca7e6e31687eac8362b81c1cd119bb8de5e3132674d",
+      "scripts/validation/validate_matching.py": "f9588ded5ea8c906b3b009e6c9f114c11d5bd4c930b942d1448c03ecee4a8b2a",
+      "lib/config.ts": "ba4cdba0829167d6e8d4a6e649f9364d39109b4e03210b3532df1c4379501e29",
+      "lib/embeddings.ts": "de4c1556881e3499f34dad1bf7a1296af10f2b149b8770196adabaff69e98d41",
+      "lib/matching.ts": "080dc904e8a2c14f54c45241ddc737117c090e436ecf43bb15473a7e61121f90",
+      "lib/matching-semantic.ts": "36bcc325905e62de206b073d35da6c59f3f9b997c44dc2137783f314b90bd71d",
+      "lib/onet.ts": "fe494e0930c223b7a5d2b4771c34d114e75aaf328ea102274c3edde90250e015",
+      "lib/types.ts": "fcc8619e613d245e8da1609fbfdb37f3aedce6adfc50426396ea685f90c11366",
+      "lib/data/onet-taxonomy.json": "f606d82c18e10a60a3de7cbed8942c77028485ce87d5fdd9de50329c21bedc9c",
+      "lib/parsers/resume-parser.ts": "d8c521768c4db49b2cdb892aa9f82e45015bbbef9a698771d602dacb2e60e52d",
+      "lib/parsers/jd-parser.ts": "5b5402c1a9b5783ef61351095273ec6d5678a0f0ec4c14a55e924eda7d55dfb8",
+      "package-lock.json": "804528a1f445bebe9e1fdc9e933e24a834bcee5e4eb439db17f03f5651011f30"
+    },
+    "evaluation_unit": "One resume is scored against every retained JD; pair scores are averaged by JD family.",
+    "scoring": {
+      "structured": "scoreFit() raw 0-100 pair scores averaged by JD family",
+      "embedding": "scoreSemanticIndexed() raw 0-100 pair scores averaged by JD family",
+      "hybrids": "Structured and semantic family-average score maps are independently min-max normalized per resume, then blended.",
+      "structured_weights": [
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    "embedding": {
+      "backend": "bge",
+      "model": "Xenova/bge-small-en-v1.5",
+      "requested_revision": "ea104dacec62c0de699686887e3f920caeb4f3e3",
+      "revision_enforced_for_remote_loading": true,
+      "source": "packaged-local",
+      "model_bundle_sha256": "3aacb9244b59b4b937acad79bbd007e465061967ba2581f21df4ef392325f7e8",
+      "model_files_sha256": {
+        "models/Xenova/bge-small-en-v1.5/config.json": "fa73f90bf92c8cace1fbcb709626306f2bdbc9ea3e5b5f94b440df9b6aa56350",
+        "models/Xenova/bge-small-en-v1.5/tokenizer.json": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        "models/Xenova/bge-small-en-v1.5/tokenizer_config.json": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+        "models/Xenova/bge-small-en-v1.5/onnx/model_quantized.onnx": "6c9c6101a956d62dfb5e7190c538226c0c5bb9cb27b651234b6df063ee7dbfe4"
+      },
+      "fallback_allowed": false
+    },
+    "parser_gate": {
+      "minimum_requirements_per_jd": 3,
+      "diagnostics": "scripts/validation/.artifacts/jd_parse_diagnostics.scoped.json",
+      "diagnostics_sha256": "f4d363685d022d756da29fc9cb32975a4295d37f4b97eb1f8df328be71921cc4"
+    },
+    "inputs": {
+      "resumes": "scripts/validation/.artifacts/resumes.scoped.jsonl",
+      "resumes_sha256": "8b9bdf0447c9d37032a6ab483be094aed7bd32b4b4703fca344f81bb85af9c3f",
+      "resume_source_rows": 353,
+      "resume_rows": 353,
+      "selected_resume_ids_sha256": "80cd94c8f9e0a4c60ff6fa53dcc7e609c439e73d552807721f3ee423b63b41e6",
+      "jds": "scripts/validation/.artifacts/jds.scoped.jsonl",
+      "jds_sha256": "384990b2437ff28f31274252e0600c4383b44a661fcebfca710042375db31f6e",
+      "jd_rows": 300,
+      "sampling_report": "scripts/validation/.artifacts/sampling_report.scoped.json",
+      "sampling_report_sha256": "b918b1841218ec828eeaa1fb7c213b6a8bb20283fa010c49bfca7768ac2933cd"
+    },
+    "output": {
+      "results": "scripts/validation/.artifacts/results.scoped.jsonl",
+      "results_sha256": "78b2111a83ccb2a1c0fab5d28aee3dfc01443abfe4237a083187cf7c3e1702d2",
+      "result_rows": 353
+    }
+  },
+  "arms": {
+    "structured": {
+      "top1": 0.5467,
+      "mean_rank": 1.6346,
+      "mrr": 0.7432,
+      "mean_margin": 2.5992,
+      "median_margin": 1.0401,
+      "per_family": {
+        "CONSULTANT": {
+          "n": 115,
+          "top1": 0.3913,
+          "mean_margin": -2.6576
+        },
+        "FINANCE": {
+          "n": 118,
+          "top1": 1.0,
+          "mean_margin": 13.7829
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "n": 120,
+          "top1": 0.25,
+          "mean_margin": -3.3602
+        }
+      },
+      "confusion_matrix": {
+        "CONSULTANT": {
+          "CONSULTANT": 45,
+          "FINANCE": 58,
+          "INFORMATION-TECHNOLOGY": 12
+        },
+        "FINANCE": {
+          "CONSULTANT": 0,
+          "FINANCE": 118,
+          "INFORMATION-TECHNOLOGY": 0
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "CONSULTANT": 49,
+          "FINANCE": 41,
+          "INFORMATION-TECHNOLOGY": 30
+        }
+      }
+    },
+    "embedding": {
+      "top1": 0.6516,
+      "mean_rank": 1.4278,
+      "mrr": 0.8126,
+      "mean_margin": 0.269,
+      "median_margin": 0.3138,
+      "per_family": {
+        "CONSULTANT": {
+          "n": 115,
+          "top1": 0.3478,
+          "mean_margin": -0.3974
+        },
+        "FINANCE": {
+          "n": 118,
+          "top1": 0.7797,
+          "mean_margin": 0.3592
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "n": 120,
+          "top1": 0.8167,
+          "mean_margin": 0.8188
+        }
+      },
+      "confusion_matrix": {
+        "CONSULTANT": {
+          "CONSULTANT": 40,
+          "FINANCE": 19,
+          "INFORMATION-TECHNOLOGY": 56
+        },
+        "FINANCE": {
+          "CONSULTANT": 6,
+          "FINANCE": 92,
+          "INFORMATION-TECHNOLOGY": 20
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "CONSULTANT": 16,
+          "FINANCE": 6,
+          "INFORMATION-TECHNOLOGY": 98
+        }
+      }
+    },
+    "hybrid_0_25": {
+      "top1": 0.6799,
+      "mean_rank": 1.4079,
+      "mrr": 0.8253,
+      "mean_margin": 0.1846,
+      "median_margin": 0.3028,
+      "per_family": {
+        "CONSULTANT": {
+          "n": 115,
+          "top1": 0.3826,
+          "mean_margin": -0.0905
+        },
+        "FINANCE": {
+          "n": 118,
+          "top1": 0.8898,
+          "mean_margin": 0.4361
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "n": 120,
+          "top1": 0.7583,
+          "mean_margin": 0.2011
+        }
+      },
+      "confusion_matrix": {
+        "CONSULTANT": {
+          "CONSULTANT": 44,
+          "FINANCE": 21,
+          "INFORMATION-TECHNOLOGY": 50
+        },
+        "FINANCE": {
+          "CONSULTANT": 3,
+          "FINANCE": 105,
+          "INFORMATION-TECHNOLOGY": 10
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "CONSULTANT": 22,
+          "FINANCE": 7,
+          "INFORMATION-TECHNOLOGY": 91
+        }
+      }
+    },
+    "hybrid_0_5": {
+      "top1": 0.6431,
+      "mean_rank": 1.4674,
+      "mrr": 0.8031,
+      "mean_margin": 0.1772,
+      "median_margin": 0.2458,
+      "per_family": {
+        "CONSULTANT": {
+          "n": 115,
+          "top1": 0.5565,
+          "mean_margin": -0.0074
+        },
+        "FINANCE": {
+          "n": 118,
+          "top1": 0.9661,
+          "mean_margin": 0.558
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "n": 120,
+          "top1": 0.4083,
+          "mean_margin": -0.0204
+        }
+      },
+      "confusion_matrix": {
+        "CONSULTANT": {
+          "CONSULTANT": 64,
+          "FINANCE": 34,
+          "INFORMATION-TECHNOLOGY": 17
+        },
+        "FINANCE": {
+          "CONSULTANT": 4,
+          "FINANCE": 114,
+          "INFORMATION-TECHNOLOGY": 0
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "CONSULTANT": 48,
+          "FINANCE": 23,
+          "INFORMATION-TECHNOLOGY": 49
+        }
+      }
+    },
+    "hybrid_0_75": {
+      "top1": 0.5609,
+      "mean_rank": 1.5836,
+      "mrr": 0.7564,
+      "mean_margin": 0.1189,
+      "median_margin": 0.2929,
+      "per_family": {
+        "CONSULTANT": {
+          "n": 115,
+          "top1": 0.4435,
+          "mean_margin": -0.048
+        },
+        "FINANCE": {
+          "n": 118,
+          "top1": 0.9915,
+          "mean_margin": 0.6641
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "n": 120,
+          "top1": 0.25,
+          "mean_margin": -0.2572
+        }
+      },
+      "confusion_matrix": {
+        "CONSULTANT": {
+          "CONSULTANT": 51,
+          "FINANCE": 51,
+          "INFORMATION-TECHNOLOGY": 13
+        },
+        "FINANCE": {
+          "CONSULTANT": 1,
+          "FINANCE": 117,
+          "INFORMATION-TECHNOLOGY": 0
+        },
+        "INFORMATION-TECHNOLOGY": {
+          "CONSULTANT": 52,
+          "FINANCE": 38,
+          "INFORMATION-TECHNOLOGY": 30
+        }
+      }
+    }
+  },
+  "best_arm": "hybrid_0_25"
+}

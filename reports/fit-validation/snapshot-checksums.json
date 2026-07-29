@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-29T14:12:20.674142-04:00",
+  "sources": {
+    "code_metrics": {
+      "path": "scripts/validation/.artifacts/metrics.scoped.json",
+      "sha256": "6423ede42a477e34a327404355f473a864f805d55aa32e2693f1a4eae1cb3778"
+    },
+    "human_metrics": {
+      "path": "scripts/validation/.artifacts/human54/metrics.json",
+      "sha256": "e619d7dab2e5a50b3aea00b461547e2d0d1e3e4ddb98c83393a4817521ad435a"
+    },
+    "human_manifest": {
+      "path": "scripts/validation/.artifacts/human54/manifest.json",
+      "sha256": "e91af37553aa099896c08b801e05b4998c0ab24d804880e07b568b8aa9b2cb7e"
+    }
+  },
+  "snapshots": {
+    "code_metrics": {
+      "path": "reports/fit-validation/code-validation-summary.json",
+      "sha256": "19a4b48d375e053bcef2fb42cbcfda67452916bfe90345adc95c4ece49ff9661"
+    },
+    "human_metrics": {
+      "path": "reports/fit-validation/human-validation-summary.json",
+      "sha256": "b08892198950413920637857f2a19e9764b25618cd082f76dec345885b69db9c"
+    },
+    "human_manifest": {
+      "path": "reports/fit-validation/human-validation-manifest.json",
+      "sha256": "3fd14108a79b98b32f5e7eec9ae3cf4645c9e44a31762dd7046af104ef59a4c7"
+    }
+  },
+  "note": "These committed summaries contain no resume or job-description text. Raw validation artifacts remain local and gitignored."
+}

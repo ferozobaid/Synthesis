@@ -17,13 +17,11 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-from family_map import map_title
 from llm_family_map import (
     DEFAULT_MODEL,
     append_jsonl,
@@ -49,7 +47,7 @@ MIN_DESCRIPTION_CHARS = 80
 RESUMES_OUT = ART / "resumes.scoped.jsonl"
 JDS_OUT = ART / "jds.scoped.jsonl"
 CACHE_OUT = ART / "posting_family_map.jsonl"
-REPORT_OUT = ART / "sampling_report.json"
+REPORT_OUT = ART / "sampling_report.scoped.json"
 
 SMOKE_RESUMES_OUT = ART / "resumes.smoke.jsonl"
 SMOKE_JDS_OUT = ART / "jds.smoke.jsonl"
@@ -131,7 +129,7 @@ def jd_artifact(row: dict[str, str], family: str, confidence: float, rationale: 
     }
 
 
-def iter_unique_postings(keyword_scoped_only: bool) -> Iterable[dict[str, str]]:
+def iter_unique_postings() -> Iterable[dict[str, str]]:
     require(POSTINGS_CSV)
     seen: set[tuple[str, str, str]] = set()
     with POSTINGS_CSV.open("r", encoding="utf-8-sig", newline="") as fh:
@@ -146,8 +144,6 @@ def iter_unique_postings(keyword_scoped_only: bool) -> Iterable[dict[str, str]]:
             if key in seen:
                 continue
             seen.add(key)
-            if keyword_scoped_only and map_title(title) not in SCOPED_FAMILIES:
-                continue
             yield {
                 "job_id": clean_cell(row.get("job_id", ""), max_chars=120),
                 "company_name": company,
@@ -176,6 +172,7 @@ def prepare_jds(args: argparse.Namespace, path: Path = JDS_OUT) -> dict[str, Any
     model = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     cache_path = Path(args.cache)
     cache = read_jsonl_cache(cache_path)
+    allow_llm_calls = bool(getattr(args, "allow_llm_calls", False))
 
     selected: dict[str, list[dict[str, Any]]] = {family: [] for family in SCOPED_FAMILIES}
     selected_keys: set[str] = set()
@@ -184,6 +181,7 @@ def prepare_jds(args: argparse.Namespace, path: Path = JDS_OUT) -> dict[str, Any
         "model": model,
         "target_per_family": args.jd_per_family,
         "min_confidence": args.min_confidence,
+        "llm_calls_allowed": allow_llm_calls,
         "cache_hits": 0,
         "api_calls": 0,
         "api_errors": 0,
@@ -209,30 +207,35 @@ def prepare_jds(args: argparse.Namespace, path: Path = JDS_OUT) -> dict[str, Any
         title = row["title"][:70].encode("ascii", errors="replace").decode("ascii")
         print(f"  selected {family}: {len(selected[family])}/{args.jd_per_family} - {title}")
 
-    if not api_key and not all(len(v) >= args.jd_per_family for v in selected.values()):
-        print("No OPENAI_API_KEY loaded; cached labels will be used if already available.")
+    cache_rows_seen = 0
+    for row in iter_unique_postings():
+        if done():
+            break
+        cache_rows_seen += 1
+        stats["candidate_rows_seen"] += 1
+        cached = usable_cached_label(cache.get(posting_cache_key(row)))
+        if not cached:
+            continue
+        stats["cache_hits"] += 1
+        family, confidence, rationale = cached
+        maybe_select(row, family, confidence, rationale)
+    stats["passes"].append({"name": "cached_llm_labels", "rows_seen": cache_rows_seen})
 
-    for pass_name, keyword_only in (("keyword_scoped_candidates", True), ("fallback_all_postings", False)):
-        pass_seen = 0
-        for row in iter_unique_postings(keyword_scoped_only=keyword_only):
-            if done():
+    if not done() and allow_llm_calls:
+        if not api_key:
+            raise SystemExit(
+                "Missing OPENAI_API_KEY. Cache-only preparation did not fill all "
+                "family quotas, and --allow-llm-calls was requested."
+            )
+
+        api_rows_seen = 0
+        for row in iter_unique_postings():
+            if done() or stats["api_calls"] >= args.max_llm_calls:
                 break
-            if keyword_only and map_title(row["title"]) in selected and len(selected[map_title(row["title"])]) >= args.jd_per_family:
-                continue
-
-            pass_seen += 1
+            api_rows_seen += 1
             stats["candidate_rows_seen"] += 1
             key = posting_cache_key(row)
-            cached = usable_cached_label(cache.get(key))
-            if cached:
-                stats["cache_hits"] += 1
-                family, confidence, rationale = cached
-                maybe_select(row, family, confidence, rationale)
-                continue
-
-            if stats["api_calls"] >= args.max_llm_calls:
-                break
-            if not api_key:
+            if key in cache:
                 continue
 
             try:
@@ -262,18 +265,33 @@ def prepare_jds(args: argparse.Namespace, path: Path = JDS_OUT) -> dict[str, Any
             if args.delay > 0:
                 time.sleep(args.delay)
 
-        stats["passes"].append({"name": pass_name, "rows_seen": pass_seen})
-        if done():
-            break
+        stats["passes"].append({"name": "uncached_llm_classification", "rows_seen": api_rows_seen})
 
-    missing = {f: args.jd_per_family - len(selected[f]) for f in SCOPED_FAMILIES if len(selected[f]) < args.jd_per_family}
+    missing = {
+        family: args.jd_per_family - len(selected[family])
+        for family in SCOPED_FAMILIES
+        if len(selected[family]) < args.jd_per_family
+    }
+    if missing:
+        source = (
+            f"the explicit LLM call limit of {args.max_llm_calls}"
+            if allow_llm_calls
+            else "the available cached LLM labels"
+        )
+        next_step = (
+            "Increase --max-llm-calls only after reviewing the expected API cost."
+            if allow_llm_calls
+            else "Re-run with --allow-llm-calls to classify uncached postings."
+        )
+        raise SystemExit(
+            f"Could not collect the requested JD counts from {source}: {missing}. "
+            f"{next_step}"
+        )
+
     rows = [row for family in SCOPED_FAMILIES for row in selected[family]]
     write_jsonl(path, rows)
     stats["selected"] = {family: len(selected[family]) for family in SCOPED_FAMILIES}
     stats["out"] = str(path.relative_to(REPO))
-    if missing:
-        stats["missing"] = missing
-        print(f"Warning: did not collect requested JD counts: {missing}")
     return stats
 
 
@@ -342,6 +360,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-llm-calls", type=int, default=1500, help="Safety cap for uncached OpenAI calls.")
     p.add_argument("--delay", type=float, default=0.0, help="Seconds to sleep between OpenAI calls.")
     p.add_argument("--cache", default=str(CACHE_OUT), help="JSONL cache for posting family labels.")
+    p.add_argument(
+        "--allow-llm-calls",
+        action="store_true",
+        help="Allow classification of uncached postings. Preparation is cache-only by default.",
+    )
     return p.parse_args()
 
 
@@ -358,8 +381,6 @@ def main() -> None:
     report = {"mode": "scoped-real-jd", "scoped_families": SCOPED_FAMILIES, "resumes": resumes, "jds": jds}
     REPORT_OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nWrote:\n  {RESUMES_OUT}\n  {JDS_OUT}\n  {REPORT_OUT}")
-    if "missing" in jds:
-        sys.exit(2)
 
 
 if __name__ == "__main__":

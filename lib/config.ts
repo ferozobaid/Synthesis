@@ -32,3 +32,10 @@ export function embeddingsEnabled(): boolean {
 export function embeddingsModel(): string {
   return process.env.EMBEDDINGS_MODEL || "Xenova/bge-small-en-v1.5";
 }
+
+export function embeddingsModelRevision(): string {
+  return (
+    process.env.EMBEDDINGS_MODEL_REVISION ||
+    "ea104dacec62c0de699686887e3f920caeb4f3e3"
+  );
+}

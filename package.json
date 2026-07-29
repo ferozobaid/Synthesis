@@ -16,9 +16,10 @@
     "validate:prep": "python scripts/validation/prepare_data.py",
     "validate:fit": "tsx scripts/validation/score_resumes.ts",
     "validate:report": "python scripts/validation/validate_matching.py",
+    "validate:pdf": "python reports/build_reports.py",
+    "validate:test": "python -m unittest discover -s scripts/validation -p \"test_*.py\"",
     "validate:smoke": "python scripts/validation/prepare_data.py --smoke && tsx scripts/validation/score_resumes.ts --smoke && python scripts/validation/validate_matching.py --smoke",
-    "validate:human": "tsx scripts/validation/human_validation.ts",
-    "validate:human:smoke": "tsx scripts/validation/human_validation.ts --smoke"
+    "validate:human54": "tsx scripts/validation/human_validation_54.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

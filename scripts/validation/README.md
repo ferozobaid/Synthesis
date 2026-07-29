@@ -1,106 +1,142 @@
-# scripts/validation/ - Scoped real-JD fit validation
+# Fit Analyzer Validation
 
-Validates the falsifiable claim that a resume scores highest against real
-posting-level JDs from its own family. The current study is intentionally scoped
-to the O*NET-aligned families:
+This directory contains the two active offline validation workflows for the
+Fit Analyzer:
+
+1. scoped occupational-family code validation;
+2. blinded 54-pair resume-to-JD validation.
+
+Both workflows use the production `parseResume()` and `parseJD()` parsers and
+the same structured and semantic scorers. They answer different questions and
+aggregate scores differently.
+
+## Scope
+
+The current studies use three O*NET-aligned source families:
 
 - `INFORMATION-TECHNOLOGY`
 - `FINANCE`
 - `CONSULTANT`
 
-The older synthetic `field_profiles.json` harness is no longer the main path.
-Validation inputs now flow through the same production parsers used by the app:
-`parseResume()` and `parseJD()`.
-
-## Pipeline
-
-| Step | File | In -> Out |
-|---|---|---|
-| 1. Prep | `prepare_data.py` | `Resume.csv` + `postings.csv` -> scoped resume/JD JSONL |
-| 2. Map | `llm_family_map.py` | posting -> 21 retained families + `UNMAPPED` cache |
-| 3. Score | `score_resumes.ts` | scoped JSONL -> structured / embedding / hybrid scores |
-| 4. Report | `validate_matching.py` | results -> metrics + figures |
-
-The LLM mapper remains 22-way (`21 families + UNMAPPED`) even though this study
-filters down to three families. This keeps the cache useful for a future mapper
-benchmark without making the current validation pay for every posting.
+Datasets and generated artifacts are offline-only. No file under this directory
+is imported by `/app` or `/lib`.
 
 ## Inputs
 
-Required local, gitignored files:
+Required local, gitignored datasets:
 
 ```text
 Datasets/archive/Resume/Resume.csv
 Datasets/archive-2/postings.csv
 ```
 
-`job_skills.csv` and `skills.csv` are not required for the scoped real-JD study
-because synthetic field profiles are no longer built.
+The LLM mapper in `llm_family_map.py` is the only posting-family classifier. It
+maps postings to the 21 retained resume families plus `UNMAPPED`; preparation
+then filters to the three study families.
 
-## Outputs
+## Code Validation
 
-Derived artifacts are written under `scripts/validation/.artifacts/`:
+Code validation asks whether a resume scores highest against real JDs from its
+own source family. It is a large-sample occupational-family proxy, not a direct
+test of whether one pair's product score is correct.
 
 ```text
-resumes.scoped.jsonl
-jds.scoped.jsonl
-posting_family_map.jsonl
-sampling_report.json
-results.scoped.jsonl
-jd_parse_diagnostics.scoped.json
-metrics.scoped.json
-accuracy_by_arm.scoped.png
-confusion_matrix.scoped.png
+prepare_data.py
+  -> resumes.scoped.jsonl + jds.scoped.jsonl + sampling_report.scoped.json
+score_resumes.ts
+  -> results.scoped.jsonl + validation_manifest.scoped.json
+validate_matching.py
+  -> metrics.scoped.json + figures
 ```
 
-These artifacts are gitignored.
-
-## Run
-
-Smoke test, no OpenAI calls:
-
-```bash
-npm run validate:smoke
-```
-
-Main scoped study:
+Run:
 
 ```bash
 npm run validate:prep
 npm run validate:fit
 npm run validate:report
+npm run validate:pdf
 ```
 
-`validate:prep` reads `OPENAI_API_KEY` from `.env.local`, classifies candidate
-postings into 22 labels, and stops after collecting 100 high-confidence real JDs
-for each scoped family. Cached labels are reused on later runs.
-
-Embeddings use local BGE-small through `@xenova/transformers` when
-`EMBEDDINGS_ENABLED=true`; otherwise the deterministic mock embedder is used and
-the embedding arm should not be interpreted as semantic.
-
-`validate:fit` parses every selected JD before scoring and, for the main scoped
-study, defaults to `--min-jd-requirements 3`. This drops postings that do not
-yield enough structured requirements for `scoreFit()`/semantic matching to be a
-meaningful test. Smoke mode defaults to `0` because its fixtures are tiny. The
-gate can be overridden, for example:
+`validate:prep` is cache-only by default. It reuses
+`.artifacts/posting_family_map.jsonl` and does not make unexpected API calls. If
+the cache cannot fill all quotas, explicitly opt in:
 
 ```bash
-npm run validate:fit -- --min-jd-requirements 0
+npm run validate:prep -- --allow-llm-calls
 ```
 
-## Metrics
+This optional step reads `OPENAI_API_KEY` from `.env.local` and remains subject
+to the configured call limit.
 
-Because the scoped validation has only three families, top-3 accuracy is not a
-headline metric. The report focuses on:
+### Code-validation scoring
 
-- top-1 accuracy
-- mean rank
-- MRR
-- correct-family margin
-- 3x3 confusion matrix
+For each resume:
 
-The same frozen split is used for all arms:
+1. score it against every retained JD;
+2. average raw structured scores by JD family;
+3. average raw semantic scores by JD family;
+4. independently min-max normalize the structured and semantic family-score
+   maps;
+5. blend those normalized maps using structured weights 0.25, 0.50, and 0.75.
+
+These arms are therefore **family-normalized proxy hybrids**. They are not the
+same aggregation as the production pair-level hybrid.
+
+The main scoped run always uses strict local BGE embeddings. It fails instead
+of falling back to mock vectors. `validation_manifest.scoped.json` records the
+backend, requested model revision, packaged-model file hashes, formulas, parser
+gate, sampling-report hash, input hashes, output hash, Git commit, worktree
+state, and hashes of the scoring implementation and dependency files.
+`validate_matching.py` refuses to publish scoped semantic metrics unless that
+manifest records `backend=bge`, `fallback_allowed=false`, a matching sampling
+report, unchanged implementation hashes, and a full unsampled run.
+
+The parser gate defaults to at least three extracted requirements per JD:
+
+```bash
+npm run validate:fit -- --min-jd-requirements 3
+```
+
+`--sample` and non-default parser-gate experiments are diagnostic runs. They
+write isolated artifacts such as
+`results.diagnostic-sample-10.jsonl` instead of overwriting
+`results.scoped.jsonl`, and `validate_matching.py` will not publish them:
+
+```bash
+npm run validate:fit -- --sample 10
+npm run validate:fit -- --min-jd-requirements 2
+```
+
+Primary code-validation metrics are top-1 accuracy, mean rank, MRR,
+correct-family margin, per-family accuracy, and a 3x3 confusion matrix. Top-3
+is not a useful headline metric for a three-family task.
+
+## 54-Pair Validation
+
+The pair-level workflow uses the same frozen scoped resume and JD artifacts,
+but evaluates 54 unique resume-JD pairs against blinded rubric labels.
+
+```bash
+npm run validate:human54 -- --prepare
+```
+
+Review only:
+
+```text
+scripts/validation/.artifacts/human54/reviewer.csv
+scripts/validation/.artifacts/human54/review_packet.md
+```
+
+Do not open `hidden_key.jsonl` until all labels have been completed. Apply and
+freeze the labels, then finalize:
+
+```bash
+npm run validate:human54 -- --apply-labels scripts/validation/.artifacts/human54/labels.json
+npm run validate:human54 -- --finalize
+```
+
+The five pair-level arms are:
 
 - `structured`
 - `embedding`
@@ -108,43 +144,65 @@ The same frozen split is used for all arms:
 - `hybrid_0_5`
 - `hybrid_0_75`
 
-The hybrid suffix is the structured-score weight.
+For each pair, hybrid arms directly blend the raw 0-100 structured and semantic
+scores. No min-max normalization, score transformation, or calibration is
+applied. This matches the production `scoreFitHybrid()` calculation.
 
-## Blinded human validation
+Sampling uses six pairs in every JD-family by LOW/MID/HIGH cell, with four
+same-source-family pairs and two cross-family stress pairs per cell. Each final
+resume and JD is unique. The bands are based on the mean within-family
+percentile across all five arms. Within each cell, pairs with greater arm
+disagreement are selected first. This design supports method comparison; it
+does not estimate natural production prevalence.
 
-Generate a 30-pair review sheet from the scoped artifacts (within the current
-24–36 pair target):
+The final outputs are:
 
-```bash
-npm run validate:human
+```text
+human54/comparison.csv
+human54/metrics.json
+human54/metrics.csv
+human54/manifest.json
+human54/audit.json
+human54/RESULTS.md
 ```
 
-For the local nine-pair pilot (no Kaggle files or API calls required):
+Threshold-based label metrics use a pre-specified three-level mapping at 45 and
+65 only as diagnostics. The mapping combines the product's 65-79 and 80+
+presentation bands as `STRONG`; it does not validate the 80 cut point
+separately. Rank correlation and pairwise ordering are the primary pair-level
+method-comparison evidence.
+
+## Smoke And Unit Tests
+
+The smoke workflow uses tiny local fixtures and an explicitly recorded
+deterministic mock embedding backend:
 
 ```bash
-npm run validate:human:smoke
+npm run validate:smoke
 ```
 
-Open `human_pair_review.<mode>.csv` in Excel and label every row `WEAK`,
-`MEDIUM`, or `STRONG` without opening the JSONL key. Use confidence 1 (low),
-2 (moderate), or 3 (high), and briefly record the strongest matching evidence
-and any critical must-have gaps. After saving the CSV, analyze agreement:
+It verifies workflow mechanics only and must not support a production-method
+claim.
 
-Use the full rubric and evidence rules in `HUMAN_VALIDATION_PROTOCOL.md`.
+Run the Python preparation and manifest tests with:
 
 ```bash
-npm run validate:human -- --analyze
-npm run validate:human:smoke -- --analyze
+npm run validate:test
 ```
 
-Generate and analyze the blinded keyword-vs-LLM mapper comparison similarly:
+Run the repository TypeScript tests and typecheck after validation changes:
 
 ```bash
-npm run validate:human -- --mapper
-npm run validate:human -- --mapper --analyze
+npm run typecheck
+npm test
 ```
 
-The mapper sample prioritizes rows where the two methods disagree. Treat the
-smoke files only as workflow verification; they are too small and synthetic to
-support a production-method decision. Generated review sheets, answer keys, and
-metrics are written under `scripts/validation/.artifacts/` and are gitignored.
+## Artifacts
+
+Generated material is written under `scripts/validation/.artifacts/` and is
+gitignored. Cleanup code must not automatically delete local datasets, labels,
+review packets, hidden keys, comparisons, metrics, manifests, or audit files.
+
+`npm run validate:pdf` also refreshes de-identified summary metrics, manifests,
+and checksums under `reports/fit-validation/`. Those committed summaries contain
+no resume or JD text.
