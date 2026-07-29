@@ -70,9 +70,13 @@ lib/          Live utilities: parsers, scoring, O*NET dictionary, embeddings,
               retrieval helpers, case FSM, shared types
 components/   Shared UI
 scripts/      Offline validation + O*NET taxonomy maintenance
-context/      Cases, behavioural bank, JD/resume samples, scoring criteria
+context/      Cases, behavioural bank, technical question banks, Vapi
+              assistant prompts, JD/resume samples, scoring criteria
 tests/        Vitest unit + integration tests
+types/        Ambient TypeScript declarations
+verify/       Manual real-mode smoke-test driver (not part of npm test)
 reports/      Generated deliverable reports
+docs/         Deployment and verification notes
 ```
 
 ---
@@ -89,6 +93,14 @@ reports/      Generated deliverable reports
 - Keep `scoreFit()` available as the structured baseline.
 - Use `scoreFitAnalyzer()` for the production Fit Analyzer path.
 - Run `npm run typecheck` and `npm test` after relevant code changes.
+
+---
+
+## Git Commit Attribution
+
+Do not add Co-authored-by, Generated-by, Assisted-by, or other AI-attribution
+trailers to Git commit messages. Commit authorship must reflect the human
+repository contributor responsible for the work.
 
 ---
 
