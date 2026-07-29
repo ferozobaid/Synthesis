@@ -263,71 +263,71 @@ Environment: Node v26.0.0, npm 11.12.1, macOS (Darwin arm64). Counts below are a
 
 ## Architecture
 
+### User Experience Flow
+
 ```mermaid
 flowchart TB
-    subgraph Client["Browser"]
-        UI["Next.js App Router UI\n/, /fit, /behavioural, /case, /dashboard, /onboard"]
-    end
+    Candidate["Candidate"]
+    Landing["Synthesis Application"]
+    Fit["Resume Fit Analyzer"]
+    Behavioural["Behavioural Interview Coach"]
+    Case["Strategy Case Simulator"]
+    Technical["Technical Interview Round"]
+    FitReport["Fit Report"]
+    SessionScore["Session Transcript & Score"]
+    Dashboard["Readiness Dashboard"]
 
-    subgraph Live["Live plane — app/, lib/"]
-        API["API routes\napp/api/fit, /behavioural, /case, /documents, /vapi"]
-        Claude["lib/claude.ts\nAnthropic Claude API"]
-        ONET["lib/onet.ts\nLocal O*NET dictionary\n(lib/data/onet-taxonomy.json)"]
-        Embed["lib/embeddings.ts\nLocal BGE-small\n(@xenova/transformers)"]
-        Match["lib/matching.ts /\nlib/matching-semantic.ts\nscoreFit() / scoreFitAnalyzer()"]
-        FSM["lib/fsm/\nCase interview state machine"]
-        RAG["lib/rag.ts\nBehavioural answer retrieval +\ncase-stage pre-fetch"]
-        Session["lib/voice/\nVoice session handling"]
-    end
+    Candidate --> Landing
+    Landing --> Fit
+    Landing --> Behavioural
+    Landing --> Case
+    Landing --> Technical
+    Fit --> FitReport
+    Behavioural --> SessionScore
+    Case --> SessionScore
+    Technical --> SessionScore
+    FitReport --> Dashboard
+    SessionScore --> Dashboard
+    Dashboard --> Candidate
+```
 
-    subgraph Context["context/ — content"]
-        Cases["cases/ — structured case JSON"]
-        Behav["behavioural/ — question + answer bank"]
-        Vapi["vapi/ — assistant prompt templates"]
+A candidate enters through the Synthesis application and chooses any combination of the four practice experiences. The Fit Analyzer produces a standalone report; the three interview experiences each produce a scored transcript. Every result feeds the Readiness Dashboard, which the candidate returns to between sessions to see what to practice next.
+
+### Technical Architecture
+
+```mermaid
+flowchart TB
+    Candidate["Browser / Candidate"]
+    App["Next.js Application"]
+    API["API Routes"]
+    Dashboard["Readiness Dashboard & Reports"]
+
+    subgraph Local["Local processing — bundled, no network calls"]
+        ONET["Local O*NET Dictionary"]
+        BGE["Local BGE Embeddings"]
+        Banks["Behavioural & Case Question Banks"]
     end
 
     subgraph External["External services"]
-        AnthropicAPI["Anthropic Claude API"]
-        VapiSvc["Vapi voice platform"]
-        Redis["Upstash Redis\n(voice session state)"]
+        Claude["Anthropic Claude API"]
+        Vapi["Vapi Voice Layer"]
+        Redis["Redis Session State"]
     end
 
-    subgraph Offline["Offline plane — scripts/ (never imported by app/lib)"]
-        Validation["scripts/validation/\nFit Analyzer validation harnesses"]
-        OnetMaint["scripts/onet/\nO*NET taxonomy maintenance"]
-    end
-
-    UI --> API
+    Candidate --> App
+    App --> API
+    API --> ONET
+    API --> BGE
+    API --> Banks
     API --> Claude
-    API --> Match
-    API --> FSM
-    API --> RAG
-    API --> Session
-    Match --> ONET
-    Match --> Embed
-    FSM --> Cases
-    RAG --> Behav
-    Claude --> AnthropicAPI
-    Session --> VapiSvc
-    Session --> Redis
     API --> Vapi
-    Validation -.reads via @/lib.-> Match
-    Validation -.reads via @/lib.-> Embed
+    Vapi --> Redis
+    API --> Redis
+    API --> Dashboard
+    Dashboard --> Candidate
 ```
 
-- **Two planes:** the live plane (`/app`, `/lib`) serves the running product;
-  the offline plane (`/scripts`) holds validation harnesses and O\*NET
-  maintenance tooling. Offline scripts are never imported by the live plane —
-  enforced by a dedicated guard test (`tests/two-plane.test.ts`).
-- **No O\*NET RAG:** O\*NET grounding is a committed local JSON dictionary
-  (`lib/data/onet-taxonomy.json`) loaded through `lib/onet.ts` — no vector
-  database, no `onet_chunks` table, no remote retrieval service.
-- **Local embeddings only:** semantic Fit Analyzer scoring runs on a local
-  BGE-small model via `@xenova/transformers`, packaged at build time. Never a
-  paid embeddings API.
-- **No centralized database yet:** authentication and persistence are
-  explicitly outside the current MVP. The future database provider is
-  undecided, so there is no provider-specific client, schema, or migrations.
+The Next.js application serves both the UI and its API routes. Fit scoring, O\*NET grounding, and embeddings are entirely local — no network call leaves the process for the Fit Analyzer. Claude, Vapi, and Redis are the only external dependencies, used respectively for evaluation, live voice, and voice-session persistence (Vercel functions are ephemeral, so session state can't live in memory). Exact file paths for every box above are in [Repository Structure](#repository-structure), not in the diagram, to keep it readable.
 
 ---
 
