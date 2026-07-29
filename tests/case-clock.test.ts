@@ -13,37 +13,38 @@ const START = "2026-07-17T12:00:00.000Z";
 const startMs = Date.parse(START);
 
 function session(patch: Partial<CaseClockSession> = {}): CaseClockSession {
-  return { maxDurationSeconds: 600, ...patch };
+  return { maxDurationSeconds: 900, ...patch };
 }
 
 describe("case clock", () => {
   describe("deadline derivation", () => {
     it("adds the duration to the start instant", () => {
-      expect(caseClockDeadline(START, 600)).toBe("2026-07-17T12:10:00.000Z");
+      expect(caseClockDeadline(START, 900)).toBe("2026-07-17T12:15:00.000Z");
       expect(caseClockDeadline(START, 1200)).toBe("2026-07-17T12:20:00.000Z");
     });
 
     it("has no deadline without both a start and a positive duration", () => {
-      expect(caseClockDeadline(null, 600)).toBeNull();
+      expect(caseClockDeadline(null, 900)).toBeNull();
       expect(caseClockDeadline(START, undefined)).toBeNull();
       expect(caseClockDeadline(START, 0)).toBeNull();
-      expect(caseClockDeadline("not-a-date", 600)).toBeNull();
+      expect(caseClockDeadline("not-a-date", 900)).toBeNull();
     });
   });
 
   describe("expiry is derived, never assumed", () => {
-    const started = session({ caseStartedAt: START, caseExpiresAt: caseClockDeadline(START, 600) });
+    const started = session({ caseStartedAt: START, caseExpiresAt: caseClockDeadline(START, 900) });
 
-    it("is false before the deadline and true at or beyond it", () => {
-      expect(isCaseExpired(started, startMs + 599_000)).toBe(false);
+    it("stays live at 10 minutes and expires at the 15-minute deadline", () => {
+      expect(isCaseExpired(started, startMs + 600_000)).toBe(false);
+      expect(isCaseExpired(started, startMs + 899_000)).toBe(false);
       // Exactly at the deadline counts as expired.
-      expect(isCaseExpired(started, startMs + 600_000)).toBe(true);
+      expect(isCaseExpired(started, startMs + 900_000)).toBe(true);
       expect(isCaseExpired(started, startMs + 10_000_000)).toBe(true);
     });
 
     it("holds regardless of the persisted caseTimedOut flag", () => {
       // A stale/lost observation must not make an expired case look live...
-      expect(isCaseExpired({ ...started, caseTimedOut: false }, startMs + 700_000)).toBe(true);
+      expect(isCaseExpired({ ...started, caseTimedOut: false }, startMs + 1_000_000)).toBe(true);
       // ...nor a live case look expired.
       expect(isCaseExpired({ ...started, caseTimedOut: true }, startMs + 1_000)).toBe(false);
     });
@@ -55,9 +56,9 @@ describe("case clock", () => {
     });
 
     it("reports remaining time, floored at zero", () => {
-      expect(caseRemainingMilliseconds(started, startMs)).toBe(600_000);
-      expect(caseRemainingMilliseconds(started, startMs + 599_000)).toBe(1_000);
-      expect(caseRemainingMilliseconds(started, startMs + 900_000)).toBe(0);
+      expect(caseRemainingMilliseconds(started, startMs)).toBe(900_000);
+      expect(caseRemainingMilliseconds(started, startMs + 899_000)).toBe(1_000);
+      expect(caseRemainingMilliseconds(started, startMs + 1_200_000)).toBe(0);
       expect(caseRemainingMilliseconds(session(), startMs)).toBeNull();
     });
   });
@@ -66,19 +67,19 @@ describe("case clock", () => {
     it("starts an unstarted case and derives its deadline", () => {
       const next = startedCaseClock(session(), START);
       expect(next.caseStartedAt).toBe(START);
-      expect(next.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
+      expect(next.caseExpiresAt).toBe("2026-07-17T12:15:00.000Z");
     });
 
     it("never restarts or extends an already-started case", () => {
       const started = session({
         caseStartedAt: START,
-        caseExpiresAt: "2026-07-17T12:10:00.000Z",
+        caseExpiresAt: "2026-07-17T12:15:00.000Z",
       });
       // Repeated readiness messages, duplicate anchors, retries, second tabs.
       for (const later of ["2026-07-17T12:05:00.000Z", "2026-07-17T12:09:59.000Z"]) {
         const next = startedCaseClock(started, later);
         expect(next.caseStartedAt).toBe(START);
-        expect(next.caseExpiresAt).toBe("2026-07-17T12:10:00.000Z");
+        expect(next.caseExpiresAt).toBe("2026-07-17T12:15:00.000Z");
       }
     });
 
@@ -92,7 +93,7 @@ describe("case clock", () => {
       expect(hasCaseClockStarted(session())).toBe(false);
       expect(hasCaseClockStarted(session({ caseStartedAt: START }))).toBe(false);
       expect(
-        hasCaseClockStarted(session({ caseStartedAt: START, caseExpiresAt: "2026-07-17T12:10:00.000Z" })),
+        hasCaseClockStarted(session({ caseStartedAt: START, caseExpiresAt: "2026-07-17T12:15:00.000Z" })),
       ).toBe(true);
     });
   });
@@ -101,16 +102,16 @@ describe("case clock", () => {
     it("returns the clock plus server time and derived expiry", () => {
       const started = session({
         caseStartedAt: START,
-        caseExpiresAt: "2026-07-17T12:10:00.000Z",
+        caseExpiresAt: "2026-07-17T12:15:00.000Z",
       });
       expect(caseClockProjection(started, startMs + 60_000)).toEqual({
-        maxDurationSeconds: 600,
+        maxDurationSeconds: 900,
         caseStartedAt: START,
-        caseExpiresAt: "2026-07-17T12:10:00.000Z",
+        caseExpiresAt: "2026-07-17T12:15:00.000Z",
         serverNow: "2026-07-17T12:01:00.000Z",
         timedOut: false,
       });
-      expect(caseClockProjection(started, startMs + 700_000).timedOut).toBe(true);
+      expect(caseClockProjection(started, startMs + 1_000_000).timedOut).toBe(true);
     });
 
     it("is safe for a legacy session with no timing fields", () => {

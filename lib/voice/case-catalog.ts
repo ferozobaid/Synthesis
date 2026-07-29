@@ -25,7 +25,7 @@ export type CaseDifficultyStars = 3 | 4 | 5;
  * difficulty and a duration that disagree.
  */
 export const DIFFICULTY_DURATION_SECONDS: Readonly<Record<CaseDifficultyStars, number>> = {
-  3: 600,
+  3: 900,
   4: 900,
   5: 1200,
 } as const;

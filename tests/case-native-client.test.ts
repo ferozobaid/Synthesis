@@ -38,6 +38,7 @@ const nativeBootstrap: NativeCaseBootstrap = {
   reportStatus: "pending",
   caseId: "airport_profitability",
   caseTitle: "Airport Profitability",
+  maxDurationSeconds: 900,
 };
 
 const pending: PendingNativeCaseReport = {
@@ -87,6 +88,7 @@ describe("native Case Voice client start contract", () => {
     expect(contract).toEqual({
       assistantId: "server-owned-airport-assistant",
       overrides: {
+        maxDurationSeconds: 900,
         variableValues: {
           sessionId: "native-session-1",
           caseId: "airport_profitability",
@@ -140,7 +142,7 @@ describe("native Case Voice client start contract", () => {
     expect(JSON.stringify(start.mock.calls)).not.toContain(nativeBootstrap.reportToken);
   });
 
-  it("keeps the custom-LLM Vapi contract isolated and unchanged", () => {
+  it("keeps the custom-LLM Vapi contract isolated and applies the server duration", () => {
     const custom: CaseBootstrap = {
       architecture: "custom_llm",
       sessionId: "custom-session-1",
@@ -148,11 +150,13 @@ describe("native Case Voice client start contract", () => {
       openingPrompt: "Authored opening",
       caseId: "airport_profitability",
       caseTitle: "Airport Profitability",
+      maxDurationSeconds: 900,
     };
 
     expect(caseVoiceCallStartContract(custom, "custom-assistant")).toEqual({
       assistantId: "custom-assistant",
       overrides: {
+        maxDurationSeconds: 900,
         variableValues: {
           sessionId: "custom-session-1",
           openingPrompt: "Authored opening",

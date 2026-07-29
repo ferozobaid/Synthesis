@@ -174,6 +174,7 @@ export interface CaseBootstrap {
   caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
   caseDescription?: string | null;
+  maxDurationSeconds: number;
 }
 
 export interface NativeCaseBootstrap {
@@ -186,6 +187,7 @@ export interface NativeCaseBootstrap {
   caseTrack?: PreviewCaseTrack;
   caseRole?: PreviewCaseTechnicalRole | null;
   caseTitle: string;
+  maxDurationSeconds: number;
 }
 
 export interface NativeCaseVoiceTranscriptLine {
@@ -216,7 +218,7 @@ export function caseDifficultyLabel(stars: number | undefined): string {
   return "★".repeat(filled) + "☆".repeat(5 - filled);
 }
 
-/** "10 min" for a duration in seconds; empty when the catalog omitted one. */
+/** "15 min" for a duration in seconds; empty when the catalog omitted one. */
 export function caseDurationLabel(seconds: number | undefined): string {
   if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return "";
   return `${Math.round(seconds / 60)} min`;
@@ -341,6 +343,7 @@ export function readCaseVoicePending(
 
 export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
   return {
+    maxDurationSeconds: bootstrap.maxDurationSeconds,
     variableValues: {
       sessionId: bootstrap.sessionId,
       openingPrompt: bootstrap.openingPrompt,
@@ -351,9 +354,10 @@ export function caseVoiceStartOverrides(bootstrap: CaseBootstrap) {
 }
 
 export function nativeCaseVoiceStartOverrides(
-  bootstrap: Pick<NativeCaseBootstrap, "sessionId" | "caseId">,
+  bootstrap: Pick<NativeCaseBootstrap, "sessionId" | "caseId" | "maxDurationSeconds">,
 ) {
   return {
+    maxDurationSeconds: bootstrap.maxDurationSeconds,
     variableValues: {
       sessionId: bootstrap.sessionId,
       caseId: bootstrap.caseId,
@@ -1153,7 +1157,8 @@ export default function CaseVoiceInterview({
           typeof bootstrap.assistantId !== "string" ||
           typeof bootstrap.reportToken !== "string" ||
           typeof bootstrap.caseId !== "string" ||
-          typeof bootstrap.caseTitle !== "string"
+          typeof bootstrap.caseTitle !== "string" ||
+          typeof bootstrap.maxDurationSeconds !== "number"
         ) {
           throw new Error("The native Case session did not initialise.");
         }
@@ -1178,7 +1183,8 @@ export default function CaseVoiceInterview({
           typeof customBootstrap.projectionToken !== "string" ||
           typeof customBootstrap.openingPrompt !== "string" ||
           typeof customBootstrap.caseId !== "string" ||
-          typeof customBootstrap.caseTitle !== "string"
+          typeof customBootstrap.caseTitle !== "string" ||
+          typeof customBootstrap.maxDurationSeconds !== "number"
         ) {
           throw new Error("The voice case session did not initialise.");
         }
