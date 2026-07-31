@@ -247,6 +247,16 @@ In short: the structural verification commands (`typecheck`, `test`, `build`) ar
 - **Question banks and case content:** committed JSON under `context/behavioural/`, `context/cases/`, and `context/technical/` (see [Repository Structure](#repository-structure) for what each contains). Vapi assistant system prompts live in `context/vapi/*.md` — referenced here by location only; their content is not reproduced in this README.
 - **Existing checksum/manifest evidence:** `reports/fit-validation/` contains de-identified validation manifests (`code-validation-summary.json`, `human-validation-manifest.json`, `snapshot-checksums.json`) with SHA-256 hashes for the validation implementation, packaged model files, and input/output artifacts. These manifests contain no raw resume or job-description text and no scoring rubric content — they exist to let a reviewer confirm what code and data produced a given metric, without exposing the underlying material.
 
+#### Development and Validation Datasets
+
+These source datasets are held locally for offline development and validation only. The raw datasets are not committed to this repository and are never imported by live-plane code under `app/` or `lib/`. The committed O\*NET taxonomy is the generated subset described above, not a redistribution of the raw O\*NET database.
+
+| Source | Type / Format | Access & Availability | Notes |
+|---|---|---|---|
+| [Resume Dataset (Kaggle, snehaanbhawal)](https://www.kaggle.com/datasets/snehaanbhawal/resume-dataset) | CSV containing text, HTML, and PDF-derived content | Public — held locally; raw data not committed | 2,484 resumes, four columns, and no missing values. Key fields are `Resume_str`, `Resume_html`, and `Category`, covering 24 job families. Three rows are flagged for removal. Measured leakage traps include `Company Name` in 100% of records and an ALL-CAPS title in 99.5%; both are stripped during preparation. |
+| [LinkedIn Job Postings 2023–24 (Kaggle, arshkon)](https://www.kaggle.com/datasets/arshkon/linkedin-job-postings) | CSV with linked tables | Public — held locally; cite, do not redistribute | 123,849 postings across 11 linked files. Key fields include `title`, `description`, `location` (near-complete), and skill tags (98.6% coverage). Approximately 71% of postings lack salary data. The dataset is a cross-sectional, four-week scrape, and 15.3% of records are reposts to be removed. |
+| [O\*NET Database (U.S. Department of Labor)](https://www.onetcenter.org/database.html) | Database / CSV | Public — held locally; raw database not committed | Release 30.3 contains 1,016 occupations across 45 files, including 894 occupations with Essential Skills. Key fields include Essential Skills (`IM`/`LV` scales), Tasks, and Software Skills. Suppressed or not-relevant rows are removed during preparation (8.3% for Knowledge; less than 2% for other domains). O\*NET is cleanly licensed for this use. |
+
 ### Validation Commands
 
 ```bash
