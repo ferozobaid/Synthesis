@@ -465,7 +465,7 @@ Built by the Synthesis capstone team:
 
 - Feroz Obaid Khan
 - Rui Zhao
-- Ebiokerein
+- Emmanuel 
 - Ibukun
 
 ## License / IP Notice
@@ -473,5 +473,3 @@ Built by the Synthesis capstone team:
 © 2026 Synthesis contributors. All rights reserved. No open-source license has been applied to this repository at this time.
 
 ---
-
-Before submitting or sharing this repository, test both the repository link and the live demo link while **signed out of GitHub or in an incognito/private browser window** — this is the only reliable way to confirm a grader, judge, or employer with no prior access will actually be able to reach both.
